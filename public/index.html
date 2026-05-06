@@ -1,0 +1,4073 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>Opinion Market</title>
+    <script src="/usernode-bridge.js"></script>
+    <script src="/usernode-usernames.js"></script>
+    <script src="/usernode-loading.js"></script>
+    <script>UsernodeLoading.init({ appName: "Opinion Market", streamKey: "om" });</script>
+    <script src="/opinion-market/opinion-market-core.js"></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0b0f16;
+        --fg: #e7edf7;
+        --muted: #a8b3c7;
+        --card: #141b26;
+        --border: rgba(255, 255, 255, 0.12);
+        --accent: #6ea8fe;
+        --danger: #ff6b6b;
+        --ok: #5dd39e;
+        --warn: #e6a817;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f7f8fb;
+          --fg: #0b1220;
+          --muted: #4b5568;
+          --card: #ffffff;
+          --border: rgba(15, 23, 42, 0.12);
+          --accent: #2563eb;
+          --danger: #c81e1e;
+          --ok: #0f766e;
+          --warn: #b45309;
+        }
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: var(--bg);
+        color: var(--fg);
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+      }
+
+      .topBar {
+        flex: 0 0 auto;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--card);
+        z-index: 2;
+      }
+      .topBar-inner {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+
+      .scrollArea {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        touch-action: pan-y;
+        will-change: transform;
+        position: relative;
+        z-index: 1;
+      }
+      .scrollArea-inner {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: 14px;
+      }
+      .archivedDock {
+        margin-top: auto;
+      }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 16px;
+      }
+
+      h1 { font-size: 18px; margin: 0 0 4px; letter-spacing: 0.2px; }
+      h2 { font-size: 15px; margin: 0; }
+      h3 { font-size: 14px; margin: 0 0 8px; }
+      p { margin: 8px 0; color: var(--muted); line-height: 1.45; }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 0.95em;
+      }
+      hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .pillButton { background: transparent; cursor: pointer; }
+      .pillButton:hover { border-color: var(--accent); }
+      .pillButton[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+      .btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: transparent;
+        color: var(--fg);
+        cursor: pointer;
+        text-align: left;
+      }
+      .btn:hover { border-color: var(--accent); }
+      .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+      .btn.primary {
+        background: color-mix(in oklab, var(--accent) 18%, transparent);
+        border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
+      }
+      .btn.selected {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+        background: color-mix(in oklab, var(--accent) 10%, transparent);
+      }
+      .btn.small { padding: 6px 10px; font-size: 13px; }
+
+      .input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--fg);
+        font-size: 16px;
+        outline: none;
+      }
+      .input:focus { border-color: var(--accent); }
+      select.input { appearance: auto; }
+      .inputAffix {
+        display: flex;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: transparent;
+      }
+      .inputAffix:focus-within { border-color: var(--accent); }
+      .inputAffixField {
+        flex: 1 1 auto;
+        min-width: 0;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--fg);
+        font-size: 16px;
+      }
+      .inputAffixSuffix {
+        padding: 0 12px 0 0;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        white-space: nowrap;
+      }
+      .inputInline {
+        width: 80px;
+        padding: 6px 8px;
+        font-size: 14px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--fg);
+        outline: none;
+        text-align: right;
+      }
+      .inputInline:focus { border-color: var(--accent); }
+
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      @media (min-width: 820px) {
+        .grid2 { grid-template-columns: 1fr 1fr; align-items: start; }
+      }
+
+      .bar {
+        height: 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        overflow: hidden;
+        background: transparent;
+      }
+      .bar > div {
+        height: 100%;
+        background: var(--accent);
+        width: 0%;
+      }
+
+      .probBar {
+        height: 6px;
+        border-radius: 3px;
+        background: var(--border);
+        overflow: hidden;
+        margin: 4px 0;
+      }
+      .probBar > div {
+        height: 100%;
+        border-radius: 3px;
+        background: var(--accent);
+        transition: width 0.3s ease;
+      }
+
+      .tx-progress { width: 100%; margin: 10px 0 4px; }
+      .tx-progress .tx-progress-track {
+        width: 100%; height: 6px; border-radius: 3px;
+        background: var(--border); overflow: hidden;
+      }
+      .tx-progress .tx-progress-fill {
+        height: 100%; width: 0%; border-radius: 3px;
+        background: var(--accent);
+        transition: width 0.4s ease-out, background-color 0.4s ease;
+      }
+      .tx-progress .tx-progress-fill.ok   { background: #6ef0a8; }
+      .tx-progress .tx-progress-fill.warn { background: var(--warn); }
+      .tx-progress .tx-progress-fill.err  { background: var(--danger); }
+      .tx-progress .tx-progress-label {
+        font-size: 12px; color: var(--muted); margin-top: 4px; min-height: 16px;
+      }
+      .tx-progress .tx-progress-label.warn { color: var(--warn); }
+      .tx-progress .tx-progress-label.err  { color: var(--danger); }
+
+      .muted { color: var(--muted); }
+      .danger { color: var(--danger); }
+      .ok { color: var(--ok); }
+      .err { color: var(--danger); }
+      .warn { color: var(--warn); }
+      .hide { display: none !important; }
+
+      .badge {
+        display: inline-block;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        white-space: nowrap;
+      }
+      .badge.accent {
+        border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+        color: var(--accent);
+      }
+
+      .sectionDivider {
+        border: 0;
+        border-top: 1px solid var(--border);
+        margin: 12px 0;
+      }
+
+      .marketRow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border);
+        flex-wrap: wrap;
+      }
+      .marketRow:last-child { border-bottom: none; }
+      .marketLabel { flex: 1 1 120px; min-width: 0; font-weight: 600; }
+      .marketProb { flex: 0 0 50px; text-align: right; font-variant-numeric: tabular-nums; }
+      .marketPool { flex: 0 0 70px; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .marketActions { flex: 1 0 100%; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+      .feeHint { font-size: 11px; color: var(--muted); white-space: nowrap; }
+      .betPreview { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+      .betPreview .ok { color: var(--ok); }
+
+      .positionRow {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 4px 8px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        background: color-mix(in oklab, var(--accent) 5%, transparent);
+        border-radius: 8px;
+        margin: 2px 0 4px;
+      }
+      .maxBtn {
+        appearance: none;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 2px 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .maxBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+      .settledWinner {
+        border-left: 3px solid var(--ok);
+        padding-left: 10px;
+        margin: 4px 0;
+      }
+      .surpriseTag {
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: color-mix(in oklab, var(--accent) 12%, transparent);
+        color: var(--accent);
+      }
+
+      .leaderRow {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border);
+        font-variant-numeric: tabular-nums;
+      }
+      .leaderRow:last-child { border-bottom: none; }
+      .leaderRank { flex: 0 0 30px; font-weight: 700; text-align: center; }
+      .leaderName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .leaderStat { flex: 0 0 auto; text-align: right; font-size: 13px; color: var(--muted); }
+
+      .onboarding { text-align: center; padding: 32px 16px; }
+      .onboarding h2 { font-size: 20px; margin-bottom: 12px; }
+      .onboarding p { max-width: 400px; margin: 8px auto; }
+
+      .revealNotice {
+        font-size: 12px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: color-mix(in oklab, var(--accent) 8%, transparent);
+        border: 1px solid color-mix(in oklab, var(--accent) 20%, var(--border));
+        color: var(--muted);
+      }
+
+      .toggleRow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .toggle {
+        position: relative;
+        width: 40px;
+        height: 22px;
+        flex: 0 0 40px;
+      }
+      .toggle input { opacity: 0; width: 0; height: 0; }
+      .toggle .slider {
+        position: absolute;
+        inset: 0;
+        background: var(--border);
+        border-radius: 22px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .toggle .slider::before {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 3px;
+        bottom: 3px;
+        background: var(--fg);
+        border-radius: 50%;
+        transition: transform 0.2s;
+      }
+      .toggle input:checked + .slider { background: var(--accent); }
+      .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+      .inline-toast {
+        position: fixed; left: 50%; transform: translateX(-50%);
+        top: 60px; z-index: 9999; max-width: 90vw; width: max-content;
+        padding: 10px 18px; border-radius: 8px;
+        background: var(--danger, #ff6b6b); color: #fff;
+        font-size: 13px; font-weight: 500; line-height: 1.4;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        pointer-events: none; opacity: 1;
+        transition: opacity 0.3s ease;
+      }
+      .inline-toast.hide { display: none; opacity: 0; }
+
+      .optDot {
+        display: inline-block;
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .oddsSummary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 16px;
+        align-items: center;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+        padding: 8px 0;
+      }
+      .oddsSummary-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .oddsChart {
+        width: 100%;
+        aspect-ratio: 3 / 1;
+        min-height: 80px;
+        max-height: 200px;
+      }
+      .oddsChart svg { width: 100%; height: 100%; }
+      .chartTimeControls {
+        display: flex; gap: 4px; justify-content: flex-end; margin-bottom: 4px;
+      }
+      .chartTimeControls button {
+        font-size: 11px; padding: 2px 8px; border-radius: 6px;
+        border: 1px solid var(--border); background: transparent;
+        color: var(--muted); cursor: pointer; font-family: inherit;
+      }
+      .chartTimeControls button.active {
+        background: var(--accent); color: #fff; border-color: var(--accent);
+      }
+      .voteStatus {
+        font-size: 13px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: color-mix(in oklab, var(--accent) 8%, transparent);
+        border: 1px solid color-mix(in oklab, var(--accent) 20%, var(--border));
+      }
+      .voteStatus .optDot { vertical-align: -1px; }
+      .optionCard {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .optionCard:last-child { border-bottom: none; }
+      .optionCard-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .optionCard-name {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .optionCard-addedBy {
+        font-size: 11px;
+        color: var(--muted);
+        margin-left: auto;
+        flex-shrink: 0;
+      }
+      .optionCard-radio {
+        appearance: none;
+        width: 20px; height: 20px;
+        border: 2px solid var(--border);
+        border-radius: 50%;
+        cursor: pointer;
+        flex-shrink: 0;
+        position: relative;
+        background: transparent;
+        transition: border-color 0.15s;
+      }
+      .optionCard-radio:hover { border-color: var(--accent); }
+      .optionCard-radio:checked {
+        border-color: var(--accent);
+      }
+      .optionCard-radio:checked::after {
+        content: "";
+        position: absolute;
+        top: 3px; left: 3px;
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      .optionCard-radio:disabled { opacity: 0.4; cursor: not-allowed; }
+      .optionCard-odds {
+        font-weight: 600;
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+        margin-left: auto;
+        white-space: nowrap;
+      }
+      .optionCard-meta {
+        display: flex;
+        gap: 12px;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 4px 0 4px 18px;
+        font-variant-numeric: tabular-nums;
+      }
+      .optionCard-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0 0 18px;
+      }
+      .optionCard-betRow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 0 18px;
+        padding-top: 6px;
+        border-top: 1px solid var(--border);
+      }
+      .optionCard-voteLabel {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .optionCard-voteLabel:has(input:checked) {
+        color: var(--fg);
+      }
+      .optionCard-buyBtn {
+        appearance: none;
+        border: 1px solid color-mix(in oklab, var(--accent) 50%, var(--border));
+        border-radius: 8px;
+        padding: 7px 18px;
+        background: color-mix(in oklab, var(--accent) 10%, transparent);
+        color: var(--accent);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .optionCard-buyBtn:hover {
+        background: color-mix(in oklab, var(--accent) 18%, transparent);
+        border-color: var(--accent);
+      }
+      .optionCard-buyBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+      .optionCard-buyNoBtn {
+        border-color: color-mix(in oklab, var(--danger) 50%, var(--border));
+        color: var(--danger);
+        background: color-mix(in oklab, var(--danger) 6%, transparent);
+      }
+      .optionCard-buyNoBtn:hover {
+        background: color-mix(in oklab, var(--danger) 18%, transparent);
+        border-color: var(--danger);
+      }
+
+      .bottomSheet-backdrop {
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.45);
+        z-index: 100;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+        pointer-events: none;
+      }
+      .bottomSheet-backdrop.open { opacity: 1; pointer-events: auto; }
+      .bottomSheet {
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        background: var(--card);
+        border-top: 1px solid var(--border);
+        border-radius: 16px 16px 0 0;
+        padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+        z-index: 101;
+        transform: translateY(100%);
+        transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+        max-width: 500px;
+        margin: 0 auto;
+        box-shadow: 0 -4px 24px rgba(0,0,0,0.15);
+      }
+      .bottomSheet.open { transform: translateY(0); }
+      .bottomSheet-handle {
+        width: 36px; height: 4px;
+        border-radius: 2px;
+        background: var(--border);
+        margin: 0 auto 16px;
+      }
+      .bottomSheet-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+      .bottomSheet-optName { font-weight: 600; font-size: 16px; }
+      .bottomSheet-odds { color: var(--muted); font-size: 14px; margin-left: auto; font-variant-numeric: tabular-nums; }
+      .bottomSheet-tabs {
+        display: flex;
+        gap: 0;
+        margin: 12px 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .bottomSheet-tab {
+        flex: 1;
+        appearance: none;
+        border: none;
+        padding: 8px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+      }
+      .bottomSheet-tab.active {
+        background: color-mix(in oklab, var(--accent) 15%, transparent);
+        color: var(--accent);
+      }
+      .bottomSheet-tab:disabled { opacity: 0.4; cursor: not-allowed; }
+      .bottomSheet-sideToggle {
+        display: flex;
+        gap: 6px;
+        margin: 0 0 8px;
+      }
+      .sideToggle-btn {
+        flex: 1;
+        appearance: none;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+      }
+      .sideToggle-btn.active[data-side="yes"] {
+        background: color-mix(in oklab, var(--ok) 15%, transparent);
+        color: var(--ok);
+        border-color: var(--ok);
+      }
+      .sideToggle-btn.active[data-side="no"] {
+        background: color-mix(in oklab, var(--danger) 15%, transparent);
+        color: var(--danger);
+        border-color: var(--danger);
+      }
+      .bottomSheet-inputRow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 12px 0;
+      }
+      .bottomSheet-inputRow input {
+        flex: 1;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--fg);
+        font-size: 16px;
+        outline: none;
+      }
+      .bottomSheet-inputRow input:focus { border-color: var(--accent); }
+      .bottomSheet-preview {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 4px 0 12px;
+        min-height: 18px;
+        font-variant-numeric: tabular-nums;
+      }
+      .bottomSheet-preview .ok { color: var(--ok); }
+      .bottomSheet-action {
+        width: 100%;
+        padding: 14px;
+        border-radius: 12px;
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .bottomSheet-action:hover { opacity: 0.9; }
+      .bottomSheet-action:disabled { opacity: 0.4; cursor: not-allowed; }
+      .bottomSheet-error {
+        font-size: 12px;
+        color: var(--danger);
+        margin-top: 8px;
+        min-height: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topBar">
+      <div class="topBar-inner row" style="justify-content: space-between; align-items: flex-start;">
+        <h1 style="margin: 0;">Opinion Market</h1>
+        <div class="row">
+          <span class="pill hide" id="creditsDisplay" title="Your credits">
+            &#x1FA99; <code id="creditsAmount">0</code>
+          </span>
+          <button class="pill pillButton" id="headerUsernameBtn" type="button">
+            User: <code id="headerUsername">(loading...)</code>
+          </button>
+          <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
+          <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
+          <button class="btn" id="backBtn" style="display: none;">Back</button>
+        </div>
+      </div>
+    </header>
+
+    <div id="inlineToast" class="inline-toast hide"></div>
+
+    <!-- Bottom sheet buy/sell modal -->
+    <div class="bottomSheet-backdrop" id="bsBackdrop"></div>
+    <div class="bottomSheet" id="bsModal">
+      <div class="bottomSheet-handle"></div>
+      <div class="bottomSheet-header">
+        <span class="optDot" id="bsOptDot"></span>
+        <span class="bottomSheet-optName" id="bsOptName"></span>
+        <span class="bottomSheet-odds" id="bsOptOdds"></span>
+      </div>
+      <div class="bottomSheet-tabs" id="bsTabs">
+        <button class="bottomSheet-tab active" id="bsTabBuy" type="button">Buy</button>
+        <button class="bottomSheet-tab" id="bsTabSell" type="button">Sell</button>
+      </div>
+      <div class="bottomSheet-sideToggle" id="bsSideToggle">
+        <button class="sideToggle-btn active" id="bsSideYes" type="button" data-side="yes">Yes</button>
+        <button class="sideToggle-btn" id="bsSideNo" type="button" data-side="no">No</button>
+      </div>
+      <div id="bsBuyPanel">
+        <div class="bottomSheet-inputRow">
+          <input type="number" id="bsBuyInput" placeholder="Credits" min="1" />
+          <span class="maxBtn" id="bsBuyMaxBtn" style="font-size:13px;padding:4px 8px;">Max</span>
+        </div>
+        <div class="bottomSheet-preview" id="bsBuyPreview"></div>
+        <button class="bottomSheet-action" id="bsBuyAction" type="button">Buy</button>
+        <div class="bottomSheet-error" id="bsBuyError"></div>
+        <div id="bsBuyProgress" class="tx-progress hide" style="margin-top:8px;">
+          <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+          <div class="tx-progress-label">Placing bet...</div>
+        </div>
+      </div>
+      <div id="bsSellPanel" class="hide">
+        <div class="bottomSheet-inputRow">
+          <input type="number" id="bsSellInput" placeholder="Shares" min="1" />
+          <span class="maxBtn" id="bsSellMaxBtn" style="font-size:13px;padding:4px 8px;">Max</span>
+        </div>
+        <div class="bottomSheet-preview" id="bsSellPreview"></div>
+        <button class="bottomSheet-action" id="bsSellAction" type="button" style="background:var(--danger);">Sell</button>
+        <div class="bottomSheet-error" id="bsSellError"></div>
+        <div id="bsSellProgress" class="tx-progress hide" style="margin-top:8px;">
+          <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+          <div class="tx-progress-label">Selling shares...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom sheet username editor -->
+    <div class="bottomSheet-backdrop" id="usernameBackdrop"></div>
+    <div class="bottomSheet" id="usernameSheet">
+      <div class="bottomSheet-handle"></div>
+      <div class="bottomSheet-header">
+        <span class="bottomSheet-optName">Set username</span>
+      </div>
+      <label style="display: grid; gap: 6px; margin-top: 8px;">
+        <span class="muted" style="font-size: 13px;">Username</span>
+        <div class="inputAffix">
+          <input id="usernameInput" class="inputAffixField" maxlength="24" placeholder="username" />
+          <span id="usernameSuffix" class="inputAffixSuffix">_unknown</span>
+        </div>
+      </label>
+      <button class="bottomSheet-action" id="saveUsernameBtn" type="button" style="margin-top: 12px;">Save username</button>
+      <button class="btn" id="cancelUsernameBtn" type="button" style="width: 100%; margin-top: 8px;">Cancel</button>
+      <div id="setUsernamePending" class="tx-progress hide" role="status" aria-live="polite" style="margin-top: 8px;">
+        <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+        <div class="tx-progress-label">Setting username...</div>
+      </div>
+    </div>
+
+    <div class="scrollArea" id="scrollRoot">
+      <div class="scrollArea-inner">
+            <!-- Onboarding -->
+            <div class="panel onboarding hide" id="onboardingPanel">
+              <h2>Opinion Market</h2>
+              <p>Predict what the crowd will choose. Earn credits if you're right.</p>
+              <div style="text-align:left;max-width:420px;margin:16px auto;">
+                <p style="font-size:13px;line-height:1.6;margin:0 0 6px;"><strong>Vote</strong> &mdash; Share your honest opinion for free.</p>
+                <p style="font-size:13px;line-height:1.6;margin:0 0 6px;"><strong>Bet</strong> &mdash; Use credits to predict what others will choose.</p>
+                <p style="font-size:13px;line-height:1.6;margin:0 0 0;"><strong>Win</strong> &mdash; Correct predictions earn from the pool. Voters earn a small reward too.</p>
+              </div>
+              <button class="btn primary" id="joinBtn" type="button" style="margin-top:16px;">Join &amp; Get 1,000 Credits</button>
+              <p class="muted" style="font-size:11px;margin:8px 0 0;">Credits are for this dapp only.</p>
+              <div id="joinPending" class="tx-progress hide" role="status" aria-live="polite">
+                <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+                <div class="tx-progress-label">Joining...</div>
+              </div>
+            </div>
+
+            <!-- Active survey list -->
+            <div class="panel" id="screenActiveList">
+              <div class="row" style="justify-content: space-between; align-items: baseline;">
+                <h2>Live now</h2>
+                <button class="btn small" id="addSurveyBtn" type="button">+ New question</button>
+              </div>
+              <p style="margin: 2px 0 0;">Vote on what you think, bet on what others will choose.</p>
+
+              <div class="panel hide" id="addSurveyPanel" style="margin-top: 10px;">
+                <h3>Create question</h3>
+                <div id="surveyCooldownHint" class="muted hide" style="font-size: 12px; margin-bottom: 8px;"></div>
+                <div class="muted" style="font-size: 12px; margin-bottom: 8px;">Costs 50 credits to seed the betting pool. You earn 0.5% of trading volume back (up to 100).</div>
+                <label style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Title</span>
+                  <input id="newSurveyTitle" class="input" maxlength="80" />
+                </label>
+                <label style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Question</span>
+                  <input id="newSurveyQuestion" class="input" maxlength="160" />
+                </label>
+                <div style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Options</span>
+                  <div id="surveyOptionsList" style="display: grid; gap: 6px;"></div>
+                  <button class="btn small" id="addSurveyOptionBtn" type="button">+ Add option</button>
+                </div>
+                <label style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Active for</span>
+                  <select id="newSurveyDuration" class="input">
+                    <option value="60000">1 minute (testing)</option>
+                    <option value="600000">10 minutes (testing)</option>
+                    <option value="172800000">2 days</option>
+                    <option value="259200000">3 days</option>
+                    <option value="345600000">4 days</option>
+                    <option value="432000000">5 days</option>
+                    <option value="518400000">6 days</option>
+                    <option value="604800000" selected>7 days</option>
+                    <option value="1209600000">14 days</option>
+                    <option value="2592000000">30 days</option>
+                    <option value="7776000000">90 days</option>
+                  </select>
+                </label>
+                <label style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Reveal interval</span>
+                  <select id="newSurveyRevealInterval" class="input">
+                    <option value="" selected>Single reveal at end</option>
+                    <option value="86400000">Every day</option>
+                    <option value="172800000">Every 2 days</option>
+                    <option value="259200000">Every 3 days</option>
+                    <option value="604800000">Every 7 days</option>
+                  </select>
+                </label>
+                <div class="toggleRow" style="margin-top: 10px;">
+                  <span class="muted" style="font-size: 13px;">Allow custom options</span>
+                  <label class="toggle">
+                    <input type="checkbox" id="newSurveyAllowCustom" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="row" style="margin-top: 10px;">
+                  <button class="btn primary" id="saveSurveyBtn" type="button">Save question</button>
+                  <button class="btn" id="cancelSurveyBtn" type="button">Cancel</button>
+                </div>
+                <div id="addSurveyPending" class="tx-progress hide" role="status" aria-live="polite">
+                  <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+                  <div class="tx-progress-label">Creating question...</div>
+                </div>
+              </div>
+
+              <div id="activeSurveyList" style="display: grid; gap: 10px; margin-top: 8px;"></div>
+            </div>
+
+            <div class="panel archivedDock hide" id="screenArchivedList">
+              <h3>Recently settled</h3>
+              <div id="archivedSurveyList" style="display: grid; gap: 10px;"></div>
+            </div>
+
+            <!-- Survey detail -->
+            <div class="panel hide" id="screenSurvey">
+              <div class="row" style="justify-content: space-between; align-items: center;">
+                <h2 id="surveyTitle">(question)</h2>
+                <div class="row" style="gap: 8px; align-items: center;">
+                  <span id="surveyCountdown" class="muted" style="font-size: 12px; font-variant-numeric: tabular-nums;"></span>
+                </div>
+              </div>
+              <p style="margin-top: 0;" id="surveyQuestion"></p>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0;">
+                <div id="surveyCreatedBy" class="muted" style="font-size: 11px;"></div>
+                <div id="surveyVoterCount" class="muted" style="font-size: 11px;"></div>
+              </div>
+              <div id="surveyRevealInfo" class="revealNotice hide" style="margin: 8px 0;"></div>
+              <button class="btn small hide" id="resolveEarlyBtn" type="button" style="margin-top: 8px; color: var(--warn); border-color: var(--warn);">&#x23F1; Resolve early (testing)</button>
+              <button class="btn small hide" id="deleteSurveyBtn" type="button" style="margin-top: 8px; color: var(--danger); border-color: var(--danger);">&#x1F5D1; Delete question</button>
+              <div id="deletePending" class="tx-progress hide" role="status" aria-live="polite">
+                <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+                <div class="tx-progress-label">Deleting...</div>
+              </div>
+
+              <hr class="sectionDivider" />
+
+              <!-- Vote / Options section (unified layout for active surveys) -->
+              <div id="voteSection">
+                <div class="row" style="justify-content: flex-end; align-items: center;">
+                  <button class="btn small" id="addOptionToggleBtn" type="button">Add option</button>
+                </div>
+                <div id="votePending" class="tx-progress hide" role="status" aria-live="polite">
+                  <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+                  <div class="tx-progress-label">Registering vote...</div>
+                </div>
+                <div class="hide" id="addOptionPanel" style="margin-top: 8px;">
+                  <div class="muted" style="font-size: 13px; margin-bottom: 8px;">You can add up to one custom option.</div>
+                  <div id="addOptionHint" class="muted" style="font-size: 12px; margin-bottom: 8px;"></div>
+                  <div class="row">
+                    <input id="newOptionInput" class="input" maxlength="80" placeholder="Add your own option" style="flex: 1 1 240px;" />
+                  </div>
+                  <div class="row" style="margin-top: 8px;">
+                    <button class="btn primary" id="saveOptionBtn" type="button">Save option</button>
+                    <button class="btn" id="cancelOptionBtn" type="button">Cancel</button>
+                  </div>
+                </div>
+                <div id="voteOptionsList" style="margin-top: 10px;"></div>
+              </div>
+
+              <!-- Results section (hidden for active surveys in new layout) -->
+              <div id="resultsSection" class="hide">
+                <hr class="sectionDivider" />
+                <h3>Results</h3>
+                <div id="resultsContent"></div>
+              </div>
+
+              <!-- Market section (hidden for active surveys in new layout) -->
+              <div id="marketSection" class="hide">
+                <hr class="sectionDivider" />
+                <h3>Market</h3>
+                <div id="marketContent"></div>
+                <div id="betPending" class="tx-progress hide" role="status" aria-live="polite">
+                  <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+                  <div class="tx-progress-label">Placing bet...</div>
+                </div>
+              </div>
+
+              <!-- Settled section (only for archived with market activity) -->
+              <div id="settledSection" class="hide">
+                <hr class="sectionDivider" />
+                <h3>Settlement</h3>
+                <div id="settledContent"></div>
+              </div>
+            </div>
+
+            <!-- Leaderboard -->
+            <div class="panel hide" id="screenLeaderboard">
+              <h2 style="margin-bottom: 12px;">Leaderboard</h2>
+              <p class="muted" style="font-size: 13px; margin: 0 0 12px;">Lifetime earnings from correct predictions.</p>
+              <div id="leaderboardContent"></div>
+            </div>
+
+            <!-- How it works -->
+            <div class="panel hide" id="screenInfo">
+              <h2 style="margin-bottom: 12px;">How It Works</h2>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">The idea</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Opinion Market lets you <strong>vote</strong> on questions and <strong>bet</strong> on what the crowd will choose.
+                The gap between votes (what people genuinely believe) and bets (what people think others believe) reveals collective intelligence.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">Credits</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                When you join, you get <strong>1,000 credits</strong>. Credits are the currency for betting and creating questions.
+                You spend credits to buy into outcomes, and earn credits when your predictions are correct.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">Voting vs. betting</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                <strong>Voting</strong> is free and private &mdash; express your honest opinion. Votes may be hidden until periodic reveals or until the question ends.
+              </p>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                <strong>Betting</strong> costs credits. When you buy into an option, the price moves &mdash; popular options cost more per credit.
+                Buying early on a less popular option gives you a bigger potential payout.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">Creating questions</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Creating a question costs <strong>50 credits</strong>, which seed the initial betting pool equally across all options.
+                This gives early bettors something to trade against and makes the market functional from the start.
+              </p>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                As compensation, the creator earns <strong>0.5% of all trading volume</strong> on their question, up to a cap of 100 credits.
+                A popular question can more than pay for itself.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">Buying &amp; selling</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                <strong>Buy:</strong> Enter the credits you want to bet. The app shows your potential payout if that option wins.
+                A 5% fee supports voter rewards and the question creator.
+              </p>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                <strong>Sell:</strong> Changed your mind? Sell your shares back anytime before the question ends.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">Settlement</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                When a question ends, votes are counted. The option with the most votes wins.
+                The entire betting pool (including the creator's initial seed) is split among people who bet on the winner, proportional to how much they invested.
+                The voter fee pool is distributed equally to everyone who voted.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">Probabilities</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Each option shows a percentage &mdash; this is the market's implied probability based on how much has been bet.
+                If 70% of the pool is on "Yes", the market thinks "Yes" has a 70% chance of winning the vote.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">Position &amp; value</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 4px;">
+                Your position shows two numbers:
+              </p>
+              <ul style="font-size: 13px; line-height: 1.6; margin: 0 0 12px; padding-left: 20px;">
+                <li><strong>Value</strong> &mdash; what you'd get if you sold now (before fees)</li>
+                <li><strong>Payout if wins</strong> &mdash; what you'd receive at settlement if your option wins the vote</li>
+              </ul>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;">Leaderboard</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Tracks lifetime earnings from correct predictions across all settled markets.
+                Profit = payouts received + cash-outs + voter dividends &minus; credits bet.
+              </p>
+
+              <p class="muted" style="font-size: 12px; margin: 16px 0 0; border-top: 1px solid var(--border); padding-top: 12px;">
+                All data lives on the Usernode blockchain. There is no central server &mdash; every participant sees the same state derived from the same transactions.
+              </p>
+            </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        /* ================================================================
+         *  BRIDGE
+         * ================================================================ */
+        window.__usernodeBridge = window.__usernodeBridge || { pending: {} };
+        window.__usernodeResolve =
+          window.__usernodeResolve ||
+          function (id, value, error) {
+            const entry = window.__usernodeBridge.pending[id];
+            if (!entry) return;
+            delete window.__usernodeBridge.pending[id];
+            if (error) entry.reject(new Error(error));
+            else entry.resolve(value);
+          };
+
+        function callNative(method, args) {
+          const id = String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+          return new Promise((resolve, reject) => {
+            window.__usernodeBridge.pending[id] = { resolve, reject };
+            if (!window.Usernode || typeof window.Usernode.postMessage !== "function") {
+              delete window.__usernodeBridge.pending[id];
+              reject(new Error("Usernode native bridge not available"));
+              return;
+            }
+            window.Usernode.postMessage(JSON.stringify({ method, id, args: args || {} }));
+          });
+        }
+
+        async function getNodeAddress() {
+          if (typeof window.getNodeAddress === "function") return await window.getNodeAddress();
+          return await callNative("getNodeAddress");
+        }
+
+        async function sendTransaction(destination_pubkey, amount, memo, opts) {
+          if (typeof window.sendTransaction === "function")
+            return await window.sendTransaction(destination_pubkey, amount, memo, opts);
+          return await callNative("sendTransaction", { destination_pubkey, amount, memo });
+        }
+
+        const OPTION_COLORS = ['#6ea8fe','#ff6b6b','#5dd39e','#e6a817','#c084fc','#f472b6','#22d3ee','#fb923c'];
+        function optionColor(idx) { return OPTION_COLORS[idx % OPTION_COLORS.length]; }
+
+        const CPMM = (typeof window !== "undefined" && window.OpinionMarketCore) || {};
+        function cpmmTotalLiquidity(mkt) {
+          if (!mkt || !mkt.pools) return 0;
+          let sum = 0;
+          for (const p of Object.values(mkt.pools)) {
+            if (p && typeof p.yes === "number" && typeof p.no === "number") sum += p.yes + p.no;
+          }
+          return sum;
+        }
+        function cpmmTotalShares(mkt, optKey) {
+          if (!mkt || !mkt.userShares) return 0;
+          let sum = 0;
+          for (const shares of Object.values(mkt.userShares)) {
+            if (shares && typeof shares[optKey] === "number") sum += shares[optKey];
+          }
+          return sum;
+        }
+        function cpmmTotalNoShares(mkt, optKey) {
+          if (!mkt || !mkt.userNoShares) return 0;
+          let sum = 0;
+          for (const shares of Object.values(mkt.userNoShares)) {
+            if (shares && typeof shares[optKey] === "number") sum += shares[optKey];
+          }
+          return sum;
+        }
+
+        /* ================================================================
+         *  CONFIG
+         * ================================================================ */
+        const APP_PUBKEY =
+          (window.OPINION_MARKET_APP_PUBKEY && String(window.OPINION_MARKET_APP_PUBKEY)) ||
+          window.localStorage.getItem("opinion-market:app_pubkey") ||
+          "ut1zkj9p90e0w0hqsnmr70xmzdcvhrj80upajpw67eywszu2g0qknksl3mlms";
+
+        // Route the bridge's inclusion polling through our server-side
+        // cache so we share one chain poll across every connected client
+        // instead of each one re-polling the explorer. See AGENTS.md §7.
+        window.usernode = window.usernode || {};
+        window.usernode.serverCacheUrl = "/__usernode/cache/" + APP_PUBKEY;
+
+        const EXPLORER_BASE = window.location.origin + "/explorer-api";
+        const TX_SEND_OPTS = { timeoutMs: 180_000, pollIntervalMs: 1500 };
+        const INITIAL_CREDITS = 1000;
+        const FEE_RATE = 0.05;
+        const LIQUIDITY_FEE_RATE = 0.02;
+        const MARKET_ANTE = 50;
+        const PLATFORM_LIQUIDITY = 450;
+        const MAX_BET_POOL_RATIO = 0.30;
+        const CREATOR_REWARD_RATE = 0.005;
+        const CREATOR_REWARD_CAP = 100;
+        const ENABLE_RESOLVE_EARLY = window.localStorage.getItem("opinion-market:resolve_early") === "true";
+        let chainId = null;
+
+        /* ================================================================
+         *  HELPERS
+         * ================================================================ */
+        function parseMemo(m) {
+          if (m == null) return null;
+          try { return JSON.parse(String(m)); } catch (_) { return null; }
+        }
+
+        function extractTxTimestampMs(tx) {
+          if (!tx || typeof tx !== "object") return null;
+          const candidates = [tx.created_at, tx.createdAt, tx.timestamp_ms, tx.timestampMs, tx.timestamp, tx.time];
+          for (const v of candidates) {
+            if (typeof v === "number" && Number.isFinite(v)) return v < 10_000_000_000 ? v * 1000 : v;
+            if (typeof v === "string" && v.trim()) { const t = Date.parse(v); if (!Number.isNaN(t)) return t; }
+          }
+          return null;
+        }
+
+        function pick(obj, keys) { for (const k of keys) { if (obj && obj[k] != null) return obj[k]; } return null; }
+
+        function normalizeTx(tx) {
+          if (!tx || typeof tx !== "object") return null;
+          return {
+            id: (() => { const v = pick(tx, ["id", "txid", "tx_id", "hash"]); return v == null ? null : String(v); })(),
+            from: (() => { const v = pick(tx, ["from_pubkey", "from", "source", "fromAddress", "from_address"]); return v == null ? null : String(v); })(),
+            to: (() => { const v = pick(tx, ["destination_pubkey", "to", "destination", "toAddress", "to_address"]); return v == null ? null : String(v); })(),
+            amount: pick(tx, ["amount"]),
+            memo: (() => { const v = pick(tx, ["memo"]); return v == null ? null : String(v); })(),
+            ts: extractTxTimestampMs(tx) || Date.now(),
+            raw: tx,
+          };
+        }
+
+        function normalizeTransactionsResponse(resp) {
+          if (Array.isArray(resp)) return resp;
+          if (!resp || typeof resp !== "object") return [];
+          if (Array.isArray(resp.items)) return resp.items;
+          if (Array.isArray(resp.transactions)) return resp.transactions;
+          if (resp.data && Array.isArray(resp.data.items)) return resp.data.items;
+          return [];
+        }
+
+        function makeMemo(obj) { return JSON.stringify(obj); }
+
+        function slugify(s) {
+          return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+        }
+
+        function last6(s) { const v = String(s || ""); return v.length >= 6 ? v.slice(-6) : v; }
+
+        function parseAppTx(rawTx) {
+          const tx = normalizeTx(rawTx);
+          if (!tx || !tx.from || !tx.to || tx.to !== APP_PUBKEY) return null;
+          const memoObj = parseMemo(tx.memo);
+          if (!memoObj) return null;
+          const app = memoObj.app ? String(memoObj.app) : null;
+          if (app !== "opinion-market") return null;
+          return { tx, memo: memoObj };
+        }
+
+        /* ================================================================
+         *  VOTE ENCRYPTION HELPERS (ECDH P-256 + AES-GCM)
+         * ================================================================ */
+        function _b64ToBuf(b64) {
+          const s = b64.replace(/-/g, "+").replace(/_/g, "/");
+          const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
+          const bin = atob(s + pad);
+          const buf = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+          return buf;
+        }
+        function _bufToB64(buf) {
+          let s = "";
+          const a = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+          for (let i = 0; i < a.length; i++) s += String.fromCharCode(a[i]);
+          return btoa(s);
+        }
+        function _bufToB64Url(buf) {
+          return _bufToB64(buf).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        }
+
+        function getIntervalIndex(survey, t) {
+          const cps = getRevealCheckpoints(survey);
+          for (let i = 0; i < cps.length; i++) { if (t <= cps[i]) return i; }
+          return cps.length - 1;
+        }
+
+        async function encryptVote(serverPubKeyBase64, choice) {
+          const serverPubBuf = _b64ToBuf(serverPubKeyBase64);
+          const ephemeral = await crypto.subtle.generateKey(
+            { name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]
+          );
+          const serverKey = await crypto.subtle.importKey(
+            "raw", serverPubBuf, { name: "ECDH", namedCurve: "P-256" }, false, []
+          );
+          const shared = await crypto.subtle.deriveBits(
+            { name: "ECDH", public: serverKey }, ephemeral.privateKey, 256
+          );
+          const aesKey = await crypto.subtle.importKey(
+            "raw", shared, { name: "AES-GCM" }, false, ["encrypt"]
+          );
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const ct = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv }, aesKey, new TextEncoder().encode(choice)
+          );
+          const ephPub = new Uint8Array(await crypto.subtle.exportKey("raw", ephemeral.publicKey));
+          const combined = new Uint8Array(12 + ephPub.length + ct.byteLength);
+          combined.set(iv, 0);
+          combined.set(ephPub, 12);
+          combined.set(new Uint8Array(ct), 12 + ephPub.length);
+          return _bufToB64(combined);
+        }
+
+        async function decryptVote(dBase64Url, pubKeyBase64, evBase64) {
+          const combined = _b64ToBuf(evBase64);
+          const iv = combined.slice(0, 12);
+          const ephPub = combined.slice(12, 77);
+          const ct = combined.slice(77);
+          const serverPubBuf = _b64ToBuf(pubKeyBase64);
+          const x = _bufToB64Url(serverPubBuf.slice(1, 33));
+          const y = _bufToB64Url(serverPubBuf.slice(33, 65));
+          const privKey = await crypto.subtle.importKey(
+            "jwk", { kty: "EC", crv: "P-256", x, y, d: dBase64Url },
+            { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]
+          );
+          const ephKey = await crypto.subtle.importKey(
+            "raw", ephPub, { name: "ECDH", namedCurve: "P-256" }, false, []
+          );
+          const shared = await crypto.subtle.deriveBits(
+            { name: "ECDH", public: ephKey }, privKey, 256
+          );
+          const aesKey = await crypto.subtle.importKey(
+            "raw", shared, { name: "AES-GCM" }, false, ["decrypt"]
+          );
+          const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, ct);
+          return new TextDecoder().decode(plain);
+        }
+
+        /* ================================================================
+         *  USERNAME HELPERS
+         * ================================================================ */
+        function usernameSuffix(address) { const c = last6(address); return c ? `_${c}` : "_unknown"; }
+
+        function normalizeUsername(raw, fallback, addressForSuffix) {
+          const suffix = usernameSuffix(addressForSuffix);
+          const maxBaseLen = Math.max(1, 24 - suffix.length);
+          const fallbackValue = (() => {
+            const f = String(fallback || "").trim();
+            if (!f) return `user${suffix}`;
+            if (f.endsWith(suffix)) return f.slice(0, maxBaseLen) + suffix;
+            const stripped = f.replace(/_[A-Za-z0-9]{6}$/, "").slice(0, maxBaseLen);
+            return (stripped || "user") + suffix;
+          })();
+          let v = String(raw || "").trim();
+          if (!v) return fallbackValue;
+          v = v.replace(/[^\w-]/g, "");
+          if (!v) return fallbackValue;
+          if (v.endsWith(suffix)) { const base = v.slice(0, -suffix.length).slice(0, maxBaseLen); return (base || "user") + suffix; }
+          v = v.replace(/_[A-Za-z0-9]{6}$/, "");
+          const base = v.slice(0, maxBaseLen);
+          return (base || "user") + suffix;
+        }
+
+        function deriveDefaultUsername(address) { return `user${usernameSuffix(address)}`; }
+
+        /* ================================================================
+         *  LOCAL VOTE MEMORY (encrypted votes aren't visible until reveal)
+         * ================================================================ */
+        const _pendingVotes = new Set();
+
+        function storeMyVote(surveyId, optionKey) {
+          if (!me) return;
+          _pendingVotes.add(surveyId);
+          try { localStorage.setItem(`om:vote:${me}:${surveyId}`, optionKey); } catch (_) {}
+        }
+
+        function getStoredVote(surveyId) {
+          if (!me) return null;
+          try { return localStorage.getItem(`om:vote:${me}:${surveyId}`) || null; } catch (_) { return null; }
+        }
+
+        /* ================================================================
+         *  SURVEY DEFINITION
+         * ================================================================ */
+        const ALLOWED_SURVEY_DURATION_MS = new Set([
+          60_000, 180_000, 600_000,
+          2*86400000, 3*86400000, 4*86400000, 5*86400000, 6*86400000, 7*86400000,
+          14*86400000, 30*86400000, 90*86400000,
+        ]);
+        const DEFAULT_SURVEY_DURATION_MS = 7 * 86400000;
+
+        const ALLOWED_REVEAL_INTERVALS = new Set([86400000, 172800000, 259200000, 604800000]);
+
+        function normalizeSurveyDurationMs(v) {
+          const n = typeof v === "number" ? Math.round(v) : Number(v);
+          if (!Number.isFinite(n)) return DEFAULT_SURVEY_DURATION_MS;
+          return ALLOWED_SURVEY_DURATION_MS.has(n) ? n : DEFAULT_SURVEY_DURATION_MS;
+        }
+
+        function normalizeSurveyDefinition(rawSurvey) {
+          if (!rawSurvey || typeof rawSurvey !== "object") return null;
+          const title = String(rawSurvey.title || "").trim();
+          const question = String(rawSurvey.question || "").trim();
+          if (!title || !question) return null;
+          const activeDurationMs = normalizeSurveyDurationMs(
+            rawSurvey.active_duration_ms != null ? rawSurvey.active_duration_ms : rawSurvey.duration_ms
+          );
+          const optionsRaw = Array.isArray(rawSurvey.options) ? rawSurvey.options : [];
+          const options = optionsRaw.map((o, i) => {
+            if (!o || typeof o !== "object") return null;
+            const label = String(o.label || "").trim();
+            if (!label) return null;
+            return { key: String(o.key || slugify(label) || `opt_${i + 1}`), label };
+          }).filter(Boolean);
+          const idBase = String(rawSurvey.id || slugify(title) || "").trim();
+          if (!idBase) return null;
+          const revealRaw = rawSurvey.reveal_interval_ms;
+          const revealIntervalMs = (typeof revealRaw === "number" && ALLOWED_REVEAL_INTERVALS.has(revealRaw)) ? revealRaw : null;
+          const allowCustomOptions = rawSurvey.allow_custom_options !== false;
+          return { id: idBase, title, question, activeDurationMs, options, revealIntervalMs, allowCustomOptions };
+        }
+
+        /* ================================================================
+         *  REVEAL CHECKPOINTS
+         * ================================================================ */
+        function getRevealCheckpoints(survey) {
+          if (!survey.revealIntervalMs) return [survey.expiresAtMs];
+          const cps = [];
+          let t = survey.createdAtMs + survey.revealIntervalMs;
+          while (t <= survey.expiresAtMs) { cps.push(t); t += survey.revealIntervalMs; }
+          if (cps.length === 0 || cps[cps.length - 1] !== survey.expiresAtMs) cps.push(survey.expiresAtMs);
+          return cps;
+        }
+
+        function getLatestPassedCheckpoint(survey) {
+          const now = Date.now();
+          let latest = null;
+          for (const cp of getRevealCheckpoints(survey)) { if (cp <= now) latest = cp; }
+          return latest;
+        }
+
+        function getNextCheckpoint(survey) {
+          const now = Date.now();
+          for (const cp of getRevealCheckpoints(survey)) { if (cp > now) return cp; }
+          return null;
+        }
+
+        /* ================================================================
+         *  GLOBAL STATE
+         * ================================================================ */
+        let SURVEYS = [];
+        let GLOBAL_USERNAMES = new Map();
+        let JOINED = new Set();
+        let MARKETS = new Map();
+        let SETTLEMENTS = new Map();
+        let CREDIT_FLOWS = new Map();
+        let LEADERBOARD = [];
+        let latestTxs = [];
+        let me = null;
+        let myUsername = null;
+        let sending = false;
+        let isAdmin = false;
+        let _explicitAdminPubkey = null;
+        let _firstJoiner = null;
+        let GENESIS_ACCOUNTS = new Set();
+        let currentSurveyId = null;
+        let currentOptionByKey = new Map();
+        let myAddedOptionBySurvey = {};
+        let mySurveyCreationTimes = [];
+        let PUBKEY_MAP = new Map();
+        let PRIVKEY_MAP = new Map();
+        let SURVEYS_BY_ID = new Map();
+        let _lastRebuildTxCount = -1;
+        const _decryptCache = new Map();
+
+        function isGenesisGated() { return GENESIS_ACCOUNTS.size > 0; }
+        function isGenesisAccount(addr) { return !isGenesisGated() || GENESIS_ACCOUNTS.has(addr); }
+        function currentSurvey() { return SURVEYS_BY_ID.get(currentSurveyId) || null; }
+        function myCredits() {
+          if (!me || !JOINED.has(me)) return 0;
+          const f = CREDIT_FLOWS.get(me);
+          if (!f) return INITIAL_CREDITS;
+          return INITIAL_CREDITS - f.antes - f.grossBets + f.netSells + f.payouts + f.dividends + f.creatorRewards;
+        }
+
+        function getCreditFlow(pubkey) {
+          let f = CREDIT_FLOWS.get(pubkey);
+          if (!f) { f = { antes: 0, grossBets: 0, netSells: 0, payouts: 0, dividends: 0, creatorRewards: 0 }; CREDIT_FLOWS.set(pubkey, f); }
+          return f;
+        }
+
+        function userBalance(pubkey) {
+          if (!JOINED.has(pubkey)) return 0;
+          const f = CREDIT_FLOWS.get(pubkey);
+          if (!f) return INITIAL_CREDITS;
+          return INITIAL_CREDITS - f.antes - f.grossBets + f.netSells + f.payouts + f.dividends + f.creatorRewards;
+        }
+
+        function addPoolLiquidity(pools, amount) {
+          const total = Object.values(pools).reduce((s, p) => s + p.yes + p.no, 0);
+          if (total <= 0 || amount <= 0) return;
+          const scale = 1 + amount / total;
+          for (const k of Object.keys(pools)) {
+            pools[k] = { yes: pools[k].yes * scale, no: pools[k].no * scale };
+          }
+        }
+
+        /* ================================================================
+         *  STATE REBUILD
+         * ================================================================ */
+        const SURVEY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+        const MAX_SURVEYS_PER_WINDOW = 999;
+
+        function rebuildState(rawTxs) {
+          const parsed = [];
+          for (const raw of rawTxs) { const p = parseAppTx(raw); if (p) parsed.push(p); }
+          parsed.sort((a, b) => a.tx.ts - b.tx.ts);
+
+          // Reset state
+          GLOBAL_USERNAMES = new Map();
+          JOINED = new Set();
+          MARKETS = new Map();
+          SETTLEMENTS = new Map();
+          CREDIT_FLOWS = new Map();
+          LEADERBOARD = [];
+
+          // --- Phase 1: Usernames ---
+          // Legacy per-app names (backward compat for old set_username txs to APP_PUBKEY)
+          const nameMap = new Map();
+          for (const { tx, memo } of parsed) {
+            if (memo.type !== "set_username") continue;
+            const prev = nameMap.get(tx.from);
+            if (!prev || tx.ts >= prev.ts) {
+              nameMap.set(tx.from, { name: normalizeUsername(memo.username, deriveDefaultUsername(tx.from), tx.from), ts: tx.ts });
+            }
+          }
+          for (const [addr, v] of nameMap) GLOBAL_USERNAMES.set(addr, v.name);
+          // Global identity names take precedence over legacy per-app names
+          if (window.UsernodeUsernames) {
+            const globalNames = UsernodeUsernames.getAllUsernamesSync();
+            for (const addr in globalNames) GLOBAL_USERNAMES.set(addr, globalNames[addr]);
+          }
+
+          // --- Phase 2: Joins (first per pubkey, genesis-gated) ---
+          _firstJoiner = null;
+          let _firstJoinTs = Infinity;
+          for (const { tx, memo } of parsed) {
+            if (memo.type !== "join" || !isGenesisAccount(tx.from)) continue;
+            JOINED.add(tx.from);
+            if (tx.ts < _firstJoinTs) { _firstJoinTs = tx.ts; _firstJoiner = tx.from; }
+          }
+
+          // --- Phase 3: Surveys (with rate limiting, genesis-gated, admin-only) ---
+          const adminPubkey = _explicitAdminPubkey || _firstJoiner;
+          const allCreations = [];
+          for (const { tx, memo } of parsed) {
+            if (memo.type !== "create_survey") continue;
+            if (!isGenesisAccount(tx.from)) continue;
+            if (adminPubkey && tx.from !== adminPubkey) continue;
+            const survey = normalizeSurveyDefinition(memo.survey);
+            if (survey) allCreations.push({ survey, ts: tx.ts, from: tx.from });
+          }
+          allCreations.sort((a, b) => a.ts - b.ts);
+          const creationsBySender = new Map();
+          const latestCreated = new Map();
+          for (const entry of allCreations) {
+            const times = creationsBySender.get(entry.from) || [];
+            const windowStart = entry.ts - SURVEY_COOLDOWN_MS;
+            const recent = times.filter(t => t > windowStart);
+            if (recent.length >= MAX_SURVEYS_PER_WINDOW) continue;
+            recent.push(entry.ts);
+            creationsBySender.set(entry.from, recent);
+            const existing = latestCreated.get(entry.survey.id);
+            if (!existing || entry.ts >= existing.ts) {
+              latestCreated.set(entry.survey.id, { survey: entry.survey, ts: entry.ts, from: entry.from });
+            }
+          }
+          // Scan for resolve_early txs (earliest per survey wins)
+          const earlyResolves = new Map();
+          for (const { tx, memo } of parsed) {
+            if (memo.type !== "resolve_early") continue;
+            const sv = memo.survey == null ? null : String(memo.survey);
+            if (!sv) continue;
+            const prev = earlyResolves.get(sv);
+            if (!prev || tx.ts < prev) earlyResolves.set(sv, tx.ts);
+          }
+          // Scan for delete_survey txs (admin-only; any delete wins)
+          const deletedSurveyIds = new Set();
+          for (const { tx, memo } of parsed) {
+            if (memo.type !== "delete_survey") continue;
+            const sv = memo.survey == null ? null : String(memo.survey);
+            if (!sv) continue;
+            const isAdminSender = _explicitAdminPubkey
+              ? tx.from === _explicitAdminPubkey
+              : !!_firstJoiner && tx.from === _firstJoiner;
+            if (isAdminSender) deletedSurveyIds.add(sv);
+          }
+
+          const now = Date.now();
+          SURVEYS = Array.from(latestCreated.values())
+            .filter(x => !deletedSurveyIds.has(x.survey.id))
+            .sort((a, b) => b.ts - a.ts)
+            .map(x => {
+              let expiresAtMs = x.ts + x.survey.activeDurationMs;
+              const earlyResolve = earlyResolves.get(x.survey.id);
+              if (earlyResolve && earlyResolve < expiresAtMs) expiresAtMs = earlyResolve;
+              return {
+                ...x.survey,
+                createdBy: x.from,
+                createdAtMs: x.ts,
+                expiresAtMs,
+                archived: now >= expiresAtMs,
+              };
+            });
+          SURVEYS_BY_ID = new Map();
+          for (const s of SURVEYS) SURVEYS_BY_ID.set(s.id, s);
+
+          // --- Phase 4: Custom options per survey (genesis-gated) ---
+          const optionsBySurvey = new Map();
+          for (const { tx, memo } of parsed) {
+            if (memo.type !== "add_option") continue;
+            if (!isGenesisAccount(tx.from)) continue;
+            const sv = memo.survey == null ? null : String(memo.survey);
+            const survey = SURVEYS_BY_ID.get(sv);
+            if (!survey || !survey.allowCustomOptions) continue;
+            if (survey.archived && tx.ts >= survey.expiresAtMs) continue;
+            const optObj = memo.option && typeof memo.option === "object" ? memo.option : null;
+            const label = optObj && optObj.label != null ? String(optObj.label).trim() : "";
+            if (!label) continue;
+            const key = (optObj && optObj.key != null ? String(optObj.key).trim() : slugify(label)) || `opt_${last6(tx.from)}_${String(tx.ts)}`;
+            if (!optionsBySurvey.has(sv)) optionsBySurvey.set(sv, new Map());
+            const senderMap = optionsBySurvey.get(sv);
+            const prev = senderMap.get(tx.from);
+            if (!prev || tx.ts < prev.ts) {
+              senderMap.set(tx.from, { key, label, ts: tx.ts, from: tx.from });
+            }
+          }
+          for (const survey of SURVEYS) {
+            const senderMap = optionsBySurvey.get(survey.id);
+            if (!senderMap) continue;
+            const existing = new Map(survey.options.map(o => [o.key, o]));
+            const added = Array.from(senderMap.values()).sort((a, b) => a.ts - b.ts);
+            for (const it of added) {
+              let key = it.key;
+              if (existing.has(key)) key = `${key}_${last6(it.from)}`;
+              if (existing.has(key)) key = `${key}_${String(it.ts).slice(-4)}`;
+              existing.set(key, { key, label: it.label, userAdded: true, addedBy: it.from });
+            }
+            survey.options = Array.from(existing.values());
+          }
+
+          // --- Phase 5: Votes (latest per sender per survey, genesis-gated) ---
+          const voteMap = new Map();
+          for (const { tx, memo } of parsed) {
+            if (memo.type !== "vote") continue;
+            if (!isGenesisAccount(tx.from)) continue;
+            const sv = memo.survey == null ? null : String(memo.survey);
+            const survey = SURVEYS_BY_ID.get(sv);
+            if (!survey) continue;
+            const ch = memo.choice != null ? String(memo.choice) : memo.vote != null ? String(memo.vote) : null;
+            if (!ch || !survey.options.some(o => o.key === ch)) continue;
+            const k = `${tx.from}:${sv}`;
+            const prev = voteMap.get(k);
+            if (!prev || tx.ts >= prev.ts) voteMap.set(k, { from: tx.from, survey: sv, choice: ch, ts: tx.ts });
+          }
+
+          // --- Phase 5b: Seed markets from creator ante (CPMM) ---
+          for (const survey of SURVEYS) {
+            if (!survey.createdBy || !JOINED.has(survey.createdBy)) continue;
+            if (userBalance(survey.createdBy) < MARKET_ANTE) continue;
+            const numOpts = survey.options.length;
+            if (numOpts < 2) continue;
+            const initPools = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, numOpts) : [];
+            if (initPools.length === 0) continue;
+            const mkt = { pools: {}, userShares: {}, userNoShares: {}, feePool: 0, grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0, creator: survey.createdBy, history: [], optionVolume: {} };
+            const seedPerOption = (MARKET_ANTE + PLATFORM_LIQUIDITY) / survey.options.length;
+            for (let i = 0; i < survey.options.length; i++) {
+              mkt.pools[survey.options[i].key] = { ...initPools[i] };
+              mkt.optionVolume[survey.options[i].key] = seedPerOption;
+            }
+            const initProbs = {};
+            for (const opt of survey.options) initProbs[opt.key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[opt.key]) : 0;
+            mkt.history.push({ ts: survey.createdAtMs, probs: initProbs });
+            MARKETS.set(survey.id, mkt);
+            getCreditFlow(survey.createdBy).antes += MARKET_ANTE;
+          }
+
+          // --- Phase 6: Market operations (chronological replay, CPMM) ---
+          for (const { tx, memo } of parsed) {
+            if (memo.type !== "place_bet" && memo.type !== "sell_shares") continue;
+            const sv = memo.survey == null ? null : String(memo.survey);
+            const survey = SURVEYS_BY_ID.get(sv);
+            if (!survey) continue;
+            if (tx.ts >= survey.expiresAtMs) continue;
+            const optKey = memo.option == null ? null : String(memo.option);
+            if (!optKey || !survey.options.some(o => o.key === optKey)) continue;
+            if (!JOINED.has(tx.from)) continue;
+
+            let mkt = MARKETS.get(sv);
+            if (!mkt) {
+              const numOpts = survey.options.length;
+              const initPools = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, numOpts) : [];
+              mkt = { pools: {}, userShares: {}, userNoShares: {}, feePool: 0, grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0, creator: survey.createdBy || null, history: [], optionVolume: {} };
+              if (initPools.length === numOpts) {
+                const spo = (MARKET_ANTE + PLATFORM_LIQUIDITY) / numOpts;
+                for (let i = 0; i < numOpts; i++) { mkt.pools[survey.options[i].key] = { ...initPools[i] }; mkt.optionVolume[survey.options[i].key] = spo; }
+                const ip = {}; for (const o of survey.options) ip[o.key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[o.key]) : 0;
+                mkt.history.push({ ts: survey.createdAtMs, probs: ip });
+              }
+              MARKETS.set(sv, mkt);
+            }
+
+            if (memo.type === "place_bet") {
+              const credits = typeof memo.credits === "number" ? memo.credits : Number(memo.credits);
+              if (!Number.isFinite(credits) || credits < 1) continue;
+              const bal = userBalance(tx.from);
+              if (bal < credits) continue;
+              const totalPoolValue = Object.values(mkt.pools).reduce((s, p) => s + p.yes + p.no, 0);
+              const maxBet = Math.floor(totalPoolValue * MAX_BET_POOL_RATIO);
+              if (credits > maxBet) continue;
+
+              const fee = credits * FEE_RATE;
+              const liquidityFee = credits * LIQUIDITY_FEE_RATE;
+              const creatorCut = Math.min(credits * CREATOR_REWARD_RATE, CREATOR_REWARD_CAP - mkt.creatorReward);
+              const voterFee = fee - Math.max(0, creatorCut) - liquidityFee;
+              const net = credits - fee;
+
+              const side = memo.side === "no" ? "no" : "yes";
+              const pool = mkt.pools[optKey];
+              if (!pool) continue;
+
+              let res;
+              if (side === "no") {
+                if (!CPMM.cpmmArbitrageNo) continue;
+                res = CPMM.cpmmArbitrageNo(mkt.pools, optKey, net);
+              } else {
+                if (!CPMM.cpmmArbitrage) continue;
+                res = CPMM.cpmmArbitrage(mkt.pools, optKey, net);
+              }
+              if (res.sharesReceived <= 0) continue;
+
+              for (const k of Object.keys(res.newPools)) mkt.pools[k] = res.newPools[k];
+              addPoolLiquidity(mkt.pools, liquidityFee);
+              if (side === "no") {
+                if (!mkt.userNoShares[tx.from]) mkt.userNoShares[tx.from] = {};
+                mkt.userNoShares[tx.from][optKey] = (mkt.userNoShares[tx.from][optKey] || 0) + res.sharesReceived;
+              } else {
+                if (!mkt.userShares[tx.from]) mkt.userShares[tx.from] = {};
+                mkt.userShares[tx.from][optKey] = (mkt.userShares[tx.from][optKey] || 0) + res.sharesReceived;
+              }
+              mkt.feePool += voterFee;
+              if (creatorCut > 0) {
+                mkt.creatorReward += creatorCut;
+                if (mkt.creator) getCreditFlow(mkt.creator).creatorRewards += creatorCut;
+              }
+              mkt.grossBetsByUser[tx.from] = (mkt.grossBetsByUser[tx.from] || 0) + credits;
+              getCreditFlow(tx.from).grossBets += credits;
+              mkt.optionVolume[optKey] = (mkt.optionVolume[optKey] || 0) + credits;
+              const _hp = {}; for (const _ok of Object.keys(mkt.pools)) _hp[_ok] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[_ok]) : 0;
+              mkt.history.push({ ts: tx.ts, probs: _hp });
+            }
+
+            if (memo.type === "sell_shares") {
+              const sharesToSell = typeof memo.shares === "number" ? memo.shares : Number(memo.shares);
+              if (!Number.isFinite(sharesToSell) || sharesToSell <= 0) continue;
+              const side = memo.side === "no" ? "no" : "yes";
+              const userHeld = side === "no"
+                ? ((mkt.userNoShares[tx.from] && mkt.userNoShares[tx.from][optKey]) || 0)
+                : ((mkt.userShares[tx.from] && mkt.userShares[tx.from][optKey]) || 0);
+              if (userHeld < sharesToSell) continue;
+              const pool = mkt.pools[optKey];
+              if (!pool) continue;
+
+              let grossCredits;
+              if (side === "no") {
+                if (CPMM.cpmmSellArbitrageNo && Object.keys(mkt.pools).length > 1) {
+                  const result = CPMM.cpmmSellArbitrageNo(mkt.pools, optKey, sharesToSell);
+                  grossCredits = result.creditsReceived;
+                  if (grossCredits <= 0) continue;
+                  for (const pk of Object.keys(result.newPools)) mkt.pools[pk] = result.newPools[pk];
+                } else if (CPMM.cpmmSellNo && CPMM.cpmmSellNoApply) {
+                  grossCredits = CPMM.cpmmSellNo(pool, sharesToSell);
+                  if (grossCredits <= 0) continue;
+                  mkt.pools[optKey] = CPMM.cpmmSellNoApply(pool, sharesToSell);
+                } else {
+                  continue;
+                }
+              } else {
+                if (CPMM.cpmmSellArbitrage && Object.keys(mkt.pools).length > 1) {
+                  const result = CPMM.cpmmSellArbitrage(mkt.pools, optKey, sharesToSell);
+                  grossCredits = result.creditsReceived;
+                  if (grossCredits <= 0) continue;
+                  for (const pk of Object.keys(result.newPools)) mkt.pools[pk] = result.newPools[pk];
+                } else if (CPMM.cpmmSellYes && CPMM.cpmmSellYesApply) {
+                  grossCredits = CPMM.cpmmSellYes(pool, sharesToSell);
+                  if (grossCredits <= 0) continue;
+                  mkt.pools[optKey] = CPMM.cpmmSellYesApply(pool, sharesToSell);
+                } else {
+                  continue;
+                }
+              }
+
+              const fee = grossCredits * FEE_RATE;
+              const liquidityFee = grossCredits * LIQUIDITY_FEE_RATE;
+              const creatorCut = Math.min(grossCredits * CREATOR_REWARD_RATE, CREATOR_REWARD_CAP - mkt.creatorReward);
+              const voterFee = fee - Math.max(0, creatorCut) - liquidityFee;
+              const netCredits = grossCredits - fee;
+
+              addPoolLiquidity(mkt.pools, liquidityFee);
+              if (side === "no") {
+                mkt.userNoShares[tx.from][optKey] = userHeld - sharesToSell;
+              } else {
+                mkt.userShares[tx.from][optKey] = userHeld - sharesToSell;
+              }
+              mkt.feePool += voterFee;
+              if (creatorCut > 0) {
+                mkt.creatorReward += creatorCut;
+                if (mkt.creator) getCreditFlow(mkt.creator).creatorRewards += creatorCut;
+              }
+              mkt.netSellsByUser[tx.from] = (mkt.netSellsByUser[tx.from] || 0) + netCredits;
+              getCreditFlow(tx.from).netSells += netCredits;
+              const _sp = {}; for (const _sk of Object.keys(mkt.pools)) _sp[_sk] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[_sk]) : 0;
+              mkt.history.push({ ts: tx.ts, probs: _sp });
+            }
+          }
+
+          // --- Phase 7: Settlement for expired surveys ---
+          for (const survey of SURVEYS) {
+            if (!survey.archived) continue;
+            const mkt = MARKETS.get(survey.id);
+
+            const voteCounts = {};
+            for (const opt of survey.options) voteCounts[opt.key] = 0;
+            const voterSet = new Set();
+            for (const [k, v] of voteMap) {
+              if (v.survey !== survey.id) continue;
+              voteCounts[v.choice] = (voteCounts[v.choice] || 0) + 1;
+              voterSet.add(v.from);
+            }
+
+            const totalPool = mkt ? cpmmTotalLiquidity(mkt) : 0;
+            const settlement = { winner: null, payouts: {}, voterDividendPer: 0, surprise: {}, totalPool, feePool: mkt ? mkt.feePool : 0, voteCounts, voterCount: voterSet.size, voters: voterSet };
+
+            if (mkt && totalPool > 0) {
+              settlement.feePool = mkt.feePool;
+              const totalVotes = Object.values(voteCounts).reduce((a, b) => a + b, 0);
+
+              // Surprise metric (CPMM: prob = cpmmProb(pool))
+              for (const opt of survey.options) {
+                const vs = totalVotes > 0 ? (voteCounts[opt.key] || 0) / totalVotes : 0;
+                const pool = mkt.pools[opt.key];
+                const mp = pool && CPMM.cpmmProb ? CPMM.cpmmProb(pool) : 0;
+                settlement.surprise[opt.key] = vs - mp;
+              }
+
+              if (totalVotes === 0) {
+                distributeRefund(mkt, settlement);
+              } else {
+                let maxVotes = 0;
+                let winners = [];
+                for (const [key, count] of Object.entries(voteCounts)) {
+                  if (count > maxVotes) { maxVotes = count; winners = [key]; }
+                  else if (count === maxVotes && count > 0) winners.push(key);
+                }
+                const K = winners.length;
+                settlement.winners = winners;
+                settlement.winner = K === 1 ? winners[0] : null;
+                const weights = {};
+                for (const opt of survey.options) weights[opt.key] = 0;
+                for (const w of winners) weights[w] = 1 / K;
+                settlement.resolutionWeights = weights;
+
+                for (const [pubkey, shares] of Object.entries(mkt.userShares)) {
+                  for (const [optKey, s] of Object.entries(shares)) {
+                    const w = weights[optKey] || 0;
+                    if (w > 0 && s > 0) settlement.payouts[pubkey] = (settlement.payouts[pubkey] || 0) + s * w;
+                  }
+                }
+                for (const [pubkey, noShares] of Object.entries(mkt.userNoShares || {})) {
+                  for (const [optKey, ns] of Object.entries(noShares)) {
+                    if (ns <= 0) continue;
+                    const w = weights[optKey] || 0;
+                    const noPayout = (1 - w) * ns;
+                    if (noPayout > 0) settlement.payouts[pubkey] = (settlement.payouts[pubkey] || 0) + noPayout;
+                  }
+                }
+              }
+
+              // Voter dividends
+              if (voterSet.size > 0 && mkt.feePool > 0) {
+                settlement.voterDividendPer = mkt.feePool / voterSet.size;
+              }
+
+              // Apply to credit flows
+              for (const [pubkey, amount] of Object.entries(settlement.payouts)) {
+                getCreditFlow(pubkey).payouts += amount;
+              }
+              if (settlement.voterDividendPer > 0) {
+                for (const voter of voterSet) {
+                  getCreditFlow(voter).dividends += settlement.voterDividendPer;
+                }
+              }
+            }
+
+            SETTLEMENTS.set(survey.id, settlement);
+          }
+
+          // --- Phase 8: Leaderboard (includes dividends) ---
+          const earningsMap = new Map();
+          for (const survey of SURVEYS) {
+            if (!survey.archived) continue;
+            const mkt = MARKETS.get(survey.id);
+            if (!mkt || cpmmTotalLiquidity(mkt) <= 0) continue;
+            const settlement = SETTLEMENTS.get(survey.id);
+            if (!settlement) continue;
+            const dividend = settlement.voterDividendPer || 0;
+            for (const pubkey of Object.keys(mkt.grossBetsByUser)) {
+              const grossBet = mkt.grossBetsByUser[pubkey] || 0;
+              if (grossBet <= 0) continue;
+              const netSells = mkt.netSellsByUser[pubkey] || 0;
+              const payout = settlement.payouts[pubkey] || 0;
+              const div = (settlement.voterCount > 0 && voteMap.has(pubkey + ":" + survey.id)) ? dividend : 0;
+              const profit = payout + netSells + div - grossBet;
+              const shares = mkt.userShares[pubkey] || {};
+              const noShares = (mkt.userNoShares || {})[pubkey] || {};
+              const sw = settlement.resolutionWeights || {};
+              const hadWinningYes = Object.entries(shares).some(([k, s]) => s > 0 && (sw[k] || 0) > 0);
+              const hadWinningNo = Object.entries(noShares).some(([k, s]) => s > 0 && (sw[k] || 0) < 1);
+              const hadWinningShares = hadWinningYes || hadWinningNo;
+              let e = earningsMap.get(pubkey);
+              if (!e) { e = { totalEarnings: 0, marketsParticipated: 0, marketsWon: 0 }; earningsMap.set(pubkey, e); }
+              e.marketsParticipated++;
+              e.totalEarnings += profit;
+              if (hadWinningShares && payout > 0) e.marketsWon++;
+            }
+          }
+          LEADERBOARD = Array.from(earningsMap.entries())
+            .map(([pubkey, e]) => ({
+              pubkey,
+              username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
+              totalEarnings: e.totalEarnings,
+              marketsParticipated: e.marketsParticipated,
+              marketsWon: e.marketsWon,
+              winRate: e.marketsParticipated > 0 ? e.marketsWon / e.marketsParticipated : 0,
+            }))
+            .sort((a, b) => b.totalEarnings - a.totalEarnings);
+        }
+
+        function distributeRefund(mkt, settlement) {
+          for (const [pubkey, shares] of Object.entries(mkt.userShares)) {
+            for (const [optKey, s] of Object.entries(shares)) {
+              if (s <= 0) continue;
+              const pool = mkt.pools[optKey];
+              if (!pool) continue;
+              let credits;
+              if (CPMM.cpmmSellArbitrage && Object.keys(mkt.pools).length > 1) {
+                const result = CPMM.cpmmSellArbitrage(mkt.pools, optKey, s);
+                credits = result.creditsReceived;
+                for (const pk of Object.keys(result.newPools)) {
+                  mkt.pools[pk] = result.newPools[pk];
+                }
+              } else if (CPMM.cpmmSellYes) {
+                credits = CPMM.cpmmSellYes(pool, s);
+              } else {
+                continue;
+              }
+              if (credits > 0) settlement.payouts[pubkey] = (settlement.payouts[pubkey] || 0) + credits;
+            }
+          }
+          for (const [pubkey, noShares] of Object.entries(mkt.userNoShares || {})) {
+            for (const [optKey, s] of Object.entries(noShares)) {
+              if (s <= 0) continue;
+              const pool = mkt.pools[optKey];
+              if (!pool) continue;
+              let credits;
+              if (CPMM.cpmmSellArbitrageNo && Object.keys(mkt.pools).length > 1) {
+                const result = CPMM.cpmmSellArbitrageNo(mkt.pools, optKey, s);
+                credits = result.creditsReceived;
+                for (const pk of Object.keys(result.newPools)) mkt.pools[pk] = result.newPools[pk];
+              } else if (CPMM.cpmmSellNo) {
+                credits = CPMM.cpmmSellNo(pool, s);
+              } else {
+                continue;
+              }
+              if (credits > 0) settlement.payouts[pubkey] = (settlement.payouts[pubkey] || 0) + credits;
+            }
+          }
+        }
+
+        /* ================================================================
+         *  VOTE/RESULTS COMPUTATION (for display)
+         * ================================================================ */
+        function computeResults(txs, myAddress, surveyId) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          if (!s) return { counts: {}, voters: [], meEntry: null, survey: null };
+
+          const users = new Map();
+          const oldestOptionBySender = new Map();
+
+          for (const rawTx of txs) {
+            const p = parseAppTx(rawTx);
+            if (!p) continue;
+            const { tx, memo } = p;
+
+            const entry = users.get(tx.from) || {
+              from: tx.from,
+              username: GLOBAL_USERNAMES.get(tx.from) || deriveDefaultUsername(tx.from),
+              usernameTs: 0,
+              voteKey: null,
+              voteTs: 0,
+            };
+
+            if (memo.type === "set_username") {
+              const u = normalizeUsername(memo.username, entry.username, tx.from);
+              if (tx.ts >= entry.usernameTs) { entry.username = u; entry.usernameTs = tx.ts; }
+              users.set(tx.from, entry);
+              continue;
+            }
+
+            if (memo.type === "vote") {
+              const sv = memo.survey == null ? null : String(memo.survey);
+              const ch = memo.choice != null ? String(memo.choice) : memo.vote != null ? String(memo.vote) : null;
+              if (sv === s.id) {
+                if (ch && s.options.some(o => o.key === ch)) {
+                  if (tx.ts >= entry.voteTs) { entry.voteKey = ch; entry.voteTs = tx.ts; }
+                }
+                if (tx.ts >= entry.voteTs || !entry.hasVoted) entry.hasVoted = true;
+              }
+            }
+
+            if (memo.type === "add_option" && String(memo.survey) === s.id) {
+              const optObj = memo.option && typeof memo.option === "object" ? memo.option : null;
+              const label = optObj && optObj.label != null ? String(optObj.label).trim() : "";
+              if (label) {
+                const key = (optObj && optObj.key != null ? String(optObj.key).trim() : slugify(label)) || `opt_${last6(tx.from)}_${String(tx.ts)}`;
+                const prev = oldestOptionBySender.get(tx.from);
+                if (!prev || tx.ts < prev.ts) oldestOptionBySender.set(tx.from, { key, label, ts: tx.ts, from: tx.from });
+              }
+            }
+
+            users.set(tx.from, entry);
+          }
+
+          const counts = {};
+          for (const opt of s.options) counts[opt.key] = 0;
+          const voters = [];
+          for (const u of users.values()) {
+            if (!u.voteKey) continue;
+            counts[u.voteKey] = (counts[u.voteKey] || 0) + 1;
+            voters.push({ from: u.from, username: u.username, vote: u.voteKey, voteTs: u.voteTs });
+          }
+          voters.sort((a, b) => b.voteTs - a.voteTs);
+
+          // Revealed counts (for display): only include votes before latest passed checkpoint
+          const revealedCounts = {};
+          const latestCp = getLatestPassedCheckpoint(s);
+          for (const opt of s.options) revealedCounts[opt.key] = 0;
+          if (latestCp || s.archived) {
+            for (const u of users.values()) {
+              if (!u.voteKey) continue;
+              if (!s.archived && latestCp && u.voteTs > latestCp) continue;
+              revealedCounts[u.voteKey] = (revealedCounts[u.voteKey] || 0) + 1;
+            }
+          }
+
+          const meKey = myAddress == null ? null : String(myAddress);
+          const meEntry = meKey ? users.get(meKey) || null : null;
+          const myAddedOption = meKey ? oldestOptionBySender.get(meKey) || null : null;
+
+          return { counts, revealedCounts, voters, meEntry, survey: s, myAddedOption };
+        }
+
+        function countUniqueVoters(txs, surveyId) {
+          const voters = new Set();
+          for (const rawTx of txs) {
+            const p = parseAppTx(rawTx);
+            if (!p || p.memo.type !== "vote") continue;
+            if (String(p.memo.survey) !== surveyId) continue;
+            voters.add(p.tx.from);
+          }
+          return voters.size;
+        }
+
+        /* ================================================================
+         *  EXPLORER / DATA FETCH
+         * ================================================================ */
+        // explorerFetch + discoverChainId are only used at init() to wire
+        // window.usernode.transactionsBaseUrl for sendTransaction. App-state
+        // reads go through the host server's cache below.
+        async function explorerFetch(path, opts) {
+          const resp = await fetch(`${EXPLORER_BASE}${path}`, opts);
+          if (!resp.ok) throw new Error(`Explorer API ${resp.status}`);
+          return await resp.json();
+        }
+
+        async function discoverChainId() {
+          const data = await explorerFetch("/active_chain");
+          return data.chain_id;
+        }
+
+        // App-state reads come from the host server's cache only. The server
+        // (examples/server.js) backfills history once at startup and live-
+        // polls thereafter via createAppStateCache, exposing /opinion-market/
+        // api/transactions. Includes mock txs in --local-dev mode (the cache
+        // drains mockApi.transactions on a 1s timer). No client-side
+        // explorer pagination — see AGENTS.md Section 7.
+        async function getAppTransactions(_limit) {
+          const r = await fetch("/opinion-market/api/transactions");
+          if (!r.ok) throw new Error(`Server cache: HTTP ${r.status}`);
+          return normalizeTransactionsResponse(await r.json());
+        }
+
+        /* ================================================================
+         *  UI HELPERS
+         * ================================================================ */
+        const $ = id => document.getElementById(id);
+        function setText(el, v) { if (el) el.textContent = v; }
+        function show(el, on) { if (el) el.classList.toggle("hide", !on); }
+        function setDisabled(el, v) { if (el) el.disabled = !!v; }
+
+        function formatCountdown(expiresAtMs) {
+          const diff = Math.max(0, expiresAtMs - Date.now());
+          if (diff <= 0) return "Completed";
+          const pad = n => String(n).padStart(2, "0");
+          if (diff < 3600000) {
+            const totalSec = Math.floor(diff / 1000);
+            return `${pad(Math.floor(totalSec / 60))}:${pad(totalSec % 60)}`;
+          }
+          const totalMin = Math.floor(diff / 60000);
+          return `${pad(Math.floor(totalMin / 1440))}d ${pad(Math.floor((totalMin % 1440) / 60))}h ${pad(totalMin % 60)}m`;
+        }
+
+        function formatArchivedDate(expiresAtMs) {
+          if (!expiresAtMs) return "Archived";
+          const d = new Date(expiresAtMs);
+          const mon = d.toLocaleString(undefined, { month: "short" });
+          const day = d.getDate();
+          const year = d.getFullYear();
+          return year === new Date().getFullYear() ? `Archived ${mon} ${day}` : `Archived ${mon} ${day}, ${year}`;
+        }
+
+        function formatCredits(n) {
+          const v = Number(n);
+          if (!Number.isFinite(v)) return "0";
+          if (v === Math.round(v)) return v.toLocaleString();
+          return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function formatPct(n) { return (n * 100).toFixed(1) + "%"; }
+
+        const IMAGE_URL_RE = /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?\S*)?/i;
+        const ANY_URL_RE = /https?:\/\/\S+/gi;
+
+        function parseOptionLabel(label) {
+          if (!label) return { text: label || "", imageUrl: null, linkUrls: [] };
+          const imageMatch = IMAGE_URL_RE.exec(label);
+          const imageUrl = imageMatch ? imageMatch[0] : null;
+          const linkUrls = [];
+          let m;
+          ANY_URL_RE.lastIndex = 0;
+          while ((m = ANY_URL_RE.exec(label)) !== null) { if (m[0] !== imageUrl) linkUrls.push(m[0]); }
+          const text = label.replace(ANY_URL_RE, " ").replace(/\s{2,}/g, " ").trim();
+          return { text, imageUrl, linkUrls };
+        }
+
+        function makeOptionImage(url, alt) {
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = alt || "option image";
+          img.style.cssText = "display:block;max-width:100%;max-height:100vw;border-radius:4px;margin-top:6px;object-fit:contain;";
+          img.onerror = function () { this.replaceWith(document.createTextNode(url)); };
+          return img;
+        }
+
+        function makeOptionLinks(urls) {
+          if (!urls || urls.length === 0) return null;
+          const c = document.createElement("div");
+          c.style.cssText = "margin-top:4px;font-size:12px;display:flex;flex-wrap:wrap;gap:4px 8px;";
+          for (const url of urls) {
+            const a = document.createElement("a");
+            a.href = url;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.style.cssText = "color:var(--accent);text-decoration:underline;word-break:break-all;";
+            a.addEventListener("click", e => e.stopPropagation());
+            try { const u = new URL(url); a.textContent = u.hostname + (u.pathname.length > 1 ? u.pathname.slice(0, 30) : "") + (u.pathname.length > 30 ? "…" : ""); }
+            catch (_) { a.textContent = url.slice(0, 50) + (url.length > 50 ? "…" : ""); }
+            c.appendChild(a);
+          }
+          return c;
+        }
+
+        /* ================================================================
+         *  RUBBER BAND
+         * ================================================================ */
+        const RUBBER_BAND = { deadzonePx: 6, maxPullPx: 92, constant: 0.56, snapMs: 210, snapEasing: "cubic-bezier(0.2, 0.9, 0.2, 1)", enableScaleY: true, scaleDivisor: 850 };
+
+        function rubberBandDistance(d, dimension, constant) {
+          const abs = Math.abs(d);
+          if (dimension <= 0) return 0;
+          return Math.sign(d) * ((constant * abs * dimension) / (dimension + constant * abs));
+        }
+
+        function attachRubberBand() {
+          const scroller = $("scrollRoot");
+          if (!scroller) return;
+          let startY = 0, activePointerId = null, dragging = false;
+          function apply(offset) {
+            scroller.style.transform = RUBBER_BAND.enableScaleY
+              ? `translateY(${offset}px) scaleY(${1 + Math.abs(offset) / RUBBER_BAND.scaleDivisor})`
+              : `translateY(${offset}px)`;
+          }
+          function reset() {
+            scroller.style.transition = `transform ${RUBBER_BAND.snapMs}ms ${RUBBER_BAND.snapEasing}`;
+            scroller.style.transform = "";
+            setTimeout(() => { scroller.style.transition = ""; }, RUBBER_BAND.snapMs + 40);
+          }
+          scroller.addEventListener("pointerdown", e => {
+            if (e.button != null && e.button !== 0) return;
+            activePointerId = e.pointerId; startY = e.clientY; dragging = true; scroller.style.transition = "";
+          });
+          scroller.addEventListener("pointermove", e => {
+            if (!dragging || e.pointerId !== activePointerId) return;
+            const dy = e.clientY - startY;
+            const atTop = scroller.scrollTop <= 0;
+            const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+            if (!(atTop && dy > 0) && !(atBottom && dy < 0)) return;
+            const effectiveDy = Math.abs(dy) <= RUBBER_BAND.deadzonePx ? 0 : dy - Math.sign(dy) * RUBBER_BAND.deadzonePx;
+            let offset = rubberBandDistance(effectiveDy, window.innerHeight || 800, RUBBER_BAND.constant);
+            offset = Math.max(-RUBBER_BAND.maxPullPx, Math.min(RUBBER_BAND.maxPullPx, offset));
+            apply(offset);
+            e.preventDefault();
+          }, { passive: false });
+          function end(e) { if (!dragging || e.pointerId !== activePointerId) return; dragging = false; activePointerId = null; reset(); }
+          scroller.addEventListener("pointerup", end);
+          scroller.addEventListener("pointercancel", end);
+        }
+
+        /* ================================================================
+         *  TX PROGRESS BAR
+         * ================================================================ */
+        const TX_PROGRESS_EXPECTED_S = 60, TX_PROGRESS_WARN_S = 120, TX_PROGRESS_ERR_S = 180;
+        let _txProgressRaf = null, _txProgressStart = 0;
+        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "votePending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].map($).filter(el => el && !el.classList.contains("hide"));
+
+        function txProgressPercent(s) {
+          if (s <= TX_PROGRESS_EXPECTED_S) { const t = s / TX_PROGRESS_EXPECTED_S; return 95 * (1 - Math.pow(1 - t, 3)); }
+          return 95 + 5 * (1 - Math.exp(-(s - TX_PROGRESS_EXPECTED_S) / 120));
+        }
+
+        function txProgressApply(bars, pct, s) {
+          const fillCls = s >= TX_PROGRESS_ERR_S ? "err" : s >= TX_PROGRESS_WARN_S ? "warn" : "";
+          const msg = s >= TX_PROGRESS_ERR_S ? "Taking longer than it should; check Discord" : s >= TX_PROGRESS_WARN_S ? "Taking longer than expected" : "";
+          bars.forEach(c => {
+            const fill = c.querySelector(".tx-progress-fill");
+            const label = c.querySelector(".tx-progress-label");
+            if (fill) { fill.style.width = pct + "%"; fill.className = "tx-progress-fill" + (fillCls ? " " + fillCls : ""); }
+            if (label && msg) { label.textContent = msg; label.className = "tx-progress-label" + (fillCls ? " " + fillCls : ""); }
+          });
+        }
+
+        function startTxProgress() {
+          stopTxProgress();
+          _txProgressStart = performance.now();
+          (function tick() { const s = (performance.now() - _txProgressStart) / 1000; txProgressApply(pendingEls(), txProgressPercent(s), s); _txProgressRaf = requestAnimationFrame(tick); })();
+        }
+
+        function completeTxProgress() {
+          stopTxProgress();
+          pendingEls().forEach(c => {
+            const fill = c.querySelector(".tx-progress-fill");
+            const label = c.querySelector(".tx-progress-label");
+            if (fill) { fill.className = "tx-progress-fill ok"; fill.style.width = "100%"; }
+            if (label) { label.textContent = "Confirmed!"; label.className = "tx-progress-label"; }
+          });
+          setTimeout(() => pendingEls().forEach(c => { c.classList.add("hide"); resetProgressBar(c); }), 1200);
+        }
+
+        function stopTxProgress() { if (_txProgressRaf) { cancelAnimationFrame(_txProgressRaf); _txProgressRaf = null; } }
+
+        function resetProgressBar(c) {
+          if (!c) return;
+          const fill = c.querySelector(".tx-progress-fill");
+          const label = c.querySelector(".tx-progress-label");
+          if (fill) { fill.style.width = "0%"; fill.className = "tx-progress-fill"; }
+          if (label) label.className = "tx-progress-label";
+        }
+
+        function showPending(id, labelText) {
+          const el = $(id);
+          if (!el) return;
+          resetProgressBar(el);
+          show(el, true);
+          const label = el.querySelector(".tx-progress-label");
+          if (label) label.textContent = labelText;
+        }
+
+        let _toastTimer = null;
+        function showInlineError(msg) {
+          const el = $("inlineToast");
+          if (!el) return;
+          el.textContent = msg;
+          el.classList.remove("hide");
+          clearTimeout(_toastTimer);
+          _toastTimer = setTimeout(() => el.classList.add("hide"), 5000);
+        }
+
+        function setSending(v, txSucceeded) {
+          sending = !!v;
+          if (v) startTxProgress();
+          else if (txSucceeded) completeTxProgress();
+          else {
+            stopTxProgress();
+            ["setUsernamePending", "addSurveyPending", "votePending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].forEach(id => {
+              const el = $(id);
+              if (el) { el.classList.add("hide"); resetProgressBar(el); }
+            });
+          }
+          document.querySelectorAll("button, input, select").forEach(el => { if (!el.closest("#screenLeaderboard") && el.id !== "addSurveyBtn") el.disabled = !!v; });
+          if (!isAdmin) { const btn = $("addSurveyBtn"); if (btn) { btn.style.opacity = "0.45"; btn.style.cursor = "not-allowed"; btn.title = "Only admins can create questions for now"; } }
+          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) {
+            const joinBtn = $("joinBtn"); if (joinBtn) joinBtn.disabled = true;
+          }
+        }
+
+        /* ================================================================
+         *  SURVEY FORM HELPERS
+         * ================================================================ */
+        function addSurveyOptionField(value) {
+          const list = $("surveyOptionsList");
+          if (!list) return;
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;gap:6px;align-items:center;";
+          const inp = document.createElement("input");
+          inp.className = "input";
+          inp.maxLength = 80;
+          inp.placeholder = "Option " + (list.children.length + 1);
+          inp.value = value || "";
+          const rm = document.createElement("button");
+          rm.type = "button";
+          rm.className = "btn small";
+          rm.style.cssText = "padding:4px 8px;flex:0 0 auto;";
+          rm.textContent = "\u2715";
+          rm.addEventListener("click", () => { row.remove(); reindexOptionPlaceholders(); });
+          row.appendChild(inp);
+          row.appendChild(rm);
+          list.appendChild(row);
+        }
+
+        function reindexOptionPlaceholders() {
+          const list = $("surveyOptionsList");
+          if (!list) return;
+          Array.from(list.children).forEach((row, i) => {
+            const inp = row.querySelector("input");
+            if (inp) inp.placeholder = "Option " + (i + 1);
+          });
+        }
+
+        function getSurveyOptionInputs() {
+          const list = $("surveyOptionsList");
+          return list ? Array.from(list.querySelectorAll("input")) : [];
+        }
+
+        function initSurveyOptionFields() {
+          const list = $("surveyOptionsList");
+          if (list) list.innerHTML = "";
+          addSurveyOptionField("");
+          addSurveyOptionField("");
+        }
+
+        function clearAddSurveyForm() {
+          const t = $("newSurveyTitle"); if (t) t.value = "";
+          const q = $("newSurveyQuestion"); if (q) q.value = "";
+          initSurveyOptionFields();
+          const d = $("newSurveyDuration"); if (d) d.value = String(DEFAULT_SURVEY_DURATION_MS);
+          const r = $("newSurveyRevealInterval"); if (r) r.value = "";
+          const c = $("newSurveyAllowCustom"); if (c) c.checked = false;
+        }
+
+        function clearUsernameForm() {
+          const inp = $("usernameInput");
+          const suffix = window.UsernodeUsernames ? UsernodeUsernames.usernameSuffix(me) : usernameSuffix(me);
+          if (inp) {
+            const full = myUsername || deriveDefaultUsername(me);
+            const base = String(full || "").endsWith(suffix) ? String(full).slice(0, -suffix.length) : String(full || "").replace(/_[A-Za-z0-9]{6}$/, "");
+            inp.value = base || "user";
+          }
+          setText($("usernameSuffix"), suffix);
+        }
+
+        function createSurveyFromForm() {
+          const title = String(($("newSurveyTitle") || {}).value || "").trim();
+          const question = String(($("newSurveyQuestion") || {}).value || "").trim();
+          if (!title) throw new Error("Title is required");
+          if (!question) throw new Error("Question is required");
+          const labels = getSurveyOptionInputs().map(i => i.value.trim()).filter(Boolean);
+          const options = labels.map((label, i) => ({ key: slugify(label) || `opt_${i + 1}`, label }));
+          const activeDurationMs = normalizeSurveyDurationMs(($("newSurveyDuration") || {}).value || DEFAULT_SURVEY_DURATION_MS);
+          const revealRaw = ($("newSurveyRevealInterval") || {}).value;
+          const revealIntervalMs = revealRaw ? Number(revealRaw) : null;
+          const allowCustomOptions = ($("newSurveyAllowCustom") || {}).checked !== false;
+          const id = `custom_${slugify(title) || "survey"}_${Date.now().toString(36)}`;
+          return { id, title, question, options, activeDurationMs, revealIntervalMs, allowCustomOptions };
+        }
+
+        /* ================================================================
+         *  COOLDOWN
+         * ================================================================ */
+        function getMySurveyCreationsInWindow(txs, address) {
+          if (!address) return [];
+          const windowStart = Date.now() - SURVEY_COOLDOWN_MS;
+          const times = [];
+          for (const raw of txs) {
+            const p = parseAppTx(raw);
+            if (!p || p.tx.from !== address || p.memo.type !== "create_survey") continue;
+            if (p.tx.ts > windowStart) times.push(p.tx.ts);
+          }
+          return times.sort((a, b) => a - b);
+        }
+
+        function formatCooldownRemaining() {
+          const windowStart = Date.now() - SURVEY_COOLDOWN_MS;
+          const recent = mySurveyCreationTimes.filter(t => t > windowStart);
+          if (recent.length < MAX_SURVEYS_PER_WINDOW) return null;
+          const diff = (Math.min(...recent) + SURVEY_COOLDOWN_MS) - Date.now();
+          if (diff <= 0) return null;
+          const pad = n => String(n).padStart(2, "0");
+          const totalMin = Math.floor(diff / 60000);
+          return `${pad(Math.floor(totalMin / 60))}h ${pad(totalMin % 60)}m`;
+        }
+
+        function isSurveyCooldownActive() {
+          const windowStart = Date.now() - SURVEY_COOLDOWN_MS;
+          return mySurveyCreationTimes.filter(t => t > windowStart).length >= MAX_SURVEYS_PER_WINDOW;
+        }
+
+        function updateSurveyCooldownUi() {
+          const remaining = formatCooldownRemaining();
+          const onCooldown = !!remaining;
+          const hint = $("surveyCooldownHint");
+          if (hint) { setText(hint, onCooldown ? `You can create another question in ${remaining}.` : ""); show(hint, onCooldown); }
+          const notJoined = me && !JOINED.has(me);
+          const notGenesis = isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me);
+          const blocked = sending || onCooldown || notJoined || notGenesis || !isAdmin;
+          setDisabled($("saveSurveyBtn"), blocked);
+          setDisabled($("newSurveyTitle"), blocked);
+          setDisabled($("newSurveyQuestion"), blocked);
+          getSurveyOptionInputs().forEach(i => setDisabled(i, blocked));
+          setDisabled($("addSurveyOptionBtn"), blocked);
+          setDisabled($("newSurveyDuration"), blocked);
+          setDisabled($("newSurveyRevealInterval"), blocked);
+          setDisabled($("newSurveyAllowCustom"), blocked);
+        }
+
+        /* ================================================================
+         *  TX FLOWS
+         * ================================================================ */
+        async function joinFlow() {
+          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can join");
+          setSending(true);
+          showPending("joinPending", "Joining...");
+          const memo = makeMemo({ app: "opinion-market", type: "join" });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Join Opinion Market", confirmSubtitle: "Register as an Opinion Market participant." });
+          await postActionRefresh();
+        }
+
+        async function voteFlow(optionKey) {
+          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can vote");
+          const s = currentSurvey();
+          if (!s) throw new Error("No question selected");
+          if (s.archived) throw new Error("Archived questions are read-only");
+          setSending(true);
+          showPending("votePending", "Registering vote...");
+          const ki = getIntervalIndex(s, Date.now());
+          const pubkey = await fetchPubkey(s.id, ki, s);
+          let memo;
+          if (pubkey) {
+            const ev = await encryptVote(pubkey, optionKey);
+            memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, ev, ki });
+          } else {
+            memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, choice: optionKey });
+          }
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Record your prediction on-chain." });
+          storeMyVote(s.id, optionKey);
+          await postActionRefresh();
+        }
+
+        async function addOptionFlow(labelRaw) {
+          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can add options");
+          const s = currentSurvey();
+          if (!s) throw new Error("No question selected");
+          if (s.archived) throw new Error("Archived questions are read-only");
+          if (!s.allowCustomOptions) throw new Error("Custom options not allowed");
+          const label = String(labelRaw || "").trim();
+          if (!label) throw new Error("Option text is required");
+          if (myAddedOptionBySurvey[s.id]) throw new Error("You can only add one option per question");
+          setSending(true);
+          showPending("votePending", "Adding option...");
+          const key = slugify(label) || `opt_${Date.now().toString(36)}`;
+          const memo = makeMemo({ app: "opinion-market", type: "add_option", survey: s.id, option: { key, label } });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Add option", confirmSubtitle: "Add a custom option to this question." });
+          await postActionRefresh();
+        }
+
+        async function setUsernameFlow(raw) {
+          if (!raw || !String(raw).trim()) throw new Error("Username is required");
+          setSending(true);
+          showPending("setUsernamePending", "Setting username...");
+          const value = await UsernodeUsernames.setUsername(raw);
+          myUsername = value;
+          setText($("headerUsername"), myUsername);
+          await postActionRefresh();
+        }
+
+        async function placeBetFlow(surveyId, optionKey, credits, side) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          if (!s) throw new Error("Question not found");
+          if (s.archived) throw new Error("Question has ended");
+          if (!JOINED.has(me)) throw new Error("Join first to get credits");
+          if (credits < 1) throw new Error("Minimum bet is 1 credit");
+          if (credits > myCredits()) throw new Error("Insufficient credits");
+          const mkt = MARKETS.get(surveyId);
+          if (mkt) {
+            const poolTotal = Object.values(mkt.pools).reduce((s, p) => s + p.yes + p.no, 0);
+            const maxBet = Math.floor(poolTotal * MAX_BET_POOL_RATIO);
+            if (credits > maxBet) throw new Error("Max bet is " + maxBet + " credits (30% of pool)");
+          }
+          setSending(true);
+          showPending("bsBuyProgress", "Placing bet...");
+          const memoObj = { app: "opinion-market", type: "place_bet", survey: surveyId, option: optionKey, credits };
+          if (side === "no") memoObj.side = "no";
+          const memo = makeMemo(memoObj);
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Place your bet", confirmSubtitle: "This bet is recorded on-chain and cannot be undone." });
+          await postActionRefresh();
+        }
+
+        async function sellSharesFlow(surveyId, optionKey, shares, side) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          if (!s) throw new Error("Question not found");
+          if (s.archived) throw new Error("Question has ended");
+          if (shares <= 0) throw new Error("Must sell at least 1 share");
+          setSending(true);
+          showPending("bsSellProgress", "Selling shares...");
+          const memoObj = { app: "opinion-market", type: "sell_shares", survey: surveyId, option: optionKey, shares };
+          if (side === "no") memoObj.side = "no";
+          const memo = makeMemo(memoObj);
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Sell shares", confirmSubtitle: "This sale is recorded on-chain and cannot be undone." });
+          await postActionRefresh();
+        }
+
+        async function createSurveyFlow() {
+          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can create questions");
+          if (!isAdmin) throw new Error("You don't have permission to create questions");
+          if (isSurveyCooldownActive()) throw new Error(`Please wait ${formatCooldownRemaining() || "some time"} before creating another question.`);
+          if (me && !JOINED.has(me)) throw new Error("Join first to create questions");
+          if (myCredits() < MARKET_ANTE) throw new Error(`You need at least ${MARKET_ANTE} credits to create a question (${MARKET_ANTE} goes to seed the betting pool).`);
+          const survey = createSurveyFromForm();
+          const memo = makeMemo({
+            app: "opinion-market",
+            type: "create_survey",
+            survey: {
+              id: survey.id, title: survey.title, question: survey.question,
+              active_duration_ms: survey.activeDurationMs, options: survey.options,
+              reveal_interval_ms: survey.revealIntervalMs, allow_custom_options: survey.allowCustomOptions,
+            },
+          });
+          if (memo.length > 1024) throw new Error("Question payload too large \u2014 please shorten your title, question, or option labels.");
+          setSending(true);
+          showPending("addSurveyPending", "Creating question...");
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Create question", confirmSubtitle: "Publish a new question on-chain." });
+          await postActionRefresh();
+        }
+
+        async function resolveEarlyFlow(surveyId) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          if (!s) throw new Error("Question not found");
+          if (s.archived) throw new Error("Question already ended");
+          setSending(true);
+          showPending("votePending", "Resolving...");
+          const memo = makeMemo({ app: "opinion-market", type: "resolve_early", survey: surveyId });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Resolve question", confirmSubtitle: "Close this question early." });
+          await postActionRefresh();
+        }
+
+        let _deleteConfirmId = null;
+        let _deleteConfirmTimer = null;
+
+        function requestDeleteConfirm(surveyId) {
+          const btn = $("deleteSurveyBtn");
+          if (!btn) return;
+          if (_deleteConfirmId === surveyId) {
+            executeDeleteSurvey(surveyId);
+            return;
+          }
+          _deleteConfirmId = surveyId;
+          btn.textContent = "\u26A0 Tap again to confirm delete";
+          btn.style.borderColor = "var(--danger)";
+          btn.style.background = "rgba(255,107,107,0.15)";
+          clearTimeout(_deleteConfirmTimer);
+          _deleteConfirmTimer = setTimeout(() => {
+            _deleteConfirmId = null;
+            btn.textContent = "\uD83D\uDDD1 Delete question";
+            btn.style.background = "";
+          }, 4000);
+        }
+
+        async function executeDeleteSurvey(surveyId) {
+          _deleteConfirmId = null;
+          clearTimeout(_deleteConfirmTimer);
+          if (!isAdmin) throw new Error("Only the admin can delete questions");
+          const s = SURVEYS_BY_ID.get(surveyId);
+          if (!s) throw new Error("Question not found");
+          setSending(true);
+          showPending("deletePending", "Deleting...");
+          const memo = makeMemo({ app: "opinion-market", type: "delete_survey", survey: surveyId });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Delete question", confirmSubtitle: "Remove this question from the list." });
+          await postActionRefresh();
+          navigateToList();
+        }
+
+        /* ================================================================
+         *  NAVIGATION
+         * ================================================================ */
+        function syncHash() {
+          if (currentSurveyId) history.replaceState(null, "", "#survey/" + encodeURIComponent(currentSurveyId));
+          else if ($("screenLeaderboard") && !$("screenLeaderboard").classList.contains("hide")) history.replaceState(null, "", "#leaderboard");
+          else if ($("screenInfo") && !$("screenInfo").classList.contains("hide")) history.replaceState(null, "", "#info");
+          else if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+        }
+
+        function navigateToList() {
+          _deleteConfirmId = null;
+          clearTimeout(_deleteConfirmTimer);
+          const delBtn = $("deleteSurveyBtn");
+          if (delBtn) { delBtn.textContent = "\uD83D\uDDD1 Delete question"; delBtn.style.background = ""; }
+          currentSurveyId = null;
+          const joined = me && JOINED.has(me);
+          show($("screenActiveList"), joined);
+          show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
+          show($("screenSurvey"), false);
+          show($("screenLeaderboard"), false);
+          show($("screenInfo"), false);
+          const bb = $("backBtn"); if (bb) bb.style.display = "none";
+          updateCreditsDisplay();
+          syncHash();
+        }
+
+        function navigateToSurvey(id) {
+          currentSurveyId = id;
+          const s = currentSurvey();
+          if (!s) return;
+          show($("screenActiveList"), false);
+          show($("screenArchivedList"), false);
+          show($("screenSurvey"), true);
+          show($("screenLeaderboard"), false);
+          show($("screenInfo"), false);
+          const bb = $("backBtn"); if (bb) bb.style.display = "";
+          setText($("surveyTitle"), s.title);
+          setText($("surveyQuestion"), s.question);
+          const creatorName = (s.createdBy && GLOBAL_USERNAMES.get(s.createdBy)) || (s.createdBy ? deriveDefaultUsername(s.createdBy) : "unknown");
+          setText($("surveyCreatedBy"), "Created by " + creatorName);
+          const vc = countUniqueVoters(latestTxs, s.id);
+          setText($("surveyVoterCount"), vc === 1 ? "1 vote" : `${vc} votes`);
+
+          // Reveal info
+          const revealEl = $("surveyRevealInfo");
+          if (revealEl) {
+            if (s.revealIntervalMs && !s.archived) {
+              const nextCp = getNextCheckpoint(s);
+              if (nextCp) {
+                revealEl.className = "revealNotice";
+                revealEl.style.fontSize = "";
+                revealEl.textContent = "Vote results are hidden until the next reveal. Percentages shown are market odds from betting, not vote counts. Next reveal: " + formatCountdown(nextCp);
+                show(revealEl, true);
+              } else {
+                show(revealEl, false);
+              }
+            } else if (s.revealIntervalMs === null && !s.archived) {
+              revealEl.textContent = "Vote results are hidden until this question ends. Percentages shown are market odds from betting, not vote counts.";
+              revealEl.className = "muted";
+              revealEl.style.fontSize = "12px";
+              show(revealEl, true);
+            } else {
+              show(revealEl, false);
+            }
+          }
+
+          // Countdown
+          updateSurveyCountdown(s);
+
+          // Resolve early button (testing — opt-in via localStorage)
+          show($("resolveEarlyBtn"), ENABLE_RESOLVE_EARLY && !s.archived);
+          show($("deleteSurveyBtn"), isAdmin);
+
+          // Add option button
+          const addOptBtn = $("addOptionToggleBtn");
+          if (addOptBtn) {
+            addOptBtn.style.display = (s.archived || !s.allowCustomOptions) ? "none" : "";
+            setDisabled(addOptBtn, s.archived || !s.allowCustomOptions);
+          }
+          show($("addOptionPanel"), false);
+          const optInp = $("newOptionInput");
+          if (optInp) { optInp.value = ""; setDisabled(optInp, s.archived); }
+          setDisabled($("saveOptionBtn"), s.archived);
+
+          updateCreditsDisplay();
+          syncHash();
+
+          if (latestTxs && latestTxs.length) {
+            renderSurveyDetail(computeResults(latestTxs, me, id));
+          }
+        }
+
+        function navigateToLeaderboard() {
+          currentSurveyId = null;
+          show($("screenActiveList"), false);
+          show($("screenArchivedList"), false);
+          show($("screenSurvey"), false);
+          show($("screenLeaderboard"), true);
+          show($("screenInfo"), false);
+          const bb = $("backBtn"); if (bb) bb.style.display = "";
+          renderLeaderboard();
+          syncHash();
+        }
+
+        function navigateToInfo() {
+          currentSurveyId = null;
+          show($("screenActiveList"), false);
+          show($("screenArchivedList"), false);
+          show($("screenSurvey"), false);
+          show($("screenLeaderboard"), false);
+          show($("screenInfo"), true);
+          const bb = $("backBtn"); if (bb) bb.style.display = "";
+          syncHash();
+        }
+
+        function updateSurveyCountdown(s) {
+          const el = $("surveyCountdown");
+          if (!el) return;
+          if (s.archived) {
+            delete el.dataset.expires;
+            el.textContent = formatArchivedDate(s.expiresAtMs);
+          } else if (s.expiresAtMs) {
+            el.dataset.expires = s.expiresAtMs;
+            el.textContent = "\u23F1 " + formatCountdown(s.expiresAtMs);
+          } else {
+            delete el.dataset.expires;
+            el.style.display = "none";
+          }
+        }
+
+        function updateCreditsDisplay() {
+          const el = $("creditsDisplay");
+          const amt = $("creditsAmount");
+          if (me && JOINED.has(me)) {
+            show(el, true);
+            setText(amt, formatCredits(myCredits()));
+          } else {
+            show(el, false);
+          }
+          show($("leaderboardBtn"), LEADERBOARD.length > 0);
+        }
+
+        /* ================================================================
+         *  RENDERING — Survey List
+         * ================================================================ */
+        function renderSurveyList() {
+          const activeEl = $("activeSurveyList");
+          const archivedEl = $("archivedSurveyList");
+          if (!activeEl || !archivedEl) return;
+          activeEl.textContent = "";
+          archivedEl.textContent = "";
+
+          const active = SURVEYS.filter(s => !s.archived);
+          const archived = SURVEYS.filter(s => s.archived);
+          const _joined = me && JOINED.has(me);
+          const onList = !currentSurveyId
+            && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
+            && (!$("screenInfo") || $("screenInfo").classList.contains("hide"));
+          if (onList) show($("screenArchivedList"), _joined && archived.length > 0);
+
+          if (!active.length) {
+            const e = document.createElement("div");
+            e.className = "muted";
+            e.textContent = "No active questions.";
+            activeEl.appendChild(e);
+          }
+
+          function buildCard(s, badgeText) {
+            const b = document.createElement("button");
+            b.className = "btn";
+            b.style.cssText = "display:grid;gap:4px;text-align:left;";
+
+            const mkt = MARKETS.get(s.id);
+            const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
+
+            // Row 1: title + leading option odds pill
+            const row1 = document.createElement("div");
+            row1.style.cssText = "display:flex;justify-content:space-between;align-items:baseline;gap:8px;";
+            const titleEl = document.createElement("div");
+            titleEl.style.cssText = "font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;";
+            titleEl.textContent = s.title;
+            row1.appendChild(titleEl);
+
+            if (hasMarket && s.options && s.options.length > 0) {
+              let topProb = -1, topIdx = 0;
+              for (let i = 0; i < s.options.length; i++) {
+                const pool = mkt.pools[s.options[i].key];
+                const p = pool && CPMM.cpmmProb ? CPMM.cpmmProb(pool) : 0;
+                if (p > topProb) { topProb = p; topIdx = i; }
+              }
+              const pill = document.createElement("span");
+              pill.style.cssText = "flex:0 0 auto;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;";
+              pill.title = "Market odds from betting, not vote results";
+              const dot = document.createElement("span");
+              dot.style.cssText = "width:8px;height:8px;border-radius:50%;background:" + optionColor(topIdx);
+              pill.appendChild(dot);
+              const lbl = document.createElement("span");
+              lbl.textContent = formatPct(topProb);
+              pill.appendChild(lbl);
+              row1.appendChild(pill);
+            }
+            b.appendChild(row1);
+
+            // Row 2: question text (2-line clamp)
+            const questionEl = document.createElement("div");
+            questionEl.className = "muted";
+            questionEl.style.cssText = "font-size:12px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
+            questionEl.textContent = s.question;
+            b.appendChild(questionEl);
+
+            // Row 3: stats line
+            const votes = countUniqueVoters(latestTxs, s.id);
+            const totalVol = (hasMarket && mkt.optionVolume) ? Object.values(mkt.optionVolume).reduce((a, c) => a + c, 0) : 0;
+            const statsEl = document.createElement("div");
+            statsEl.className = "muted";
+            statsEl.style.cssText = "font-size:11px;font-variant-numeric:tabular-nums;";
+            const parts = [];
+            parts.push(votes === 1 ? "1 vote" : votes + " votes");
+            if (totalVol > 0) parts.push(formatCredits(totalVol) + "c volume");
+            statsEl.textContent = parts.length > 0 ? parts.join(" \u00B7 ") : "";
+            if (badgeText) {
+              if (parts.length > 0) statsEl.appendChild(document.createTextNode(" \u00B7 "));
+              const cdSpan = document.createElement("span");
+              cdSpan.textContent = badgeText;
+              if (s.expiresAtMs && !s.archived) { cdSpan.classList.add("countdownTick"); cdSpan.dataset.expires = s.expiresAtMs; }
+              statsEl.appendChild(cdSpan);
+            }
+            b.appendChild(statsEl);
+
+            b.addEventListener("click", () => { navigateToSurvey(s.id); refreshLoopOnce(); });
+            return b;
+          }
+
+          for (const s of active) activeEl.appendChild(buildCard(s, "\u23F1 " + formatCountdown(s.expiresAtMs)));
+          for (const s of archived) archivedEl.appendChild(buildCard(s, formatArchivedDate(s.expiresAtMs)));
+        }
+
+        /* ================================================================
+         *  SVG ODDS CHART
+         * ================================================================ */
+        const CHART_RANGES = [
+          { label: "10s",  ms: 10_000 },
+          { label: "1m",   ms: 60_000 },
+          { label: "10m",  ms: 600_000 },
+          { label: "1h",   ms: 3_600_000 },
+          { label: "6h",   ms: 21_600_000 },
+          { label: "1d",   ms: 86_400_000 },
+          { label: "All",  ms: 0 },
+        ];
+        let _chartRangeMs = 0;
+
+        function renderOddsChart(container, history, options) {
+          container.textContent = "";
+          if (!history || history.length === 0) return;
+          const last = history[history.length - 1];
+          history = [...history, { ts: Date.now(), probs: { ...last.probs } }];
+
+          const now = Date.now();
+          let tMax = history[history.length - 1].ts;
+          let tMin;
+          if (_chartRangeMs > 0) {
+            tMin = now - _chartRangeMs;
+            const clipped = history.filter(h => h.ts >= tMin);
+            if (clipped.length === 0) {
+              const before = history.filter(h => h.ts < tMin).slice(-1)[0];
+              if (before) history = [{ ts: tMin, probs: { ...before.probs } }, ...clipped];
+              else history = clipped;
+            } else {
+              const beforeIdx = history.findIndex(h => h.ts >= tMin);
+              if (beforeIdx > 0) {
+                const prev = history[beforeIdx - 1];
+                history = [{ ts: tMin, probs: { ...prev.probs } }, ...clipped];
+              } else {
+                history = clipped;
+              }
+            }
+            if (history.length === 0) return;
+            tMax = now;
+          } else {
+            tMin = history[0].ts;
+          }
+
+          const controls = document.createElement("div");
+          controls.className = "chartTimeControls";
+          for (const r of CHART_RANGES) {
+            const btn = document.createElement("button");
+            btn.textContent = r.label;
+            if (r.ms === _chartRangeMs) btn.className = "active";
+            btn.addEventListener("click", () => { _chartRangeMs = r.ms; renderOddsChart(container, MARKETS.get(currentSurveyId)?.history || [], options); });
+            controls.appendChild(btn);
+          }
+          container.appendChild(controls);
+
+          const measuredW = container.clientWidth || 600;
+          const W = Math.max(measuredW, 200), H = 180, PAD_L = 36, PAD_R = 8, PAD_T = 8, PAD_B = 22;
+          const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B;
+          const tRange = Math.max(tMax - tMin, 1);
+          function tx(t) { return PAD_L + ((t - tMin) / tRange) * cw; }
+          function ty(p) { return PAD_T + (1 - p) * ch; }
+
+          const ns = "http://www.w3.org/2000/svg";
+          const svg = document.createElementNS(ns, "svg");
+          svg.setAttribute("width", W);
+          svg.setAttribute("height", H);
+
+          for (const pctLine of [0, 0.25, 0.5, 0.75, 1]) {
+            const line = document.createElementNS(ns, "line");
+            line.setAttribute("x1", PAD_L); line.setAttribute("x2", W - PAD_R);
+            line.setAttribute("y1", ty(pctLine)); line.setAttribute("y2", ty(pctLine));
+            line.setAttribute("stroke", "currentColor"); line.setAttribute("stroke-opacity", "0.08");
+            line.setAttribute("stroke-width", "1"); line.setAttribute("stroke-dasharray", "4 4");
+            svg.appendChild(line);
+            const label = document.createElementNS(ns, "text");
+            label.setAttribute("x", PAD_L - 4);
+            label.setAttribute("y", ty(pctLine) + 3.5);
+            label.setAttribute("text-anchor", "end");
+            label.setAttribute("font-size", "10");
+            label.setAttribute("fill", "currentColor");
+            label.setAttribute("opacity", "0.4");
+            label.textContent = Math.round(pctLine * 100) + "%";
+            svg.appendChild(label);
+          }
+
+          function fmtTime(ms) {
+            const d = new Date(ms);
+            const span = tRange;
+            if (span < 3600000) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+            if (span < 86400000) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+            if (span < 7 * 86400000) return d.toLocaleDateString([], { weekday: "short", hour: "numeric" });
+            return d.toLocaleDateString([], { month: "short", day: "numeric" });
+          }
+          const tTicks = [tMin, tMin + tRange * 0.25, tMin + tRange * 0.5, tMin + tRange * 0.75, tMax];
+          for (const t of tTicks) {
+            const x = tx(t);
+            const tick = document.createElementNS(ns, "line");
+            tick.setAttribute("x1", x); tick.setAttribute("x2", x);
+            tick.setAttribute("y1", ty(0)); tick.setAttribute("y2", ty(0) + 4);
+            tick.setAttribute("stroke", "currentColor"); tick.setAttribute("stroke-opacity", "0.15");
+            tick.setAttribute("stroke-width", "1");
+            svg.appendChild(tick);
+            const tLabel = document.createElementNS(ns, "text");
+            tLabel.setAttribute("x", x);
+            tLabel.setAttribute("y", ty(0) + 15);
+            tLabel.setAttribute("text-anchor", "middle");
+            tLabel.setAttribute("font-size", "9");
+            tLabel.setAttribute("fill", "currentColor");
+            tLabel.setAttribute("opacity", "0.4");
+            tLabel.textContent = fmtTime(t);
+            svg.appendChild(tLabel);
+          }
+
+          const MAX_SPREAD = 8;
+          const OVERLAP_THRESHOLD = 12;
+          const optKeys = options.map(o => o.key);
+          const rawByOpt = {};
+          for (const k of optKeys) rawByOpt[k] = history.filter(h => h.probs && h.probs[k] != null);
+
+          function nudgeAtStep(oi, stepIdx) {
+            const k = optKeys[oi];
+            const raw = rawByOpt[k];
+            if (stepIdx >= raw.length) return 0;
+            const baseY = ty(raw[stepIdx].probs[k]);
+            const ts = raw[stepIdx].ts;
+            const nearby = [];
+            for (let j = 0; j < optKeys.length; j++) {
+              if (j === oi) continue;
+              const jRaw = rawByOpt[optKeys[j]];
+              let best = null;
+              for (let r = 0; r < jRaw.length; r++) {
+                if (jRaw[r].ts <= ts) best = jRaw[r];
+                else break;
+              }
+              if (!best) continue;
+              const otherY = ty(best.probs[optKeys[j]]);
+              if (Math.abs(baseY - otherY) < OVERLAP_THRESHOLD) nearby.push(j);
+            }
+            if (nearby.length === 0) return 0;
+            const group = [oi, ...nearby].sort((a, b) => a - b);
+            const rank = group.indexOf(oi);
+            const step = group.length > 1 ? MAX_SPREAD / (group.length - 1) : 0;
+            return (rank - (group.length - 1) / 2) * step;
+          }
+
+          for (let oi = 0; oi < options.length; oi++) {
+            const optKey = optKeys[oi];
+            const color = optionColor(oi);
+            const raw = rawByOpt[optKey];
+            if (raw.length < 2) continue;
+            const pts = [];
+            for (let i = 0; i < raw.length; i++) {
+              const n = nudgeAtStep(oi, i);
+              const x = tx(raw[i].ts).toFixed(1);
+              const y = (ty(raw[i].probs[optKey]) + n).toFixed(1);
+              if (i > 0) pts.push(`${x},${pts[pts.length - 1].split(",")[1]}`);
+              pts.push(`${x},${y}`);
+            }
+            const polyline = document.createElementNS(ns, "polyline");
+            polyline.setAttribute("points", pts.join(" "));
+            polyline.setAttribute("fill", "none");
+            polyline.setAttribute("stroke", color);
+            polyline.setAttribute("stroke-width", "2.5");
+            polyline.setAttribute("stroke-linejoin", "round");
+            polyline.setAttribute("vector-effect", "non-scaling-stroke");
+            svg.appendChild(polyline);
+
+            const lastPt = raw[raw.length - 1];
+            if (lastPt) {
+              const n = nudgeAtStep(oi, raw.length - 1);
+              const circle = document.createElementNS(ns, "circle");
+              circle.setAttribute("cx", tx(lastPt.ts).toFixed(1));
+              circle.setAttribute("cy", (ty(lastPt.probs[optKey]) + n).toFixed(1));
+              circle.setAttribute("r", "4");
+              circle.setAttribute("fill", color);
+              svg.appendChild(circle);
+            }
+          }
+          const wrapper = document.createElement("div");
+          wrapper.className = "oddsChart";
+          wrapper.appendChild(svg);
+          container.appendChild(wrapper);
+        }
+
+        /* ================================================================
+         *  BOTTOM SHEET CONTROLLER
+         * ================================================================ */
+        let _bsSurveyId = null, _bsOptKey = null, _bsMode = "buy", _bsSide = "yes";
+
+        function openBottomSheet(surveyId, optKey, optIdx, side) {
+          _bsSurveyId = surveyId;
+          _bsOptKey = optKey;
+          _bsMode = "buy";
+          _bsSide = side === "no" ? "no" : "yes";
+          const s = SURVEYS_BY_ID.get(surveyId);
+          const mkt = MARKETS.get(surveyId);
+          const opt = s ? s.options.find(o => o.key === optKey) : null;
+          if (!opt || !mkt) return;
+          const pool = mkt.pools[optKey];
+          const prob = pool && CPMM.cpmmProb ? CPMM.cpmmProb(pool) : 0;
+          const parsed = parseOptionLabel(opt.label);
+          const myYesShares = (mkt.userShares[me] && mkt.userShares[me][optKey]) || 0;
+          const myNoShrs = (mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][optKey]) || 0;
+
+          $("bsOptDot").style.background = optionColor(optIdx);
+          setText($("bsOptName"), parsed.text || opt.key);
+          setText($("bsOptOdds"), formatPct(prob));
+
+          $("bsBuyInput").value = "";
+          setText($("bsBuyPreview"), "");
+          setText($("bsBuyError"), "");
+          $("bsSellInput").value = "";
+          setText($("bsSellPreview"), "");
+          setText($("bsSellError"), "");
+
+          const poolTotal = Object.values(mkt.pools).reduce((a, p) => a + p.yes + p.no, 0);
+          const betCap = Math.floor(poolTotal * MAX_BET_POOL_RATIO);
+          const buyMax = Math.min(Math.floor(myCredits()), betCap || Infinity);
+          $("bsBuyInput").max = String(buyMax);
+          $("bsBuyInput").placeholder = "Credits (max " + buyMax + ")";
+
+          updateBsSideToggle();
+          updateSellLimits();
+
+          const hasSellable = (_bsSide === "no" ? myNoShrs : myYesShares) > 0;
+          $("bsTabSell").disabled = !hasSellable;
+          switchBsTab("buy");
+
+          $("bsBackdrop").classList.add("open");
+          $("bsModal").classList.add("open");
+          document.body.style.overflow = "hidden";
+        }
+
+        function updateBsSideToggle() {
+          $("bsSideYes").classList.toggle("active", _bsSide === "yes");
+          $("bsSideNo").classList.toggle("active", _bsSide === "no");
+          const buyAction = $("bsBuyAction");
+          if (buyAction) buyAction.textContent = _bsSide === "no" ? "Buy No" : "Buy Yes";
+          if (_bsSide === "no") {
+            buyAction.style.background = "var(--danger)";
+          } else {
+            buyAction.style.background = "";
+          }
+        }
+
+        function updateSellLimits() {
+          const mkt = MARKETS.get(_bsSurveyId);
+          if (!mkt || !_bsOptKey) return;
+          const myYes = (mkt.userShares[me] && mkt.userShares[me][_bsOptKey]) || 0;
+          const myNo = (mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][_bsOptKey]) || 0;
+          const sellable = _bsSide === "no" ? myNo : myYes;
+          $("bsSellInput").max = String(sellable);
+          $("bsSellInput").placeholder = "Shares (max " + sellable + ")";
+          $("bsTabSell").disabled = !(sellable > 0);
+        }
+
+        function switchBsSide(side) {
+          _bsSide = side;
+          updateBsSideToggle();
+          updateSellLimits();
+          $("bsBuyInput").value = "";
+          $("bsSellInput").value = "";
+          setText($("bsBuyPreview"), "");
+          setText($("bsSellPreview"), "");
+          setText($("bsBuyError"), "");
+          setText($("bsSellError"), "");
+          if (_bsMode === "buy") updateBuyPreview();
+          else updateSellPreview();
+        }
+
+        function closeBottomSheet() {
+          $("bsBackdrop").classList.remove("open");
+          $("bsModal").classList.remove("open");
+          document.body.style.overflow = "";
+          _bsSurveyId = null;
+          _bsOptKey = null;
+        }
+
+        function openUsernameSheet() {
+          if (sending) return;
+          clearUsernameForm();
+          $("usernameBackdrop").classList.add("open");
+          $("usernameSheet").classList.add("open");
+          document.body.style.overflow = "hidden";
+          const inp = $("usernameInput");
+          if (inp) setTimeout(() => { try { inp.focus(); inp.select(); } catch (_) {} }, 50);
+        }
+
+        function closeUsernameSheet() {
+          $("usernameBackdrop").classList.remove("open");
+          $("usernameSheet").classList.remove("open");
+          document.body.style.overflow = "";
+          const pending = $("setUsernamePending");
+          if (pending) pending.classList.add("hide");
+        }
+
+        function switchBsTab(mode) {
+          _bsMode = mode;
+          $("bsTabBuy").classList.toggle("active", mode === "buy");
+          $("bsTabSell").classList.toggle("active", mode === "sell");
+          show($("bsBuyPanel"), mode === "buy");
+          show($("bsSellPanel"), mode === "sell");
+        }
+
+        function updateBuyPreview() {
+          const mkt = MARKETS.get(_bsSurveyId);
+          if (!mkt || !_bsOptKey) return;
+          const pool = mkt.pools[_bsOptKey];
+          const c = parseInt($("bsBuyInput").value, 10);
+          const preview = $("bsBuyPreview");
+          if (!c || c < 1 || !pool) { setText(preview, ""); return; }
+          const fee = c * FEE_RATE;
+          const net = c - fee;
+          const s = SURVEYS_BY_ID.get(_bsSurveyId);
+          let simShares;
+          if (_bsSide === "no") {
+            simShares = (s && s.options.length >= 2 && CPMM.cpmmArbitrageNo)
+              ? CPMM.cpmmArbitrageNo(mkt.pools, _bsOptKey, net).sharesReceived
+              : (CPMM.cpmmBuyNo ? CPMM.cpmmBuyNo(pool, net) : 0);
+          } else {
+            simShares = (s && s.options.length >= 2 && CPMM.cpmmArbitrage)
+              ? CPMM.cpmmArbitrage(mkt.pools, _bsOptKey, net).sharesReceived
+              : (CPMM.cpmmBuyYes ? CPMM.cpmmBuyYes(pool, net) : 0);
+          }
+          if (simShares <= 0) { setText(preview, ""); return; }
+          const mult = simShares / c;
+          const pricePerShare = (c / simShares).toFixed(2);
+          preview.innerHTML = "";
+          const sp = document.createElement("span");
+          sp.className = _bsSide === "no" ? "err" : "ok";
+          sp.textContent = `~${simShares.toFixed(1)} ${_bsSide} shares`;
+          preview.appendChild(sp);
+          preview.appendChild(document.createTextNode(` @ ${pricePerShare}c/share (${mult.toFixed(2)}x) \u00B7 Fee: ${formatCredits(fee)} (${(FEE_RATE * 100).toFixed(0)}%) \u2014 goes to voter rewards + question creator`));
+        }
+
+        function updateSellPreview() {
+          const mkt = MARKETS.get(_bsSurveyId);
+          if (!mkt || !_bsOptKey) return;
+          const pool = mkt.pools[_bsOptKey];
+          const sh = parseFloat($("bsSellInput").value);
+          const preview = $("bsSellPreview");
+          const myShares = _bsSide === "no"
+            ? ((mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][_bsOptKey]) || 0)
+            : ((mkt.userShares[me] && mkt.userShares[me][_bsOptKey]) || 0);
+          if (!sh || sh <= 0 || sh > myShares || !pool) { setText(preview, ""); return; }
+          let gross = 0;
+          if (_bsSide === "no") {
+            if (CPMM.cpmmSellArbitrageNo && Object.keys(mkt.pools).length > 1) {
+              gross = CPMM.cpmmSellArbitrageNo(mkt.pools, _bsOptKey, sh).creditsReceived;
+            } else if (CPMM.cpmmSellNo) {
+              gross = CPMM.cpmmSellNo(pool, sh);
+            }
+          } else {
+            if (CPMM.cpmmSellArbitrage && Object.keys(mkt.pools).length > 1) {
+              gross = CPMM.cpmmSellArbitrage(mkt.pools, _bsOptKey, sh).creditsReceived;
+            } else if (CPMM.cpmmSellYes) {
+              gross = CPMM.cpmmSellYes(pool, sh);
+            }
+          }
+          const fee = gross * FEE_RATE;
+          const net = gross - fee;
+          const pricePerShare = (net / sh).toFixed(2);
+          setText(preview, `You receive: ${formatCredits(net)} (${pricePerShare}c/share) \u00B7 Fee: ${formatCredits(fee)} (${(FEE_RATE * 100).toFixed(0)}%) \u2014 goes to voter rewards + question creator`);
+        }
+
+        /* ================================================================
+         *  RENDERING — Survey Detail (votes + results + market + settled)
+         * ================================================================ */
+        function renderSurveyDetail(res) {
+          if (!res || !res.survey) return;
+          const _scrollEl = $("scrollRoot");
+          const _scrollY = _scrollEl ? _scrollEl.scrollTop : 0;
+
+          const s = res.survey;
+          const mkt = MARKETS.get(s.id);
+          const settlement = SETTLEMENTS.get(s.id);
+
+          const vc = countUniqueVoters(latestTxs, s.id);
+          const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
+          const canBet = !s.archived && JOINED.has(me);
+          const meVoteKey = res.meEntry && res.meEntry.voteKey;
+          const meHasVoted = res.meEntry && res.meEntry.hasVoted;
+          const myPreviousVote = meVoteKey || ((meHasVoted || _pendingVotes.has(s.id)) ? getStoredVote(s.id) : null);
+
+          const _focusEl = document.activeElement;
+          const _isFocusedInput = _focusEl && (_focusEl.tagName === "INPUT" || _focusEl.tagName === "TEXTAREA");
+
+          // --- Header area: volume + votes ---
+          const totalVolume = (hasMarket && mkt.optionVolume) ? Object.values(mkt.optionVolume).reduce((a, b) => a + b, 0) : 0;
+          setText($("surveyVoterCount"), `${formatCredits(totalVolume)}c total volume \u00B7 ${vc} vote${vc !== 1 ? "s" : ""}`);
+
+          // --- Vote options (new unified layout for active surveys) ---
+          const voteList = $("voteOptionsList");
+          if (voteList && !(_isFocusedInput && voteList.contains(_focusEl))) {
+            const _vpEl = voteList.querySelector("#votePending");
+            if (_vpEl) _vpEl.remove();
+            voteList.textContent = "";
+
+            if (!s.archived) {
+              // Odds summary row
+              if (hasMarket) {
+                const oddsHeader = document.createElement("div");
+                oddsHeader.className = "muted";
+                oddsHeader.style.cssText = "font-size:11px;margin-bottom:4px;";
+                oddsHeader.textContent = "Market odds";
+                voteList.appendChild(oddsHeader);
+                const summary = document.createElement("div");
+                summary.className = "oddsSummary";
+                for (let oi = 0; oi < s.options.length; oi++) {
+                  const opt = s.options[oi];
+                  const pool = mkt.pools[opt.key];
+                  const prob = pool && CPMM.cpmmProb ? CPMM.cpmmProb(pool) : 0;
+                  const item = document.createElement("span");
+                  item.className = "oddsSummary-item";
+                  const dot = document.createElement("span");
+                  dot.className = "optDot";
+                  dot.style.background = optionColor(oi);
+                  const parsed = parseOptionLabel(opt.label);
+                  const lbl = document.createElement("span");
+                  lbl.textContent = (parsed.text || opt.key) + " " + formatPct(prob);
+                  item.appendChild(dot);
+                  item.appendChild(lbl);
+                  summary.appendChild(item);
+                }
+                voteList.appendChild(summary);
+              }
+
+              // Odds chart — append container first so clientWidth is measurable
+              if (hasMarket && mkt.history && mkt.history.length > 0) {
+                const chartContainer = document.createElement("div");
+                chartContainer.style.cssText = "margin:4px 0 8px;overflow:hidden;";
+                voteList.appendChild(chartContainer);
+                renderOddsChart(chartContainer, mkt.history, s.options);
+              }
+
+              // Vote status
+              const voteStatus = document.createElement("div");
+              voteStatus.className = "voteStatus";
+              voteStatus.style.cssText = "margin:6px 0 10px;";
+              if (myPreviousVote) {
+                const prevOpt = s.options.find(o => o.key === myPreviousVote);
+                const prevIdx = s.options.findIndex(o => o.key === myPreviousVote);
+                if (prevOpt) {
+                  const parsed = parseOptionLabel(prevOpt.label);
+                  const dot = document.createElement("span");
+                  dot.className = "optDot";
+                  dot.style.background = optionColor(prevIdx >= 0 ? prevIdx : 0);
+                  dot.style.verticalAlign = "-1px";
+                  voteStatus.appendChild(document.createTextNode("Your vote: "));
+                  voteStatus.appendChild(dot);
+                  voteStatus.appendChild(document.createTextNode(" " + (parsed.text || prevOpt.key)));
+                }
+              } else {
+                voteStatus.className = "voteStatus muted";
+                voteStatus.textContent = "Select an option to vote.";
+              }
+              voteList.appendChild(voteStatus);
+
+              // Section hint: betting
+              if (hasMarket && canBet) {
+                const betHeader = document.createElement("div");
+                betHeader.className = "muted";
+                betHeader.style.cssText = "font-size:11px;margin:8px 0 2px;";
+                betHeader.textContent = "Each option has Vote (free) and Bet (use credits) actions.";
+                voteList.appendChild(betHeader);
+                if (!localStorage.getItem("om:bettingHintSeen")) {
+                  const hint = document.createElement("div");
+                  hint.style.cssText = "font-size:12px;color:var(--muted);padding:6px 10px;border-radius:8px;background:var(--border);margin-bottom:6px;cursor:pointer;";
+                  hint.textContent = "Shares cost between 0c and 100c. If your outcome wins, each share pays 100c. Buy low, win big. (tap to dismiss)";
+                  hint.addEventListener("click", () => { hint.remove(); localStorage.setItem("om:bettingHintSeen", "1"); });
+                  voteList.appendChild(hint);
+                }
+              }
+
+              // Option cards
+              for (let oi = 0; oi < s.options.length; oi++) {
+                const opt = s.options[oi];
+                const pool = hasMarket ? mkt.pools[opt.key] : null;
+                const prob = pool && CPMM.cpmmProb ? CPMM.cpmmProb(pool) : 0;
+                const myShares = (hasMarket && mkt.userShares[me] && mkt.userShares[me][opt.key]) || 0;
+                const myNoShrs = (hasMarket && mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][opt.key]) || 0;
+                const optVol = (hasMarket && mkt.optionVolume) ? (mkt.optionVolume[opt.key] || 0) : 0;
+                const parsed = parseOptionLabel(opt.label);
+
+                const card = document.createElement("div");
+                card.className = "optionCard";
+
+                // Header: dot + name + added-by + odds
+                const header = document.createElement("div");
+                header.className = "optionCard-header";
+                const dot = document.createElement("span");
+                dot.className = "optDot";
+                dot.style.background = optionColor(oi);
+                header.appendChild(dot);
+
+                const nameEl = document.createElement("span");
+                nameEl.className = "optionCard-name";
+                nameEl.textContent = parsed.text || opt.key;
+                header.appendChild(nameEl);
+
+                if (opt.userAdded && opt.addedBy) {
+                  const by = document.createElement("span");
+                  by.className = "optionCard-addedBy";
+                  by.textContent = "by " + (GLOBAL_USERNAMES.get(opt.addedBy) || deriveDefaultUsername(opt.addedBy));
+                  header.appendChild(by);
+                }
+
+                if (hasMarket && prob > 0) {
+                  const oddsEl = document.createElement("span");
+                  oddsEl.className = "optionCard-odds";
+                  oddsEl.textContent = formatPct(prob);
+                  header.appendChild(oddsEl);
+                }
+                card.appendChild(header);
+
+                if (parsed.imageUrl) card.appendChild(makeOptionImage(parsed.imageUrl, parsed.text));
+                const linksEl = makeOptionLinks(parsed.linkUrls);
+                if (linksEl) card.appendChild(linksEl);
+
+                // Meta: volume + position (YES and NO shares)
+                const meta = document.createElement("div");
+                meta.className = "optionCard-meta";
+                let metaText = `${formatCredits(optVol)}c volume`;
+                if (myShares > 0) {
+                  const potentialWin = myShares * 1.0;
+                  metaText += ` \u00B7 ${myShares.toFixed(1)} yes shares \u2192 ${formatCredits(potentialWin)}c if wins`;
+                }
+                if (myNoShrs > 0) {
+                  const potentialWin = myNoShrs * 1.0;
+                  metaText += ` \u00B7 ${myNoShrs.toFixed(1)} no shares \u2192 ${formatCredits(potentialWin)}c if loses`;
+                }
+                meta.textContent = metaText;
+                card.appendChild(meta);
+
+                // Vote row
+                const voteRow = document.createElement("div");
+                voteRow.className = "optionCard-actions";
+                const radio = document.createElement("input");
+                radio.type = "radio";
+                radio.name = "voteOpt_" + s.id;
+                radio.className = "optionCard-radio";
+                radio.disabled = sending || s.archived;
+                radio.checked = myPreviousVote === opt.key;
+                radio.addEventListener("change", async () => {
+                  if (sending || s.archived) return;
+                  try { await voteFlow(opt.key); setSending(false, true); }
+                  catch (e) { setSending(false, false); showInlineError(e.message || e); }
+                });
+                const voteLabel = document.createElement("label");
+                voteLabel.className = "optionCard-voteLabel";
+                voteLabel.style.marginLeft = "0";
+                voteLabel.appendChild(radio);
+                voteLabel.appendChild(document.createTextNode(" Vote"));
+                voteRow.appendChild(voteLabel);
+                card.appendChild(voteRow);
+
+                // Bet row
+                if (canBet && hasMarket && pool) {
+                  const betRow = document.createElement("div");
+                  betRow.className = "optionCard-betRow";
+                  const costPerShare = CPMM.cpmmAmountForShares ? CPMM.cpmmAmountForShares(pool, 1, "YES") : 0;
+                  const buyBtn = document.createElement("button");
+                  buyBtn.className = "optionCard-buyBtn";
+                  buyBtn.disabled = sending;
+                  buyBtn.textContent = "Yes " + formatCredits(costPerShare) + "c/share";
+                  buyBtn.title = "Cost per share. Pays 1.00c if this option wins.";
+                  buyBtn.addEventListener("click", () => openBottomSheet(s.id, opt.key, oi, "yes"));
+                  betRow.appendChild(buyBtn);
+
+                  const noCostPerShare = CPMM.cpmmAmountForShares ? CPMM.cpmmAmountForShares(pool, 1, "NO") : 0;
+                  const buyNoBtn = document.createElement("button");
+                  buyNoBtn.className = "optionCard-buyBtn optionCard-buyNoBtn";
+                  buyNoBtn.disabled = sending;
+                  buyNoBtn.textContent = "No " + formatCredits(noCostPerShare) + "c/share";
+                  buyNoBtn.title = "Cost per share. Pays 1.00c if this option loses.";
+                  buyNoBtn.addEventListener("click", () => openBottomSheet(s.id, opt.key, oi, "no"));
+                  betRow.appendChild(buyNoBtn);
+                  card.appendChild(betRow);
+                }
+
+                voteList.appendChild(card);
+              }
+
+              // Vote tx progress — use saved ref since getElementById can't find detached nodes
+              const votePendingEl = _vpEl || $("votePending");
+              if (votePendingEl) voteList.appendChild(votePendingEl);
+            } else {
+              // Archived: show final odds chart
+              if (hasMarket && mkt.history && mkt.history.length > 0) {
+                const chartContainer = document.createElement("div");
+                chartContainer.style.cssText = "margin:4px 0 8px;overflow:hidden;";
+                voteList.appendChild(chartContainer);
+                renderOddsChart(chartContainer, mkt.history, s.options);
+              }
+
+              // Archived: show results with vote bars (existing pattern)
+              const counts = res.revealedCounts || res.counts;
+              const total = s.options.reduce((acc, o) => acc + (counts[o.key] || 0), 0);
+              const pct = n => total > 0 ? Math.round((n / total) * 100) : 0;
+              for (let oi = 0; oi < s.options.length; oi++) {
+                const opt = s.options[oi];
+                const count = counts[opt.key] || 0;
+                const row = document.createElement("div");
+                row.style.cssText = "margin-bottom:8px;";
+                if (settlement && (settlement.winners || []).includes(opt.key)) row.classList.add("settledWinner");
+
+                const top = document.createElement("div");
+                top.style.cssText = "display:flex;justify-content:space-between;font-size:13px;align-items:center;gap:6px;";
+                const leftWrap = document.createElement("span");
+                leftWrap.style.cssText = "display:inline-flex;align-items:center;gap:5px;";
+                const dot = document.createElement("span");
+                dot.className = "optDot";
+                dot.style.background = optionColor(oi);
+                leftWrap.appendChild(dot);
+                const parsed = parseOptionLabel(opt.label);
+                const lbl = document.createElement("span");
+                lbl.textContent = parsed.text || opt.key;
+                leftWrap.appendChild(lbl);
+                const cnt = document.createElement("span");
+                cnt.className = "muted";
+                cnt.textContent = `${count} (${pct(count)}%)`;
+                top.appendChild(leftWrap);
+                top.appendChild(cnt);
+                row.appendChild(top);
+
+                const bar = document.createElement("div");
+                bar.className = "bar";
+                if (count === 0) bar.style.borderColor = "transparent";
+                const inner = document.createElement("div");
+                inner.style.width = pct(count) + "%";
+                inner.style.background = optionColor(oi);
+                bar.appendChild(inner);
+                row.appendChild(bar);
+
+                voteList.appendChild(row);
+              }
+            }
+          }
+
+          // --- Results section (hide for active surveys in new layout) ---
+          const resultsContent = $("resultsContent");
+          if (resultsContent) {
+            resultsContent.textContent = "";
+            if (!s.archived) {
+              show($("resultsSection"), false);
+            } else {
+              show($("resultsSection"), false);
+            }
+          }
+
+          // --- Market section (hide for active surveys — absorbed into option cards) ---
+          const marketContent = $("marketContent");
+          if (marketContent) {
+            marketContent.textContent = "";
+            if (!s.archived) {
+              show($("marketSection"), false);
+            } else {
+              show($("marketSection"), false);
+            }
+          }
+
+          // --- Settled section ---
+          const settledSection = $("settledSection");
+          const settledContent = $("settledContent");
+          if (settledSection && settledContent) {
+            if (s.archived && settlement && settlement.totalPool > 0) {
+              show(settledSection, true);
+              settledContent.textContent = "";
+
+              const sWinners = settlement.winners || (settlement.winner ? [settlement.winner] : []);
+              if (sWinners.length === 1) {
+                const winOpt = s.options.find(o => o.key === sWinners[0]);
+                const winParsed = winOpt ? parseOptionLabel(winOpt.label) : null;
+                const winEl = document.createElement("div");
+                winEl.className = "settledWinner";
+                winEl.style.cssText = "padding:8px 12px;margin-bottom:8px;";
+                const wLabel = document.createElement("strong");
+                wLabel.textContent = "Winner: " + (winParsed ? winParsed.text : sWinners[0]);
+                winEl.appendChild(wLabel);
+                settledContent.appendChild(winEl);
+              } else if (sWinners.length > 1) {
+                const tieEl = document.createElement("div");
+                tieEl.className = "settledWinner";
+                tieEl.style.cssText = "padding:8px 12px;margin-bottom:8px;";
+                const names = sWinners.map(k => {
+                  const o = s.options.find(o => o.key === k);
+                  const p = o ? parseOptionLabel(o.label) : null;
+                  return p ? p.text : k;
+                });
+                const wLabel = document.createElement("strong");
+                const pct = Math.round(100 / sWinners.length);
+                wLabel.textContent = "Tied: " + names.join(", ") + ` (${pct}% each)`;
+                tieEl.appendChild(wLabel);
+                settledContent.appendChild(tieEl);
+              } else {
+                const refundEl = document.createElement("p");
+                refundEl.className = "muted";
+                refundEl.textContent = "Market voided \u2014 all bets refunded proportionally.";
+                settledContent.appendChild(refundEl);
+              }
+
+              // Payouts
+              const payouts = Object.entries(settlement.payouts).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+              if (payouts.length > 0) {
+                const payTitle = document.createElement("div");
+                payTitle.style.cssText = "font-size:12px;color:var(--muted);margin:8px 0 4px;";
+                payTitle.textContent = "Payouts:";
+                settledContent.appendChild(payTitle);
+                for (const [pubkey, amount] of payouts.slice(0, 10)) {
+                  const row = document.createElement("div");
+                  row.style.cssText = "display:flex;justify-content:space-between;font-size:13px;padding:2px 0;";
+                  const name = document.createElement("span");
+                  name.textContent = GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey);
+                  const amt = document.createElement("span");
+                  amt.style.fontVariantNumeric = "tabular-nums";
+                  amt.textContent = formatCredits(amount);
+                  row.appendChild(name);
+                  row.appendChild(amt);
+                  settledContent.appendChild(row);
+                }
+              }
+
+              // Voter dividend
+              if (settlement.voterDividendPer > 0) {
+                const divEl = document.createElement("div");
+                divEl.className = "muted";
+                divEl.style.cssText = "font-size:12px;margin-top:8px;";
+                divEl.textContent = `Voter dividend: ${formatCredits(settlement.voterDividendPer)} per voter (${settlement.voterCount} voters)`;
+                settledContent.appendChild(divEl);
+              }
+
+              // My P&L
+              if (me && mkt) {
+                const myPayout = settlement.payouts[me] || 0;
+                const iVoted = settlement.voters && settlement.voters.has(me);
+                const myDiv = iVoted && settlement.voterDividendPer > 0 ? settlement.voterDividendPer : 0;
+                const myShares = mkt.userShares[me] || {};
+                const myNoSh = (mkt.userNoShares || {})[me] || {};
+                const hadBets = Object.values(myShares).some(s => s > 0) || Object.values(myNoSh).some(s => s > 0);
+                if (hadBets || myDiv > 0) {
+                  const plEl = document.createElement("div");
+                  plEl.style.cssText = "margin-top:8px;padding:8px;border-radius:8px;border:1px solid var(--border);font-size:13px;";
+                  const total = myPayout + myDiv;
+                  plEl.textContent = `Your return: ${formatCredits(total)} credits` + (myDiv > 0 ? ` (includes ${formatCredits(myDiv)} voter dividend)` : "");
+                  settledContent.appendChild(plEl);
+                }
+              }
+
+              // Surprise metric
+              const surpriseKeys = Object.entries(settlement.surprise || {}).filter(([, v]) => Math.abs(v) >= 0.01);
+              if (surpriseKeys.length > 0) {
+                const sTitle = document.createElement("div");
+                sTitle.style.cssText = "font-size:12px;color:var(--muted);margin:12px 0 4px;";
+                sTitle.textContent = "Surprise Index";
+                settledContent.appendChild(sTitle);
+                const sExplain = document.createElement("div");
+                sExplain.style.cssText = "font-size:11px;color:var(--muted);margin-bottom:4px;";
+                sExplain.textContent = "How much the actual votes differed from what bettors predicted. Positive means more popular than expected.";
+                settledContent.appendChild(sExplain);
+                for (const [key, val] of surpriseKeys) {
+                  const opt = s.options.find(o => o.key === key);
+                  const parsed = opt ? parseOptionLabel(opt.label) : null;
+                  const row = document.createElement("div");
+                  row.style.cssText = "display:flex;gap:8px;align-items:center;font-size:12px;padding:2px 0;";
+                  const name = document.createElement("span");
+                  name.textContent = parsed ? parsed.text : key;
+                  const tag = document.createElement("span");
+                  tag.className = "surpriseTag";
+                  const sign = val > 0 ? "+" : "";
+                  tag.textContent = `${sign}${(val * 100).toFixed(1)}%`;
+                  if (val > 0) tag.title = "More popular than the market predicted";
+                  else tag.title = "Less popular than the market predicted";
+                  row.appendChild(name);
+                  row.appendChild(tag);
+                  settledContent.appendChild(row);
+                }
+              }
+            } else {
+              show(settledSection, false);
+            }
+          }
+
+          // Update add-option state
+          const addOptBtn = $("addOptionToggleBtn");
+          if (addOptBtn) {
+            addOptBtn.style.display = (s.archived || !s.allowCustomOptions) ? "none" : "";
+            setDisabled(addOptBtn, !!res.myAddedOption || sending || s.archived || !s.allowCustomOptions);
+          }
+          myAddedOptionBySurvey[s.id] = res.myAddedOption || null;
+          const addOptHint = $("addOptionHint");
+          if (addOptHint) {
+            setText(addOptHint, res.myAddedOption ? `You already added: "${res.myAddedOption.label}"` : "You can add one option.");
+          }
+          const optInp = $("newOptionInput");
+          if (optInp) setDisabled(optInp, !!res.myAddedOption || sending || s.archived);
+          setDisabled($("saveOptionBtn"), !!res.myAddedOption || sending || s.archived);
+
+          if (_scrollEl) _scrollEl.scrollTop = _scrollY;
+        }
+
+        /* ================================================================
+         *  RENDERING — Leaderboard
+         * ================================================================ */
+        function renderLeaderboard() {
+          const el = $("leaderboardContent");
+          if (!el) return;
+          el.textContent = "";
+          if (LEADERBOARD.length === 0) {
+            const p = document.createElement("p");
+            p.className = "muted";
+            p.textContent = "No settled markets yet.";
+            el.appendChild(p);
+            return;
+          }
+          LEADERBOARD.forEach((entry, i) => {
+            const row = document.createElement("div");
+            row.className = "leaderRow";
+            const rank = document.createElement("div");
+            rank.className = "leaderRank";
+            rank.textContent = String(i + 1);
+            const name = document.createElement("div");
+            name.className = "leaderName";
+            name.textContent = entry.username;
+            if (entry.pubkey === me) name.style.fontWeight = "700";
+            const earnings = document.createElement("div");
+            earnings.className = "leaderStat";
+            earnings.textContent = formatCredits(entry.totalEarnings);
+            const wr = document.createElement("div");
+            wr.className = "leaderStat";
+            wr.style.minWidth = "60px";
+            wr.textContent = `${entry.marketsWon}/${entry.marketsParticipated} (${Math.round(entry.winRate * 100)}%)`;
+            row.appendChild(rank);
+            row.appendChild(name);
+            row.appendChild(earnings);
+            row.appendChild(wr);
+            el.appendChild(row);
+          });
+        }
+
+        /* ================================================================
+         *  VOTE DECRYPTION PIPELINE
+         * ================================================================ */
+        async function decryptVoteMemos(txs) {
+          PUBKEY_MAP = new Map();
+          PRIVKEY_MAP = new Map();
+          for (const raw of txs) {
+            const p = parseAppTx(raw);
+            if (!p) continue;
+            if (p.memo.type === "publish_pubkeys" && p.memo.keys && p.memo.survey) {
+              const m = PUBKEY_MAP.get(p.memo.survey) || new Map();
+              for (const [ki, pub] of Object.entries(p.memo.keys)) m.set(Number(ki), pub);
+              PUBKEY_MAP.set(p.memo.survey, m);
+            }
+            if (p.memo.type === "reveal_key" && p.memo.survey != null && p.memo.ki != null && p.memo.d) {
+              const m = PRIVKEY_MAP.get(p.memo.survey) || new Map();
+              m.set(Number(p.memo.ki), p.memo.d);
+              PRIVKEY_MAP.set(p.memo.survey, m);
+            }
+          }
+          const result = [];
+          for (const raw of txs) {
+            const txId = raw.tx_id || raw.id || raw.txid || raw.hash || null;
+            if (txId && _decryptCache.has(txId)) { result.push(_decryptCache.get(txId)); continue; }
+            const p = parseAppTx(raw);
+            if (!p || p.memo.type !== "vote" || !p.memo.ev || p.memo.ki == null) {
+              if (txId) _decryptCache.set(txId, raw);
+              result.push(raw); continue;
+            }
+            const surveyKeys = PRIVKEY_MAP.get(p.memo.survey);
+            const dScalar = surveyKeys ? surveyKeys.get(Number(p.memo.ki)) : null;
+            const pubMap = PUBKEY_MAP.get(p.memo.survey);
+            const pub = pubMap ? pubMap.get(Number(p.memo.ki)) : null;
+            if (!dScalar || !pub) {
+              result.push(raw); continue;
+            }
+            try {
+              const choice = await decryptVote(dScalar, pub, p.memo.ev);
+              const newMemo = Object.assign({}, p.memo, { choice });
+              delete newMemo.ev;
+              const newRaw = Object.assign({}, raw, { memo: JSON.stringify(newMemo) });
+              if (txId) _decryptCache.set(txId, newRaw);
+              result.push(newRaw);
+            } catch (e) {
+              console.warn("Vote decryption failed:", e.message);
+              result.push(raw);
+            }
+          }
+          return result;
+        }
+
+        async function fetchPubkey(surveyId, ki, survey) {
+          const m = PUBKEY_MAP.get(surveyId);
+          if (m && m.has(ki)) return m.get(ki);
+          try {
+            const params = `createdAtMs=${survey.createdAtMs}&expiresAtMs=${survey.expiresAtMs}` +
+              (survey.revealIntervalMs ? `&revealIntervalMs=${survey.revealIntervalMs}` : "");
+            const resp = await fetch(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`);
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data.pubkeys && data.pubkeys[String(ki)]) return data.pubkeys[String(ki)];
+            }
+          } catch (_) {}
+          return null;
+        }
+
+        /* ================================================================
+         *  REFRESH LOOP
+         * ================================================================ */
+        function getMyLatestUsername(txs, address) {
+          if (!address) return null;
+          // Global identity takes precedence
+          if (window.UsernodeUsernames) {
+            const global = UsernodeUsernames.getUsernameSync(address);
+            if (global && global !== UsernodeUsernames.defaultUsername(address)) return global;
+          }
+          // Fall back to legacy per-app usernames
+          let latest = null, latestTs = -1;
+          for (const raw of txs) {
+            const p = parseAppTx(raw);
+            if (!p || p.tx.from !== address || p.memo.type !== "set_username") continue;
+            const u = normalizeUsername(p.memo.username, deriveDefaultUsername(address), address);
+            if (p.tx.ts >= latestTs) { latestTs = p.tx.ts; latest = u; }
+          }
+          return latest;
+        }
+
+        async function postActionRefresh() {
+          _lastRebuildTxCount = -1;
+          await refreshLoopOnce();
+          setTimeout(refreshLoopOnce, 1500);
+          setTimeout(refreshLoopOnce, 3500);
+        }
+
+        async function refreshLoopOnce() {
+          try {
+            if (window.UsernodeUsernames) await UsernodeUsernames.refresh();
+            const rawTxs = await getAppTransactions(2000);
+            const noNewTxs = rawTxs.length === _lastRebuildTxCount;
+            if (noNewTxs) {
+              if (currentSurveyId && latestTxs) {
+                renderSurveyDetail(computeResults(latestTxs, me, currentSurveyId));
+              }
+              return;
+            }
+            const txs = await decryptVoteMemos(rawTxs);
+            latestTxs = txs;
+            _lastRebuildTxCount = rawTxs.length;
+
+            const latestUsername = getMyLatestUsername(txs, me);
+            if (latestUsername) { myUsername = latestUsername; setText($("headerUsername"), myUsername); }
+
+            rebuildState(txs);
+            if (_explicitAdminPubkey) {
+              isAdmin = !!me && me === _explicitAdminPubkey;
+            } else {
+              isAdmin = !!me && !!_firstJoiner && me === _firstJoiner;
+            }
+            const addBtn = $("addSurveyBtn");
+            if (addBtn) { addBtn.style.opacity = isAdmin ? "" : "0.45"; addBtn.style.cursor = isAdmin ? "" : "not-allowed"; addBtn.title = isAdmin ? "" : "Only admins can create questions for now"; }
+            updateCreditsDisplay();
+
+            // Onboarding — show join screen and hide surveys until joined
+            const joined = me && JOINED.has(me);
+            show($("onboardingPanel"), me && !joined);
+            const onList = !currentSurveyId
+              && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
+              && (!$("screenInfo") || $("screenInfo").classList.contains("hide"));
+            if (onList) {
+              show($("screenActiveList"), joined);
+              show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
+            }
+
+            renderSurveyList();
+
+            mySurveyCreationTimes = getMySurveyCreationsInWindow(txs, me);
+            updateSurveyCooldownUi();
+
+            if (currentSurveyId && !SURVEYS_BY_ID.has(currentSurveyId)) navigateToList();
+
+            if (currentSurveyId) {
+              const res = computeResults(txs, me, currentSurveyId);
+              renderSurveyDetail(res);
+              const s = res.survey;
+              if (s) updateSurveyCountdown(s);
+            }
+
+            if ($("screenLeaderboard") && !$("screenLeaderboard").classList.contains("hide")) renderLeaderboard();
+          } catch (e) { console.error("Refresh error:", e); }
+        }
+
+        /* ================================================================
+         *  INIT
+         * ================================================================ */
+        async function init() {
+          attachRubberBand();
+
+          try { me = await getNodeAddress(); } catch (_) {}
+          myUsername = deriveDefaultUsername(me);
+          setText($("headerUsername"), myUsername);
+
+          const mockEnabled = window.usernode && typeof window.usernode.isMockEnabled === "function"
+            ? await window.usernode.isMockEnabled() : false;
+          if (!mockEnabled) {
+            try {
+              chainId = await discoverChainId();
+              window.usernode = window.usernode || {};
+              window.usernode.transactionsBaseUrl = `${EXPLORER_BASE}/${chainId}`;
+            } catch (e) { console.warn("Could not discover chain ID:", e); }
+          }
+
+          if (window.UsernodeUsernames) {
+            try {
+              await UsernodeUsernames.init();
+              const globalName = UsernodeUsernames.getUsernameSync(me);
+              if (globalName && globalName !== deriveDefaultUsername(me)) {
+                myUsername = globalName;
+                setText($("headerUsername"), myUsername);
+              }
+            } catch (_) {}
+          }
+
+          try {
+            const cfgResp = await fetch("/__config/opinion-market");
+            if (cfgResp.ok) {
+              const cfg = await cfgResp.json();
+              if (Array.isArray(cfg.genesis_accounts) && cfg.genesis_accounts.length > 0) {
+                GENESIS_ACCOUNTS = new Set(cfg.genesis_accounts);
+                console.log(`[om] genesis accounts loaded: ${GENESIS_ACCOUNTS.size}`);
+              }
+              if (cfg.admin_pubkey) {
+                _explicitAdminPubkey = cfg.admin_pubkey;
+                isAdmin = !!me && me === cfg.admin_pubkey;
+              } else {
+                isAdmin = !!me && !!_firstJoiner && me === _firstJoiner;
+              }
+            }
+          } catch (_) {}
+          if (!isAdmin) {
+            const btn = $("addSurveyBtn");
+            if (btn) { btn.style.opacity = "0.45"; btn.style.cursor = "not-allowed"; btn.title = "Only admins can create questions for now"; }
+          }
+          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) {
+            const joinBtn = $("joinBtn");
+            if (joinBtn) { joinBtn.disabled = true; joinBtn.title = "Only genesis ledger participants can join"; }
+          }
+
+          const initialHash = location.hash || "";
+
+          setSending(false);
+          navigateToList();
+
+          // --- Event listeners ---
+          function navigateFromHash(hash) {
+            const h = typeof hash === "string" ? hash : (location.hash || "");
+            if (h === "#leaderboard") { navigateToLeaderboard(); return; }
+            if (h === "#info") { navigateToInfo(); return; }
+            const m = h.match(/^#survey\/(.+)$/);
+            if (m) {
+              const id = decodeURIComponent(m[1]);
+              if (SURVEYS_BY_ID.has(id)) { navigateToSurvey(id); refreshLoopOnce(); return; }
+            }
+            navigateToList();
+          }
+          window.addEventListener("hashchange", () => navigateFromHash());
+
+          $("backBtn").addEventListener("click", navigateToList);
+
+          $("headerUsernameBtn").addEventListener("click", () => {
+            if (sending) return;
+            const sheet = $("usernameSheet");
+            if (sheet && sheet.classList.contains("open")) closeUsernameSheet();
+            else openUsernameSheet();
+          });
+
+          $("usernameBackdrop").addEventListener("click", closeUsernameSheet);
+
+          $("cancelUsernameBtn").addEventListener("click", closeUsernameSheet);
+
+          $("saveUsernameBtn").addEventListener("click", async () => {
+            try {
+              await setUsernameFlow(($("usernameInput") || {}).value || "");
+              setSending(false, true);
+              closeUsernameSheet();
+            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+          });
+
+          window.addEventListener("keydown", (e) => {
+            if (e.key !== "Escape") return;
+            if ($("usernameSheet").classList.contains("open")) closeUsernameSheet();
+          });
+
+          $("joinBtn").addEventListener("click", async () => {
+            try { await joinFlow(); setSending(false, true); }
+            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+          });
+
+          $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
+          $("infoBtn").addEventListener("click", navigateToInfo);
+
+          let _resolveConfirmId = null, _resolveConfirmTimer = null;
+          $("resolveEarlyBtn").addEventListener("click", async () => {
+            const s = currentSurvey();
+            if (!s || s.archived || sending) return;
+            const btn = $("resolveEarlyBtn");
+            if (_resolveConfirmId !== s.id) {
+              _resolveConfirmId = s.id;
+              if (btn) { btn.textContent = "\u26A0 Tap again to confirm"; btn.style.background = "rgba(230,168,23,0.15)"; }
+              clearTimeout(_resolveConfirmTimer);
+              _resolveConfirmTimer = setTimeout(() => {
+                _resolveConfirmId = null;
+                if (btn) { btn.textContent = "\u23F1 Resolve early (testing)"; btn.style.background = ""; }
+              }, 4000);
+              return;
+            }
+            _resolveConfirmId = null;
+            clearTimeout(_resolveConfirmTimer);
+            if (btn) { btn.textContent = "\u23F1 Resolve early (testing)"; btn.style.background = ""; }
+            try { await resolveEarlyFlow(s.id); setSending(false, true); }
+            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+          });
+
+          $("deleteSurveyBtn").addEventListener("click", async () => {
+            const s = currentSurvey();
+            if (!s || sending || !isAdmin) return;
+            if (_deleteConfirmId !== s.id) { requestDeleteConfirm(s.id); return; }
+            try { await executeDeleteSurvey(s.id); setSending(false, true); }
+            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+          });
+
+          $("addOptionToggleBtn").addEventListener("click", () => {
+            if (sending || !currentSurveyId) return;
+            const panel = $("addOptionPanel");
+            const opening = panel && panel.classList.contains("hide");
+            show(panel, !!opening);
+            if (!opening) { const inp = $("newOptionInput"); if (inp) inp.value = ""; }
+          });
+
+          $("cancelOptionBtn").addEventListener("click", () => {
+            show($("addOptionPanel"), false);
+            const inp = $("newOptionInput"); if (inp) inp.value = "";
+          });
+
+          $("saveOptionBtn").addEventListener("click", async () => {
+            if (sending || !currentSurveyId) return;
+            try {
+              await addOptionFlow(($("newOptionInput") || {}).value || "");
+              show($("addOptionPanel"), false);
+              const inp = $("newOptionInput"); if (inp) inp.value = "";
+              setSending(false, true);
+            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+          });
+
+          $("addSurveyOptionBtn").addEventListener("click", () => addSurveyOptionField(""));
+
+          $("addSurveyBtn").addEventListener("click", () => {
+            if (!isAdmin) { showInlineError("Only admins can create questions for now"); return; }
+            const panel = $("addSurveyPanel");
+            const opening = panel && panel.classList.contains("hide");
+            show(panel, !!opening);
+            if (opening) updateSurveyCooldownUi();
+            else clearAddSurveyForm();
+          });
+
+          $("cancelSurveyBtn").addEventListener("click", () => {
+            show($("addSurveyPanel"), false);
+            clearAddSurveyForm();
+          });
+
+          $("saveSurveyBtn").addEventListener("click", async () => {
+            try {
+              await createSurveyFlow();
+              show($("addSurveyPanel"), false);
+              clearAddSurveyForm();
+              setSending(false, true);
+            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+          });
+
+          initSurveyOptionFields();
+
+          // --- Bottom sheet event listeners ---
+          $("bsBackdrop").addEventListener("click", closeBottomSheet);
+          $("bsTabBuy").addEventListener("click", () => switchBsTab("buy"));
+          $("bsTabSell").addEventListener("click", () => { if (!$("bsTabSell").disabled) switchBsTab("sell"); });
+          $("bsSideYes").addEventListener("click", () => switchBsSide("yes"));
+          $("bsSideNo").addEventListener("click", () => switchBsSide("no"));
+          $("bsBuyInput").addEventListener("input", updateBuyPreview);
+          $("bsSellInput").addEventListener("input", updateSellPreview);
+          $("bsBuyMaxBtn").addEventListener("click", () => {
+            $("bsBuyInput").value = $("bsBuyInput").max;
+            updateBuyPreview();
+          });
+          $("bsSellMaxBtn").addEventListener("click", () => {
+            $("bsSellInput").value = $("bsSellInput").max;
+            updateSellPreview();
+          });
+          $("bsBuyAction").addEventListener("click", async () => {
+            if (!_bsSurveyId || !_bsOptKey) return;
+            const c = parseInt($("bsBuyInput").value, 10);
+            setText($("bsBuyError"), "");
+            if (!c || c < 1) { setText($("bsBuyError"), "Enter credits to bet"); return; }
+            const poolTotal = (() => { const m = MARKETS.get(_bsSurveyId); return m ? Object.values(m.pools).reduce((a, p) => a + p.yes + p.no, 0) : 0; })();
+            const betCap = Math.floor(poolTotal * MAX_BET_POOL_RATIO);
+            const maxBuy = Math.min(Math.floor(myCredits()), betCap || Infinity);
+            if (c > maxBuy) { setText($("bsBuyError"), "Max is " + maxBuy + " credits"); return; }
+            try {
+              await placeBetFlow(_bsSurveyId, _bsOptKey, c, _bsSide);
+              localStorage.setItem("om:bettingHintSeen", "1");
+              setSending(false, true);
+              closeBottomSheet();
+            } catch (e) {
+              setSending(false, false);
+              setText($("bsBuyError"), e.message || String(e));
+            }
+          });
+          $("bsSellAction").addEventListener("click", async () => {
+            if (!_bsSurveyId || !_bsOptKey) return;
+            const sh = parseFloat($("bsSellInput").value);
+            setText($("bsSellError"), "");
+            const mkt = MARKETS.get(_bsSurveyId);
+            const myShares = _bsSide === "no"
+              ? ((mkt && mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][_bsOptKey]) || 0)
+              : ((mkt && mkt.userShares[me] && mkt.userShares[me][_bsOptKey]) || 0);
+            if (!sh || sh <= 0) { setText($("bsSellError"), "Enter shares to sell"); return; }
+            if (sh > myShares * 1.001) { setText($("bsSellError"), "Max: " + myShares + " shares"); return; }
+            const actualShares = Math.min(sh, myShares);
+            try {
+              await sellSharesFlow(_bsSurveyId, _bsOptKey, actualShares, _bsSide);
+              setSending(false, true);
+              closeBottomSheet();
+            } catch (e) {
+              setSending(false, false);
+              setText($("bsSellError"), e.message || String(e));
+            }
+          });
+
+          await refreshLoopOnce();
+          if (initialHash) navigateFromHash(initialHash);
+          setInterval(refreshLoopOnce, 4000);
+
+          let _resizeTimer = null;
+          window.addEventListener("resize", () => {
+            clearTimeout(_resizeTimer);
+            _resizeTimer = setTimeout(() => {
+              const s = currentSurvey();
+              if (!s) return;
+              const mkt = MARKETS.get(s.id);
+              const chartContainer = document.querySelector(".oddsChart")?.parentElement;
+              if (chartContainer && mkt && mkt.history && mkt.history.length > 0) {
+                renderOddsChart(chartContainer, mkt.history, s.options);
+              }
+            }, 150);
+          });
+
+          setInterval(() => {
+            document.querySelectorAll(".countdownTick[data-expires]").forEach(el => {
+              const exp = Number(el.dataset.expires);
+              if (exp) el.textContent = "\u23F1 " + formatCountdown(exp);
+            });
+            const scEl = $("surveyCountdown");
+            if (scEl && scEl.dataset.expires) {
+              const exp = Number(scEl.dataset.expires);
+              if (exp) scEl.textContent = "\u23F1 " + formatCountdown(exp);
+            }
+            if ($("addSurveyPanel") && !$("addSurveyPanel").classList.contains("hide")) updateSurveyCooldownUi();
+            // Update reveal info
+            const s = currentSurvey();
+            const revealEl = $("surveyRevealInfo");
+            if (s && revealEl && s.revealIntervalMs && !s.archived) {
+              const nextCp = getNextCheckpoint(s);
+              if (nextCp) revealEl.textContent = "Votes are hidden between reveals. Next reveal: " + formatCountdown(nextCp);
+            }
+          }, 1000);
+        }
+
+        init();
+      })();
+    </script>
+  </body>
+</html>

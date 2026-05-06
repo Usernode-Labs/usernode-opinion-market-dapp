@@ -1,0 +1,40 @@
+{
+  "secrets": [
+    {
+      "key": "APP_PUBKEY",
+      "description": "OM dapp's read-only on-chain address (recipient of every OM action). Default: canonical OM pubkey ut1zkj9p…l3mlms — leaving unset makes this deploy a behavioral duplicate of dapps.usernodelabs.org/opinion-market.",
+      "required": true,
+      "sensitive": false
+    },
+    {
+      "key": "ADMIN_PUBKEY",
+      "description": "Address allowed to issue `create_survey` memos. Leave empty to let anyone create surveys.",
+      "required": false,
+      "sensitive": false
+    },
+    {
+      "key": "SENDER_APP_PUBKEY",
+      "description": "Sender-side pubkey for the encryption-key publication wallet (publishes `publish_pubkeys` + `reveal_key` txs). Distinct from APP_PUBKEY because /wallet/send needs UTXOs at the sender. Canonical deploy reuses the lastwin pot keypair.",
+      "required": true,
+      "sensitive": false
+    },
+    {
+      "key": "SENDER_APP_SECRET_KEY",
+      "description": "Secret half of SENDER_APP_PUBKEY. Used by /wallet/signer + /wallet/send to publish encryption keys on-chain. Never logged or returned via the API.",
+      "required": true,
+      "sensitive": true
+    },
+    {
+      "key": "VOTE_ENCRYPT_SEED",
+      "description": "Hex or arbitrary string seed for deriving per-survey ECDH key pairs. MUST match every server using the same APP_PUBKEY, otherwise encrypted votes won't be decryptable. Default unset → falls back to dev-seed-do-not-use-in-production (matches the current canonical deploy).",
+      "required": false,
+      "sensitive": true
+    },
+    {
+      "key": "NODE_RPC_URL",
+      "description": "Sidecar usernode RPC endpoint. Defaults to the in-network node service.",
+      "required": false,
+      "default": "http://usernode-node:3000"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "usernode-opinion-market-dapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Opinion Market — Usernode prediction-market-powered surveys with on-chain encrypted voting",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js --local-dev"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}
