@@ -748,11 +748,30 @@
       }
       .voteSheet-actions {
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         gap: 8px;
         margin-top: 4px;
       }
-      .voteSheet-actions .btn { width: 100%; }
+      .voteSheet-actions > * { flex: 1 1 0; min-width: 0; }
+      /* Cancel button mirrors the height/padding of `.bottomSheet-action`
+         so the Vote (primary, accent) and Cancel (neutral) buttons line
+         up nicely side-by-side. */
+      .voteSheet-cancel {
+        appearance: none;
+        padding: 14px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--fg);
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .voteSheet-cancel:hover {
+        background: color-mix(in oklab, var(--fg) 6%, transparent);
+        border-color: color-mix(in oklab, var(--fg) 25%, var(--border));
+      }
 
       /* Per-option "you voted for this" badge in the survey detail card,
          replaces the global voteStatus banner + radio buttons. */
@@ -870,8 +889,8 @@
       <div class="voteSheet-disclaimer">Votes are private until the question ends.</div>
       <div class="voteSheet-options" id="voteSheetOptions"></div>
       <div class="voteSheet-actions">
-        <button class="btn primary" id="voteSheetSubmit" type="button" disabled>Vote</button>
-        <button class="btn" id="voteSheetCancel" type="button">Cancel</button>
+        <button class="bottomSheet-action" id="voteSheetSubmit" type="button" disabled>Vote</button>
+        <button class="voteSheet-cancel" id="voteSheetCancel" type="button">Cancel</button>
       </div>
       <div id="voteSheetPending" class="tx-progress hide" role="status" aria-live="polite" style="margin-top: 8px;">
         <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
