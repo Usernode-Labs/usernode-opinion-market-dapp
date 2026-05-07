@@ -845,8 +845,8 @@
         <button class="bottomSheet-tab" id="bsTabSell" type="button">Sell</button>
       </div>
       <div class="bottomSheet-sideToggle" id="bsSideToggle">
-        <button class="sideToggle-btn active" id="bsSideYes" type="button" data-side="yes">Yes</button>
-        <button class="sideToggle-btn" id="bsSideNo" type="button" data-side="no">No</button>
+        <button class="sideToggle-btn active" id="bsSideYes" type="button" data-side="yes">Bet wins</button>
+        <button class="sideToggle-btn" id="bsSideNo" type="button" data-side="no">Bet loses</button>
       </div>
       <div id="bsBuyPanel">
         <div class="bottomSheet-inputRow">
@@ -3227,7 +3227,7 @@
           $("bsSideYes").classList.toggle("active", _bsSide === "yes");
           $("bsSideNo").classList.toggle("active", _bsSide === "no");
           const buyAction = $("bsBuyAction");
-          if (buyAction) buyAction.textContent = _bsSide === "no" ? "Buy No" : "Buy Yes";
+          if (buyAction) buyAction.textContent = _bsSide === "no" ? "Place bet (loses)" : "Place bet (wins)";
           if (_bsSide === "no") {
             buyAction.style.background = "var(--danger)";
           } else {
@@ -3692,7 +3692,7 @@
                   const buyBtn = document.createElement("button");
                   buyBtn.className = "optionCard-buyBtn";
                   buyBtn.disabled = sending;
-                  buyBtn.textContent = "Yes " + formatCredits(costPerShare) + "c/share";
+                  buyBtn.textContent = "Bet wins " + formatCredits(costPerShare) + "c/share";
                   buyBtn.title = "Cost per share. Pays 1.00c if this option wins.";
                   buyBtn.addEventListener("click", () => openBottomSheet(s.id, opt.key, oi, "yes"));
                   betRow.appendChild(buyBtn);
@@ -3701,7 +3701,7 @@
                   const buyNoBtn = document.createElement("button");
                   buyNoBtn.className = "optionCard-buyBtn optionCard-buyNoBtn";
                   buyNoBtn.disabled = sending;
-                  buyNoBtn.textContent = "No " + formatCredits(noCostPerShare) + "c/share";
+                  buyNoBtn.textContent = "Bet loses " + formatCredits(noCostPerShare) + "c/share";
                   buyNoBtn.title = "Cost per share. Pays 1.00c if this option loses.";
                   buyNoBtn.addEventListener("click", () => openBottomSheet(s.id, opt.key, oi, "no"));
                   betRow.appendChild(buyNoBtn);
