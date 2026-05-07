@@ -338,6 +338,15 @@
       .leaderRank { flex: 0 0 30px; font-weight: 700; text-align: center; }
       .leaderName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
       .leaderStat { flex: 0 0 auto; text-align: right; font-size: 13px; color: var(--muted); }
+      /* Column-header row above the entries. Uses the same flex layout
+         as `.leaderRow` so the columns line up with the data below. */
+      .leaderHeader {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
 
       .onboarding { text-align: center; padding: 32px 16px; }
       .onboarding h2 { font-size: 20px; margin-bottom: 12px; }
@@ -2786,8 +2795,11 @@
           // Countdown
           updateSurveyCountdown(s);
 
-          // Resolve early button (testing — opt-in via localStorage)
-          show($("resolveEarlyBtn"), ENABLE_RESOLVE_EARLY && !s.archived);
+          // Resolve early — admin-only testing tool that immediately
+          // settles an active question. Also surfaced for non-admins iff
+          // they've opted in via the `opinion-market:resolve_early`
+          // localStorage flag (preserves the original opt-in path).
+          show($("resolveEarlyBtn"), (isAdmin || ENABLE_RESOLVE_EARLY) && !s.archived);
           show($("deleteSurveyBtn"), isAdmin);
 
           // Vote / Change vote button — primary CTA for active questions.
@@ -3930,6 +3942,28 @@
             el.appendChild(p);
             return;
           }
+          // Column header — uses the same flex slots as `.leaderRow` so
+          // the labels line up directly above the matching data column.
+          const header = document.createElement("div");
+          header.className = "leaderRow leaderHeader";
+          const hRank = document.createElement("div");
+          hRank.className = "leaderRank";
+          hRank.textContent = "#";
+          const hName = document.createElement("div");
+          hName.className = "leaderName";
+          hName.textContent = "Player";
+          const hEarnings = document.createElement("div");
+          hEarnings.className = "leaderStat";
+          hEarnings.textContent = "Earnings";
+          const hWr = document.createElement("div");
+          hWr.className = "leaderStat";
+          hWr.style.minWidth = "60px";
+          hWr.textContent = "Win rate";
+          header.appendChild(hRank);
+          header.appendChild(hName);
+          header.appendChild(hEarnings);
+          header.appendChild(hWr);
+          el.appendChild(header);
           LEADERBOARD.forEach((entry, i) => {
             const row = document.createElement("div");
             row.className = "leaderRow";
