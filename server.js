@@ -66,6 +66,7 @@ const {
   fetchGenesisAccounts,
 } = require("./lib/dapp-server");
 const createVoteEncryption = require("./vote-encryption");
+const { buildLeaderboard } = require("./lib/leaderboard");
 
 loadEnvFile();
 
@@ -191,6 +192,35 @@ app.get("/__config/opinion-market", (_req, res) => {
     admin_pubkey: ADMIN_PUBKEY || null,
     genesis_accounts: omGenesisAccounts,
   });
+});
+
+// Public read-only leaderboard JSON. Mirrors the client's Phase 1-8 rebuild
+// (lib/leaderboard.js) so external consumers can poll a single endpoint
+// instead of replaying the chain themselves. Includes every account that
+// has interacted with the dapp — not just users who appear on the Bet P&L
+// leaderboard inside the UI.
+app.get("/leaderboard", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.set("Access-Control-Allow-Origin", "*");
+  try {
+    const usernamesState = usernamesCache.getStateResponse();
+    const result = await buildLeaderboard(omCache.getRawTransactions(), {
+      appPubkey: APP_PUBKEY,
+      adminPubkey: ADMIN_PUBKEY || null,
+      genesisAccounts: omGenesisAccounts,
+      globalUsernames: usernamesState.usernames || {},
+      now: Date.now(),
+    });
+    res.json({
+      app: "opinion-market",
+      app_pubkey: APP_PUBKEY,
+      generated_at: Date.now(),
+      ...result,
+    });
+  } catch (e) {
+    console.error("[/leaderboard] failed:", e);
+    res.status(500).json({ error: e.message || String(e) });
+  }
 });
 
 // ── OM core JS (kept under /opinion-market/ so public/index.html stays
