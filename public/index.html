@@ -2562,7 +2562,7 @@
           setSending(true);
           showPending("joinPending", "Joining...");
           const memo = makeMemo({ app: "opinion-market", type: "join" });
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Join Opinion Market", confirmSubtitle: "Register as an Opinion Market participant." });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Join Opinion Market", confirmSubtitle: "Opinion Market — Register as a participant." });
           await postActionRefresh();
         }
 
@@ -2587,7 +2587,7 @@
           } else {
             memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, choice: optionKey });
           }
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Record your prediction on-chain." });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Opinion Market — Record your prediction on-chain." });
           storeMyVote(s.id, optionKey);
           await postActionRefresh();
         }
@@ -2605,7 +2605,7 @@
           showPending("votePending", "Adding option...");
           const key = slugify(label) || `opt_${Date.now().toString(36)}`;
           const memo = makeMemo({ app: "opinion-market", type: "add_option", survey: s.id, option: { key, label } });
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Add option", confirmSubtitle: "Add a custom option to this question." });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Add option", confirmSubtitle: "Opinion Market — Add a custom option to this question." });
           await postActionRefresh();
         }
 
@@ -2637,7 +2637,7 @@
           const memoObj = { app: "opinion-market", type: "place_bet", survey: surveyId, option: optionKey, credits };
           if (side === "no") memoObj.side = "no";
           const memo = makeMemo(memoObj);
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Place your bet", confirmSubtitle: "This bet is recorded on-chain and cannot be undone." });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Place your bet", confirmSubtitle: "Opinion Market — This bet is recorded on-chain and cannot be undone." });
           await postActionRefresh();
         }
 
@@ -2651,7 +2651,7 @@
           const memoObj = { app: "opinion-market", type: "sell_shares", survey: surveyId, option: optionKey, shares };
           if (side === "no") memoObj.side = "no";
           const memo = makeMemo(memoObj);
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Sell shares", confirmSubtitle: "This sale is recorded on-chain and cannot be undone." });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Sell shares", confirmSubtitle: "Opinion Market — This sale is recorded on-chain and cannot be undone." });
           await postActionRefresh();
         }
 
@@ -2674,7 +2674,7 @@
           if (memo.length > 1024) throw new Error("Question payload too large \u2014 please shorten your title, question, or option labels.");
           setSending(true);
           showPending("addSurveyPending", "Creating question...");
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Create question", confirmSubtitle: "Publish a new question on-chain." });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Create question", confirmSubtitle: "Opinion Market — Publish a new question on-chain." });
           await postActionRefresh();
         }
 
@@ -2685,7 +2685,7 @@
           setSending(true);
           showPending("votePending", "Resolving...");
           const memo = makeMemo({ app: "opinion-market", type: "resolve_early", survey: surveyId });
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Resolve question", confirmSubtitle: "Close this question early." });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Resolve question", confirmSubtitle: "Opinion Market — Close this question early." });
           await postActionRefresh();
         }
 
@@ -2720,7 +2720,7 @@
           setSending(true);
           showPending("deletePending", "Deleting...");
           const memo = makeMemo({ app: "opinion-market", type: "delete_survey", survey: surveyId });
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Delete question", confirmSubtitle: "Remove this question from the list." });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Delete question", confirmSubtitle: "Opinion Market — Remove this question from the list." });
           await postActionRefresh();
           navigateToList();
         }
