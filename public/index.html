@@ -693,6 +693,82 @@
         margin-top: 8px;
         min-height: 16px;
       }
+
+      /* ---- Vote bottom sheet ---- */
+      .voteSheet-question {
+        font-size: 14px;
+        color: var(--fg);
+        margin: 6px 0 4px;
+        line-height: 1.4;
+      }
+      .voteSheet-disclaimer {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 12px;
+      }
+      .voteSheet-options {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 12px;
+        max-height: 50vh;
+        overflow-y: auto;
+      }
+      .voteSheet-option {
+        appearance: none;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: transparent;
+        color: var(--fg);
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 14px;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .voteSheet-option:hover { border-color: var(--accent); }
+      .voteSheet-option.selected {
+        border-color: var(--accent);
+        background: color-mix(in oklab, var(--accent) 12%, transparent);
+      }
+      .voteSheet-option-name {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-weight: 600;
+        word-break: break-word;
+      }
+      .voteSheet-option-prev {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+      .voteSheet-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .voteSheet-actions .btn { width: 100%; }
+
+      /* Per-option "you voted for this" badge in the survey detail card,
+         replaces the global voteStatus banner + radio buttons. */
+      .optionCard-votedTag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin: 4px 0 0 18px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .optionCard-votedTag::before {
+        content: "\2713";
+        font-size: 12px;
+      }
     </style>
   </head>
   <body>
@@ -780,6 +856,28 @@
         <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
         <div class="tx-progress-label">Setting username...</div>
       </div>
+    </div>
+
+    <!-- Bottom sheet vote modal. Replaces the per-option radio buttons.
+         Opened by the "Vote" / "Change vote" button in the survey detail. -->
+    <div class="bottomSheet-backdrop" id="voteBackdrop"></div>
+    <div class="bottomSheet" id="voteSheet" role="dialog" aria-labelledby="voteSheetTitle">
+      <div class="bottomSheet-handle"></div>
+      <div class="bottomSheet-header">
+        <span class="bottomSheet-optName" id="voteSheetTitle">Cast your vote</span>
+      </div>
+      <p class="voteSheet-question" id="voteSheetQuestion"></p>
+      <div class="voteSheet-disclaimer">Votes are private until the question ends.</div>
+      <div class="voteSheet-options" id="voteSheetOptions"></div>
+      <div class="voteSheet-actions">
+        <button class="btn primary" id="voteSheetSubmit" type="button" disabled>Vote</button>
+        <button class="btn" id="voteSheetCancel" type="button">Cancel</button>
+      </div>
+      <div id="voteSheetPending" class="tx-progress hide" role="status" aria-live="polite" style="margin-top: 8px;">
+        <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+        <div class="tx-progress-label">Registering vote...</div>
+      </div>
+      <div id="voteSheetError" class="bottomSheet-error" style="display:none;"></div>
     </div>
 
     <div class="scrollArea" id="scrollRoot">
@@ -891,6 +989,11 @@
                 <div id="surveyVoterCount" class="muted" style="font-size: 11px;"></div>
               </div>
               <div id="surveyRevealInfo" class="revealNotice hide" style="margin: 8px 0;"></div>
+              <!-- Primary vote CTA. Visible to everyone for active questions;
+                   label flips to "Change vote" after the user has voted.
+                   Shares the same vertical-stack styling as the admin
+                   resolve/delete buttons below. -->
+              <button class="btn primary small hide" id="voteSurveyBtn" type="button" style="margin-top: 8px;">Vote</button>
               <button class="btn small hide" id="resolveEarlyBtn" type="button" style="margin-top: 8px; color: var(--warn); border-color: var(--warn);">&#x23F1; Resolve early (testing)</button>
               <button class="btn small hide" id="deleteSurveyBtn" type="button" style="margin-top: 8px; color: var(--danger); border-color: var(--danger);">&#x1F5D1; Delete question</button>
               <div id="deletePending" class="tx-progress hide" role="status" aria-live="polite">
@@ -2397,13 +2500,18 @@
           await postActionRefresh();
         }
 
-        async function voteFlow(optionKey) {
+        async function voteFlow(optionKey, opts) {
           if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can vote");
           const s = currentSurvey();
           if (!s) throw new Error("No question selected");
           if (s.archived) throw new Error("Archived questions are read-only");
           setSending(true);
-          showPending("votePending", "Registering vote...");
+          // Caller can route the progress indicator into a different DOM
+          // node (e.g. the vote bottom sheet's own pending element) so the
+          // user sees feedback inside whichever surface they opened. The
+          // tx-flowing transaction itself is identical either way.
+          const pendingElId = (opts && opts.pendingElId) || "votePending";
+          showPending(pendingElId, "Registering vote...");
           const ki = getIntervalIndex(s, Date.now());
           const pubkey = await fetchPubkey(s.id, ki, s);
           let memo;
@@ -2624,6 +2732,19 @@
           // Resolve early button (testing — opt-in via localStorage)
           show($("resolveEarlyBtn"), ENABLE_RESOLVE_EARLY && !s.archived);
           show($("deleteSurveyBtn"), isAdmin);
+
+          // Vote / Change vote button — primary CTA for active questions.
+          // Hidden on archived (read-only) questions and while signed-out.
+          const voteBtn = $("voteSurveyBtn");
+          if (voteBtn) {
+            const showVote = !s.archived && !!me;
+            show(voteBtn, showVote);
+            if (showVote) {
+              const prev = getMyPreviousVote(id);
+              voteBtn.textContent = prev ? "Change vote" : "Vote";
+              setDisabled(voteBtn, sending);
+            }
+          }
 
           // Add option button
           const addOptBtn = $("addOptionToggleBtn");
@@ -3096,6 +3217,145 @@
           if (pending) pending.classList.add("hide");
         }
 
+        /* ================================================================
+         *  VOTE BOTTOM SHEET
+         *
+         * Replaces the per-option radio buttons. Opening it shows the
+         * question + the same option list, with the user's previous vote
+         * (if any) pre-selected. Submitting the same option as the
+         * previous vote is disabled — there's no point in re-submitting
+         * an unchanged choice on chain.
+         * ================================================================ */
+        let _voteSheetSurveyId = null;
+        let _voteSheetSelected = null;
+        let _voteSheetPrevious = null;
+
+        function getMyPreviousVote(surveyId) {
+          // Mirrors the logic at the top of renderSurveyDetail — kept
+          // separate so the sheet doesn't depend on render-time state.
+          // computeResults is idempotent over the txs cache so calling it
+          // here on demand is cheap.
+          const res = computeResults(latestTxs, me, surveyId);
+          const meVoteKey = res.meEntry && res.meEntry.voteKey;
+          const meHasVoted = res.meEntry && res.meEntry.hasVoted;
+          return meVoteKey || ((meHasVoted || _pendingVotes.has(surveyId)) ? getStoredVote(surveyId) : null);
+        }
+
+        function openVoteSheet(surveyId) {
+          if (sending) return;
+          const s = SURVEYS_BY_ID.get(surveyId);
+          if (!s || s.archived) return;
+          _voteSheetSurveyId = surveyId;
+          _voteSheetPrevious = getMyPreviousVote(surveyId);
+          // Pre-select the previous vote so "Change vote" requires an
+          // actual change before becoming active.
+          _voteSheetSelected = _voteSheetPrevious;
+
+          setText($("voteSheetTitle"), s.title || (_voteSheetPrevious ? "Change your vote" : "Cast your vote"));
+          // Show the longer question/description below the title when it
+          // exists. Falls back to the title alone for older surveys that
+          // only have a title field.
+          const questionText = (s.question && s.question.trim()) || "";
+          setText($("voteSheetQuestion"), questionText);
+          show($("voteSheetQuestion"), !!questionText);
+
+          const optsList = $("voteSheetOptions");
+          optsList.textContent = "";
+          for (let oi = 0; oi < s.options.length; oi++) {
+            const opt = s.options[oi];
+            const parsed = parseOptionLabel(opt.label);
+            const card = document.createElement("button");
+            card.type = "button";
+            card.className = "voteSheet-option";
+            if (_voteSheetSelected === opt.key) card.classList.add("selected");
+
+            const dot = document.createElement("span");
+            dot.className = "optDot";
+            dot.style.background = optionColor(oi);
+            const name = document.createElement("span");
+            name.className = "voteSheet-option-name";
+            name.textContent = parsed.text || opt.key;
+            card.appendChild(dot);
+            card.appendChild(name);
+
+            if (_voteSheetPrevious === opt.key) {
+              const prevTag = document.createElement("span");
+              prevTag.className = "voteSheet-option-prev";
+              prevTag.textContent = "Your current vote";
+              card.appendChild(prevTag);
+            }
+
+            card.addEventListener("click", () => selectVoteSheetOption(opt.key));
+            optsList.appendChild(card);
+          }
+
+          updateVoteSheetSubmitState();
+          const errEl = $("voteSheetError");
+          if (errEl) { errEl.textContent = ""; errEl.style.display = "none"; }
+          const pending = $("voteSheetPending");
+          if (pending) pending.classList.add("hide");
+
+          $("voteBackdrop").classList.add("open");
+          $("voteSheet").classList.add("open");
+          document.body.style.overflow = "hidden";
+        }
+
+        function selectVoteSheetOption(optKey) {
+          _voteSheetSelected = optKey;
+          const optsList = $("voteSheetOptions");
+          const s = SURVEYS_BY_ID.get(_voteSheetSurveyId);
+          if (!s) return;
+          for (let i = 0; i < optsList.children.length; i++) {
+            const card = optsList.children[i];
+            const opt = s.options[i];
+            card.classList.toggle("selected", opt && opt.key === optKey);
+          }
+          updateVoteSheetSubmitState();
+        }
+
+        function updateVoteSheetSubmitState() {
+          const submitBtn = $("voteSheetSubmit");
+          if (!submitBtn) return;
+          // Button label: "Change vote" iff we have a previous vote to
+          // change, else "Vote". Disabled while sending, when nothing is
+          // selected, or when the selection still equals the previous
+          // vote (no change → no action).
+          submitBtn.textContent = _voteSheetPrevious ? "Change vote" : "Vote";
+          const noSelection = !_voteSheetSelected;
+          const noChange = !!_voteSheetPrevious && _voteSheetSelected === _voteSheetPrevious;
+          submitBtn.disabled = sending || noSelection || noChange;
+        }
+
+        function closeVoteSheet() {
+          $("voteBackdrop").classList.remove("open");
+          $("voteSheet").classList.remove("open");
+          document.body.style.overflow = "";
+          _voteSheetSurveyId = null;
+          _voteSheetSelected = null;
+          _voteSheetPrevious = null;
+          const pending = $("voteSheetPending");
+          if (pending) pending.classList.add("hide");
+          const errEl = $("voteSheetError");
+          if (errEl) { errEl.textContent = ""; errEl.style.display = "none"; }
+        }
+
+        async function submitVoteSheet() {
+          if (!_voteSheetSurveyId || !_voteSheetSelected) return;
+          const errEl = $("voteSheetError");
+          if (errEl) { errEl.textContent = ""; errEl.style.display = "none"; }
+          try {
+            await voteFlow(_voteSheetSelected, { pendingElId: "voteSheetPending" });
+            setSending(false, true);
+            closeVoteSheet();
+          } catch (e) {
+            setSending(false, false);
+            if (errEl) {
+              errEl.textContent = (e && e.message) || String(e);
+              errEl.style.display = "block";
+            }
+          }
+        }
+
         function switchBsTab(mode) {
           _bsMode = mode;
           $("bsTabBuy").classList.toggle("active", mode === "buy");
@@ -3191,6 +3451,19 @@
           const totalVolume = (hasMarket && mkt.optionVolume) ? Object.values(mkt.optionVolume).reduce((a, b) => a + b, 0) : 0;
           setText($("surveyVoterCount"), `${formatCredits(totalVolume)}c total volume \u00B7 ${vc} vote${vc !== 1 ? "s" : ""}`);
 
+          // Vote button label/visibility — kept in sync with the latest
+          // computed previous vote so the button flips to "Change vote"
+          // immediately after a successful vote round-trip.
+          const voteBtn = $("voteSurveyBtn");
+          if (voteBtn) {
+            const showVote = !s.archived && !!me;
+            show(voteBtn, showVote);
+            if (showVote) {
+              voteBtn.textContent = myPreviousVote ? "Change vote" : "Vote";
+              setDisabled(voteBtn, sending);
+            }
+          }
+
           // --- Vote options (new unified layout for active surveys) ---
           const voteList = $("voteOptionsList");
           if (voteList && !(_isFocusedInput && voteList.contains(_focusEl))) {
@@ -3235,39 +3508,18 @@
                 renderOddsChart(chartContainer, mkt.history, s.options);
               }
 
-              // Vote status
-              const voteStatus = document.createElement("div");
-              voteStatus.className = "voteStatus";
-              voteStatus.style.cssText = "margin:6px 0 10px;";
-              if (myPreviousVote) {
-                const prevOpt = s.options.find(o => o.key === myPreviousVote);
-                const prevIdx = s.options.findIndex(o => o.key === myPreviousVote);
-                if (prevOpt) {
-                  const parsed = parseOptionLabel(prevOpt.label);
-                  const dot = document.createElement("span");
-                  dot.className = "optDot";
-                  dot.style.background = optionColor(prevIdx >= 0 ? prevIdx : 0);
-                  dot.style.verticalAlign = "-1px";
-                  voteStatus.appendChild(document.createTextNode("Your vote: "));
-                  voteStatus.appendChild(dot);
-                  voteStatus.appendChild(document.createTextNode(" " + (parsed.text || prevOpt.key)));
-                }
-              } else {
-                voteStatus.className = "voteStatus muted";
-                voteStatus.textContent = "Select an option to vote.";
-              }
-              voteList.appendChild(voteStatus);
+              // The previous "Your vote: …" / "Select an option to vote."
+              // banner has been replaced by:
+              //   - the "Vote" / "Change vote" button at the top of the
+              //     question detail (primary CTA, opens the bottom sheet)
+              //   - a per-option "You voted for this option" badge under
+              //     the option the user previously chose (rendered below).
 
               // Section hint: betting
               if (hasMarket && canBet) {
-                const betHeader = document.createElement("div");
-                betHeader.className = "muted";
-                betHeader.style.cssText = "font-size:11px;margin:8px 0 2px;";
-                betHeader.textContent = "Each option has Vote (free) and Bet (use credits) actions.";
-                voteList.appendChild(betHeader);
                 if (!localStorage.getItem("om:bettingHintSeen")) {
                   const hint = document.createElement("div");
-                  hint.style.cssText = "font-size:12px;color:var(--muted);padding:6px 10px;border-radius:8px;background:var(--border);margin-bottom:6px;cursor:pointer;";
+                  hint.style.cssText = "font-size:12px;color:var(--muted);padding:6px 10px;border-radius:8px;background:var(--border);margin:6px 0;cursor:pointer;";
                   hint.textContent = "Shares cost between 0c and 100c. If your outcome wins, each share pays 100c. Buy low, win big. (tap to dismiss)";
                   hint.addEventListener("click", () => { hint.remove(); localStorage.setItem("om:bettingHintSeen", "1"); });
                   voteList.appendChild(hint);
@@ -3334,27 +3586,16 @@
                 meta.textContent = metaText;
                 card.appendChild(meta);
 
-                // Vote row
-                const voteRow = document.createElement("div");
-                voteRow.className = "optionCard-actions";
-                const radio = document.createElement("input");
-                radio.type = "radio";
-                radio.name = "voteOpt_" + s.id;
-                radio.className = "optionCard-radio";
-                radio.disabled = sending || s.archived;
-                radio.checked = myPreviousVote === opt.key;
-                radio.addEventListener("change", async () => {
-                  if (sending || s.archived) return;
-                  try { await voteFlow(opt.key); setSending(false, true); }
-                  catch (e) { setSending(false, false); showInlineError(e.message || e); }
-                });
-                const voteLabel = document.createElement("label");
-                voteLabel.className = "optionCard-voteLabel";
-                voteLabel.style.marginLeft = "0";
-                voteLabel.appendChild(radio);
-                voteLabel.appendChild(document.createTextNode(" Vote"));
-                voteRow.appendChild(voteLabel);
-                card.appendChild(voteRow);
+                // Per-option voted badge. Only rendered under the option
+                // the user previously voted for. Voting itself happens
+                // via the "Vote" / "Change vote" bottom sheet at the top
+                // of the question detail.
+                if (myPreviousVote === opt.key) {
+                  const votedTag = document.createElement("div");
+                  votedTag.className = "optionCard-votedTag";
+                  votedTag.textContent = "You voted for this option";
+                  card.appendChild(votedTag);
+                }
 
                 // Bet row
                 if (canBet && hasMarket && pool) {
@@ -3978,6 +4219,15 @@
           });
 
           initSurveyOptionFields();
+
+          // --- Vote bottom sheet event listeners ---
+          $("voteSurveyBtn").addEventListener("click", () => {
+            const s = currentSurvey();
+            if (s) openVoteSheet(s.id);
+          });
+          $("voteBackdrop").addEventListener("click", closeVoteSheet);
+          $("voteSheetCancel").addEventListener("click", closeVoteSheet);
+          $("voteSheetSubmit").addEventListener("click", submitVoteSheet);
 
           // --- Bottom sheet event listeners ---
           $("bsBackdrop").addEventListener("click", closeBottomSheet);
