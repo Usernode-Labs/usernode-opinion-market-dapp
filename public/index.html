@@ -773,6 +773,18 @@
         border-color: color-mix(in oklab, var(--fg) 25%, var(--border));
       }
 
+      /* ---- Credits info popup ---- */
+      .creditsInfo-body {
+        margin: 8px 0 4px;
+      }
+      .creditsInfo-body p {
+        font-size: 13px;
+        line-height: 1.5;
+        margin: 0 0 10px;
+        color: var(--fg);
+      }
+      .creditsInfo-body p:last-child { margin-bottom: 0; }
+
       /* Per-option "you voted for this" badge in the survey detail card,
          replaces the global voteStatus banner + radio buttons. */
       .optionCard-votedTag {
@@ -795,9 +807,9 @@
       <div class="topBar-inner row" style="justify-content: space-between; align-items: flex-start;">
         <h1 style="margin: 0;">Opinion Market</h1>
         <div class="row">
-          <span class="pill hide" id="creditsDisplay" title="Your credits">
+          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
             &#x1FA99; <code id="creditsAmount">0</code>
-          </span>
+          </button>
           <button class="pill pillButton" id="headerUsernameBtn" type="button">
             User: <code id="headerUsername">(loading...)</code>
           </button>
@@ -897,6 +909,32 @@
         <div class="tx-progress-label">Registering vote...</div>
       </div>
       <div id="voteSheetError" class="bottomSheet-error" style="display:none;"></div>
+    </div>
+
+    <!-- Bottom sheet: credits info popup. Opened by tapping the credits
+         pill in the header. Purely informational — no on-chain action. -->
+    <div class="bottomSheet-backdrop" id="creditsInfoBackdrop"></div>
+    <div class="bottomSheet" id="creditsInfoSheet" role="dialog" aria-labelledby="creditsInfoTitle">
+      <div class="bottomSheet-handle"></div>
+      <div class="bottomSheet-header">
+        <span class="bottomSheet-optName" id="creditsInfoTitle">&#x1FA99; Credits</span>
+      </div>
+      <div class="creditsInfo-body">
+        <p>
+          Credits are this dapp's <strong>play currency</strong> for betting on questions. They aren't real tokens and
+          they only matter inside Opinion Market.
+        </p>
+        <p>
+          You got <strong>1,000 credits</strong> when you joined. Spend them to bet on what others will choose, and
+          earn more when your predictions land. Voting is always free.
+        </p>
+        <p>
+          Creating a question costs <strong>50 credits</strong>, which seed the betting pool. As compensation, the
+          creator earns 0.5% of all trading volume on their question (capped at 100 credits). (Creating a question
+          limited to admins at the moment.)
+        </p>
+      </div>
+      <button class="bottomSheet-action" id="creditsInfoClose" type="button" style="margin-top: 12px;">Got it</button>
     </div>
 
     <div class="scrollArea" id="scrollRoot">
@@ -3358,6 +3396,24 @@
           if (errEl) { errEl.textContent = ""; errEl.style.display = "none"; }
         }
 
+        /* ================================================================
+         *  CREDITS INFO POPUP
+         *
+         * Tapping the credits pill in the header opens an informational
+         * bottom sheet. Purely cosmetic — no chain action.
+         * ================================================================ */
+        function openCreditsInfoSheet() {
+          $("creditsInfoBackdrop").classList.add("open");
+          $("creditsInfoSheet").classList.add("open");
+          document.body.style.overflow = "hidden";
+        }
+
+        function closeCreditsInfoSheet() {
+          $("creditsInfoBackdrop").classList.remove("open");
+          $("creditsInfoSheet").classList.remove("open");
+          document.body.style.overflow = "";
+        }
+
         async function submitVoteSheet() {
           if (!_voteSheetSurveyId || !_voteSheetSelected) return;
           const errEl = $("voteSheetError");
@@ -4247,6 +4303,11 @@
           $("voteBackdrop").addEventListener("click", closeVoteSheet);
           $("voteSheetCancel").addEventListener("click", closeVoteSheet);
           $("voteSheetSubmit").addEventListener("click", submitVoteSheet);
+
+          // --- Credits info popup listeners ---
+          $("creditsDisplay").addEventListener("click", openCreditsInfoSheet);
+          $("creditsInfoBackdrop").addEventListener("click", closeCreditsInfoSheet);
+          $("creditsInfoClose").addEventListener("click", closeCreditsInfoSheet);
 
           // --- Bottom sheet event listeners ---
           $("bsBackdrop").addEventListener("click", closeBottomSheet);
