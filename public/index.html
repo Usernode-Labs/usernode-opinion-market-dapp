@@ -2334,7 +2334,7 @@
          * ================================================================ */
         const TX_PROGRESS_EXPECTED_S = 60, TX_PROGRESS_WARN_S = 120, TX_PROGRESS_ERR_S = 180;
         let _txProgressRaf = null, _txProgressStart = 0;
-        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "votePending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].map($).filter(el => el && !el.classList.contains("hide"));
+        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].map($).filter(el => el && !el.classList.contains("hide"));
 
         function txProgressPercent(s) {
           if (s <= TX_PROGRESS_EXPECTED_S) { const t = s / TX_PROGRESS_EXPECTED_S; return 95 * (1 - Math.pow(1 - t, 3)); }
@@ -2404,7 +2404,7 @@
           else if (txSucceeded) completeTxProgress();
           else {
             stopTxProgress();
-            ["setUsernamePending", "addSurveyPending", "votePending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].forEach(id => {
+            ["setUsernamePending", "addSurveyPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].forEach(id => {
               const el = $(id);
               if (el) { el.classList.add("hide"); resetProgressBar(el); }
             });
