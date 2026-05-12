@@ -2040,6 +2040,7 @@
             .map(([pubkey, e]) => ({
               pubkey,
               username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
+              credits: userBalance(pubkey),
               totalEarnings: e.totalEarnings,
               marketsParticipated: e.marketsParticipated,
               marketsWon: e.marketsWon,
@@ -3955,6 +3956,9 @@
           const hEarnings = document.createElement("div");
           hEarnings.className = "leaderStat";
           hEarnings.textContent = "Earnings";
+          const hCredits = document.createElement("div");
+          hCredits.className = "leaderStat";
+          hCredits.textContent = "Credits";
           const hWr = document.createElement("div");
           hWr.className = "leaderStat";
           hWr.style.minWidth = "60px";
@@ -3962,6 +3966,7 @@
           header.appendChild(hRank);
           header.appendChild(hName);
           header.appendChild(hEarnings);
+          header.appendChild(hCredits);
           header.appendChild(hWr);
           el.appendChild(header);
           LEADERBOARD.forEach((entry, i) => {
@@ -3977,6 +3982,9 @@
             const earnings = document.createElement("div");
             earnings.className = "leaderStat";
             earnings.textContent = formatCredits(entry.totalEarnings);
+            const credits = document.createElement("div");
+            credits.className = "leaderStat";
+            credits.textContent = formatCredits(entry.credits);
             const wr = document.createElement("div");
             wr.className = "leaderStat";
             wr.style.minWidth = "60px";
@@ -3984,6 +3992,7 @@
             row.appendChild(rank);
             row.appendChild(name);
             row.appendChild(earnings);
+            row.appendChild(credits);
             row.appendChild(wr);
             el.appendChild(row);
           });
