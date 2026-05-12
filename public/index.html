@@ -2041,7 +2041,7 @@
               pubkey,
               username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
               credits: userBalance(pubkey),
-              totalEarnings: e.totalEarnings,
+              totalEarnings: userBalance(pubkey) - INITIAL_CREDITS,
               marketsParticipated: e.marketsParticipated,
               marketsWon: e.marketsWon,
               winRate: e.marketsParticipated > 0 ? e.marketsWon / e.marketsParticipated : 0,
