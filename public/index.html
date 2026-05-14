@@ -1245,7 +1245,19 @@
         }
 
         const OPTION_COLORS = ['#6ea8fe','#ff6b6b','#5dd39e','#e6a817','#c084fc','#f472b6','#22d3ee','#fb923c'];
-        function optionColor(idx) { return OPTION_COLORS[idx % OPTION_COLORS.length]; }
+        const COLOR_NAME_MAP = {red:'#ff6b6b',blue:'#6ea8fe',green:'#5dd39e',yellow:'#e6a817',gold:'#e6a817',purple:'#c084fc',violet:'#c084fc',pink:'#f472b6',cyan:'#22d3ee',teal:'#22d3ee',orange:'#fb923c',black:'#888888',white:'#e0e0e0',brown:'#a0522d',gray:'#9ca3af',grey:'#9ca3af'};
+        const COLOR_NAME_RES = Object.keys(COLOR_NAME_MAP).map(k => [new RegExp('\\b' + k + '\\b', 'i'), COLOR_NAME_MAP[k]]);
+        function detectColorInLabel(label) {
+          if (!label) return null;
+          const text = label.replace(/https?:\/\/\S+/gi, '').toLowerCase();
+          let earliest = null, earliestPos = Infinity;
+          for (const [re, hex] of COLOR_NAME_RES) {
+            const m = re.exec(text);
+            if (m && m.index < earliestPos) { earliestPos = m.index; earliest = hex; }
+          }
+          return earliest;
+        }
+        function optionColor(idx, label) { return detectColorInLabel(label) || OPTION_COLORS[idx % OPTION_COLORS.length]; }
 
         const CPMM = (typeof window !== "undefined" && window.OpinionMarketCore) || {};
         function cpmmTotalLiquidity(mkt) {
@@ -2937,7 +2949,7 @@
               pill.style.cssText = "flex:0 0 auto;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;";
               pill.title = "Market odds from betting, not vote results";
               const dot = document.createElement("span");
-              dot.style.cssText = "width:8px;height:8px;border-radius:50%;background:" + optionColor(topIdx);
+              dot.style.cssText = "width:8px;height:8px;border-radius:50%;background:" + optionColor(topIdx, s.options[topIdx].label);
               pill.appendChild(dot);
               const lbl = document.createElement("span");
               lbl.textContent = formatPct(topProb);
@@ -3138,7 +3150,7 @@
 
           for (let oi = 0; oi < options.length; oi++) {
             const optKey = optKeys[oi];
-            const color = optionColor(oi);
+            const color = optionColor(oi, options[oi].label);
             const raw = rawByOpt[optKey];
             if (raw.length < 2) continue;
             const pts = [];
@@ -3195,7 +3207,7 @@
           const myYesShares = (mkt.userShares[me] && mkt.userShares[me][optKey]) || 0;
           const myNoShrs = (mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][optKey]) || 0;
 
-          $("bsOptDot").style.background = optionColor(optIdx);
+          $("bsOptDot").style.background = optionColor(optIdx, opt.label);
           setText($("bsOptName"), parsed.text || opt.key);
           setText($("bsOptOdds"), formatPct(prob));
 
@@ -3341,7 +3353,7 @@
 
             const dot = document.createElement("span");
             dot.className = "optDot";
-            dot.style.background = optionColor(oi);
+            dot.style.background = optionColor(oi, opt.label);
             const name = document.createElement("span");
             name.className = "voteSheet-option-name";
             name.textContent = parsed.text || opt.key;
@@ -3577,7 +3589,7 @@
                   item.className = "oddsSummary-item";
                   const dot = document.createElement("span");
                   dot.className = "optDot";
-                  dot.style.background = optionColor(oi);
+                  dot.style.background = optionColor(oi, opt.label);
                   const parsed = parseOptionLabel(opt.label);
                   const lbl = document.createElement("span");
                   lbl.textContent = (parsed.text || opt.key) + " " + formatPct(prob);
@@ -3632,7 +3644,7 @@
                 header.className = "optionCard-header";
                 const dot = document.createElement("span");
                 dot.className = "optDot";
-                dot.style.background = optionColor(oi);
+                dot.style.background = optionColor(oi, opt.label);
                 header.appendChild(dot);
 
                 const nameEl = document.createElement("span");
@@ -3741,7 +3753,7 @@
                 leftWrap.style.cssText = "display:inline-flex;align-items:center;gap:5px;";
                 const dot = document.createElement("span");
                 dot.className = "optDot";
-                dot.style.background = optionColor(oi);
+                dot.style.background = optionColor(oi, opt.label);
                 leftWrap.appendChild(dot);
                 const parsed = parseOptionLabel(opt.label);
                 const lbl = document.createElement("span");
@@ -3759,7 +3771,7 @@
                 if (count === 0) bar.style.borderColor = "transparent";
                 const inner = document.createElement("div");
                 inner.style.width = pct(count) + "%";
-                inner.style.background = optionColor(oi);
+                inner.style.background = optionColor(oi, opt.label);
                 bar.appendChild(inner);
                 row.appendChild(bar);
 

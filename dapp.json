@@ -22,7 +22,8 @@
       "key": "SENDER_APP_SECRET_KEY",
       "description": "Secret half of SENDER_APP_PUBKEY. Used by /wallet/signer + /wallet/send to publish encryption keys on-chain. Never logged or returned via the API.",
       "required": true,
-      "sensitive": true
+      "sensitive": true,
+      "staging_default": ""
     },
     {
       "key": "VOTE_ENCRYPT_SEED",
