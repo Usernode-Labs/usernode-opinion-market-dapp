@@ -2055,17 +2055,30 @@
               if (hadWinningShares && payout > 0) e.marketsWon++;
             }
           }
-          LEADERBOARD = Array.from(earningsMap.entries())
-            .map(([pubkey, e]) => ({
-              pubkey,
-              username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
-              credits: userBalance(pubkey),
-              totalEarnings: userBalance(pubkey) - INITIAL_CREDITS,
-              marketsParticipated: e.marketsParticipated,
-              marketsWon: e.marketsWon,
-              winRate: e.marketsParticipated > 0 ? e.marketsWon / e.marketsParticipated : 0,
-            }))
-            .sort((a, b) => b.totalEarnings - a.totalEarnings);
+          const allPubkeys = new Set();
+          for (const k of JOINED) allPubkeys.add(k);
+          for (const k of GLOBAL_USERNAMES.keys()) allPubkeys.add(k);
+          for (const k of CREDIT_FLOWS.keys()) allPubkeys.add(k);
+          for (const k of earningsMap.keys()) allPubkeys.add(k);
+
+          LEADERBOARD = Array.from(allPubkeys)
+            .map((pubkey) => {
+              const e = earningsMap.get(pubkey) || { totalEarnings: 0, marketsParticipated: 0, marketsWon: 0 };
+              return {
+                pubkey,
+                username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
+                credits: userBalance(pubkey),
+                totalEarnings: JOINED.has(pubkey) ? userBalance(pubkey) - INITIAL_CREDITS : 0,
+                marketsParticipated: e.marketsParticipated,
+                marketsWon: e.marketsWon,
+                winRate: e.marketsParticipated > 0 ? e.marketsWon / e.marketsParticipated : 0,
+              };
+            })
+            .sort((a, b) => {
+              if (b.totalEarnings !== a.totalEarnings) return b.totalEarnings - a.totalEarnings;
+              if (b.credits !== a.credits) return b.credits - a.credits;
+              return a.username.localeCompare(b.username);
+            });
         }
 
         function distributeRefund(mkt, settlement) {
@@ -2901,7 +2914,7 @@
           } else {
             show(el, false);
           }
-          show($("leaderboardBtn"), LEADERBOARD.length > 0);
+          show($("leaderboardBtn"), true);
         }
 
         /* ================================================================
@@ -3958,7 +3971,7 @@
           if (LEADERBOARD.length === 0) {
             const p = document.createElement("p");
             p.className = "muted";
-            p.textContent = "No settled markets yet.";
+            p.textContent = "No users yet.";
             el.appendChild(p);
             return;
           }
