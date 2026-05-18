@@ -38,12 +38,16 @@ conventions win.
 - `lib/tx-match.js` — Vendored helper used by `lib/dapp-server.js` for
   matching transactions against bridge waiters. Same re-vendor rule.
 - `public/` — UI (`index.html` + `opinion-market-core.js`) plus the
-  shared `usernode-bridge.js`, `usernode-usernames.js`, and
-  `usernode-loading.js`. The bridge and loader are shared infrastructure;
-  do not fork them per-app. `index.html` is byte-identical to the
-  canonical `opinion-market.html` source — keep it that way so the two
-  files can be diffed for drift, and so the `/opinion-market/...`
-  prefixed asset references inside it keep working.
+  shared `usernode-usernames.js` and `usernode-loading.js`. The bridge
+  is loaded from
+  `https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js` —
+  canonical source lives in the social-vibecoding repo at
+  `public/usernode-bridge/v1/bridge.js`. Never vendor it per-app; bridge
+  fixes ship from one SV redeploy, fleet-wide. The loader is still
+  shared infrastructure; do not fork it per-app. `index.html` is
+  byte-identical to the canonical `opinion-market.html` source — keep it
+  that way so the two files can be diffed for drift, and so the
+  `/opinion-market/...` prefixed asset references inside it keep working.
 
 ## Running locally
 

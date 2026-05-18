@@ -44,7 +44,6 @@ opinion-market/
     index.html              UI (single-file HTML/CSS/JS — byte-identical
                             to the canonical opinion-market.html source).
     opinion-market-core.js  CPMM market math + survey rendering.
-    usernode-bridge.js
     usernode-usernames.js
     usernode-loading.js
   Dockerfile              node:22-alpine, port 3000, /health probe.
