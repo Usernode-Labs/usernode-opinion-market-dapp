@@ -1617,6 +1617,39 @@
           return INITIAL_CREDITS - f.antes - f.grossBets + f.netSells + f.payouts + f.dividends + f.creatorRewards;
         }
 
+        function userShareValue(pubkey) {
+          let total = 0;
+          for (const survey of SURVEYS) {
+            if (survey.archived) continue;
+            const mkt = MARKETS.get(survey.id);
+            if (!mkt || !mkt.pools) continue;
+            const keys = Object.keys(mkt.pools);
+            if (keys.length === 0) continue;
+            const isMulti = keys.length > 1;
+            const yesHoldings = (mkt.userShares && mkt.userShares[pubkey]) || {};
+            for (const optKey of keys) {
+              const sh = yesHoldings[optKey] || 0;
+              if (sh <= 0) continue;
+              if (isMulti && CPMM.cpmmSellArbitrage) {
+                total += CPMM.cpmmSellArbitrage(mkt.pools, optKey, sh).creditsReceived;
+              } else if (CPMM.cpmmSellYes) {
+                total += CPMM.cpmmSellYes(mkt.pools[optKey], sh);
+              }
+            }
+            const noHoldings = (mkt.userNoShares && mkt.userNoShares[pubkey]) || {};
+            for (const optKey of keys) {
+              const sh = noHoldings[optKey] || 0;
+              if (sh <= 0) continue;
+              if (isMulti && CPMM.cpmmSellArbitrageNo) {
+                total += CPMM.cpmmSellArbitrageNo(mkt.pools, optKey, sh).creditsReceived;
+              } else if (CPMM.cpmmSellNo) {
+                total += CPMM.cpmmSellNo(mkt.pools[optKey], sh);
+              }
+            }
+          }
+          return total;
+        }
+
         function addPoolLiquidity(pools, amount) {
           const total = Object.values(pools).reduce((s, p) => s + p.yes + p.no, 0);
           if (total <= 0 || amount <= 0) return;
@@ -2064,19 +2097,21 @@
           LEADERBOARD = Array.from(allPubkeys)
             .map((pubkey) => {
               const e = earningsMap.get(pubkey) || { totalEarnings: 0, marketsParticipated: 0, marketsWon: 0 };
+              const liquid = userBalance(pubkey);
+              const shares = userShareValue(pubkey);
               return {
                 pubkey,
                 username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
-                credits: userBalance(pubkey),
-                totalEarnings: JOINED.has(pubkey) ? userBalance(pubkey) - INITIAL_CREDITS : 0,
+                credits: liquid + shares,
+                totalEarnings: JOINED.has(pubkey) ? liquid + shares - INITIAL_CREDITS : 0,
                 marketsParticipated: e.marketsParticipated,
                 marketsWon: e.marketsWon,
                 winRate: e.marketsParticipated > 0 ? e.marketsWon / e.marketsParticipated : 0,
               };
             })
             .sort((a, b) => {
-              if (b.totalEarnings !== a.totalEarnings) return b.totalEarnings - a.totalEarnings;
               if (b.credits !== a.credits) return b.credits - a.credits;
+              if (b.totalEarnings !== a.totalEarnings) return b.totalEarnings - a.totalEarnings;
               return a.username.localeCompare(b.username);
             });
         }
