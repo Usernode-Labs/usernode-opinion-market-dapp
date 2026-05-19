@@ -1617,6 +1617,39 @@
           return INITIAL_CREDITS - f.antes - f.grossBets + f.netSells + f.payouts + f.dividends + f.creatorRewards;
         }
 
+        function userShareValue(pubkey) {
+          let total = 0;
+          for (const survey of SURVEYS) {
+            if (survey.archived) continue;
+            const mkt = MARKETS.get(survey.id);
+            if (!mkt || !mkt.pools) continue;
+            const keys = Object.keys(mkt.pools);
+            if (keys.length === 0) continue;
+            const isMulti = keys.length > 1;
+            const yesHoldings = (mkt.userShares && mkt.userShares[pubkey]) || {};
+            for (const optKey of keys) {
+              const sh = yesHoldings[optKey] || 0;
+              if (sh <= 0) continue;
+              if (isMulti && CPMM.cpmmSellArbitrage) {
+                total += CPMM.cpmmSellArbitrage(mkt.pools, optKey, sh).creditsReceived;
+              } else if (CPMM.cpmmSellYes) {
+                total += CPMM.cpmmSellYes(mkt.pools[optKey], sh);
+              }
+            }
+            const noHoldings = (mkt.userNoShares && mkt.userNoShares[pubkey]) || {};
+            for (const optKey of keys) {
+              const sh = noHoldings[optKey] || 0;
+              if (sh <= 0) continue;
+              if (isMulti && CPMM.cpmmSellArbitrageNo) {
+                total += CPMM.cpmmSellArbitrageNo(mkt.pools, optKey, sh).creditsReceived;
+              } else if (CPMM.cpmmSellNo) {
+                total += CPMM.cpmmSellNo(mkt.pools[optKey], sh);
+              }
+            }
+          }
+          return total;
+        }
+
         function addPoolLiquidity(pools, amount) {
           const total = Object.values(pools).reduce((s, p) => s + p.yes + p.no, 0);
           if (total <= 0 || amount <= 0) return;
@@ -2055,17 +2088,32 @@
               if (hadWinningShares && payout > 0) e.marketsWon++;
             }
           }
-          LEADERBOARD = Array.from(earningsMap.entries())
-            .map(([pubkey, e]) => ({
-              pubkey,
-              username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
-              credits: userBalance(pubkey),
-              totalEarnings: userBalance(pubkey) - INITIAL_CREDITS,
-              marketsParticipated: e.marketsParticipated,
-              marketsWon: e.marketsWon,
-              winRate: e.marketsParticipated > 0 ? e.marketsWon / e.marketsParticipated : 0,
-            }))
-            .sort((a, b) => b.totalEarnings - a.totalEarnings);
+          const allPubkeys = new Set();
+          for (const k of JOINED) allPubkeys.add(k);
+          for (const k of GLOBAL_USERNAMES.keys()) allPubkeys.add(k);
+          for (const k of CREDIT_FLOWS.keys()) allPubkeys.add(k);
+          for (const k of earningsMap.keys()) allPubkeys.add(k);
+
+          LEADERBOARD = Array.from(allPubkeys)
+            .map((pubkey) => {
+              const e = earningsMap.get(pubkey) || { totalEarnings: 0, marketsParticipated: 0, marketsWon: 0 };
+              const liquid = userBalance(pubkey);
+              const shares = userShareValue(pubkey);
+              return {
+                pubkey,
+                username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
+                credits: liquid + shares,
+                totalEarnings: JOINED.has(pubkey) ? liquid + shares - INITIAL_CREDITS : 0,
+                marketsParticipated: e.marketsParticipated,
+                marketsWon: e.marketsWon,
+                winRate: e.marketsParticipated > 0 ? e.marketsWon / e.marketsParticipated : 0,
+              };
+            })
+            .sort((a, b) => {
+              if (b.credits !== a.credits) return b.credits - a.credits;
+              if (b.totalEarnings !== a.totalEarnings) return b.totalEarnings - a.totalEarnings;
+              return a.username.localeCompare(b.username);
+            });
         }
 
         function distributeRefund(mkt, settlement) {
@@ -2901,7 +2949,7 @@
           } else {
             show(el, false);
           }
-          show($("leaderboardBtn"), LEADERBOARD.length > 0);
+          show($("leaderboardBtn"), true);
         }
 
         /* ================================================================
@@ -3958,7 +4006,7 @@
           if (LEADERBOARD.length === 0) {
             const p = document.createElement("p");
             p.className = "muted";
-            p.textContent = "No settled markets yet.";
+            p.textContent = "No users yet.";
             el.appendChild(p);
             return;
           }
