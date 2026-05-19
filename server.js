@@ -184,6 +184,77 @@ app.get("/opinion-market/api/transactions", (req, res) => {
   res.json({ items: omCache.getRawTransactions() });
 });
 
+// Diagnostic endpoint for investigating vote-count accuracy.
+// Returns cache stats, null-source counts, per-survey vote breakdowns,
+// and node-stream health — everything needed to confirm whether the
+// "exactly 64 votes" observation is a ring-buffer cap or real data.
+app.get("/opinion-market/api/debug/tx-stats", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.set("Access-Control-Allow-Origin", "*");
+
+  const rawTxs = omCache.getRawTransactions();
+  const cacheStats = omCache.getStats();
+
+  let nullSourceCount = 0;
+  let nullFromCount = 0;
+  const uniqueFromAddrs = new Set();
+  const surveyVoteCounts = {};
+  const surveyUniqueVoters = {};
+  const memoTypeCounts = {};
+
+  for (const tx of rawTxs) {
+    const source = tx.source != null ? tx.source
+      : (tx.from_pubkey != null ? tx.from_pubkey : (tx.from != null ? tx.from : null));
+    const dest = tx.destination != null ? tx.destination
+      : (tx.destination_pubkey != null ? tx.destination_pubkey : (tx.to != null ? tx.to : null));
+
+    if (source == null) nullSourceCount++;
+    if (source != null) uniqueFromAddrs.add(source);
+
+    // Client-side parseAppTx would drop this tx if source or dest is null
+    if (source == null || dest == null || dest !== APP_PUBKEY) {
+      nullFromCount++;
+      continue;
+    }
+
+    let memo = null;
+    try { memo = JSON.parse(String(tx.memo || "")); } catch (_) {}
+    if (!memo || memo.app !== "opinion-market") continue;
+
+    const mType = memo.type || "unknown";
+    memoTypeCounts[mType] = (memoTypeCounts[mType] || 0) + 1;
+
+    if (mType === "vote" && memo.survey != null) {
+      const sid = String(memo.survey);
+      surveyVoteCounts[sid] = (surveyVoteCounts[sid] || 0) + 1;
+      if (!surveyUniqueVoters[sid]) surveyUniqueVoters[sid] = new Set();
+      surveyUniqueVoters[sid].add(source);
+    }
+  }
+
+  const surveyUniqueVoterCounts = {};
+  for (const [sid, voters] of Object.entries(surveyUniqueVoters)) {
+    surveyUniqueVoterCounts[sid] = voters.size;
+  }
+
+  res.json({
+    totalCachedTxs: rawTxs.length,
+    nullSourceCount,
+    nullFromCount_wouldBeDroppedByClient: nullFromCount,
+    uniqueFromAddresses: uniqueFromAddrs.size,
+    memoTypeCounts,
+    surveyVoteCounts_allTxs: surveyVoteCounts,
+    surveyUniqueVoters: surveyUniqueVoterCounts,
+    cache: {
+      backfillDone: cacheStats.backfillDone,
+      streamReady: cacheStats.streamReady,
+      nullSource: cacheStats.nullSource,
+      nodeStream: cacheStats.nodeStream,
+      mode: cacheStats.mode,
+    },
+  });
+});
+
 // Non-secret config the client needs at boot (admin pubkey + genesis
 // accounts label list).
 app.get("/__config/opinion-market", (_req, res) => {
