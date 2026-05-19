@@ -354,6 +354,11 @@
         text-transform: uppercase;
         letter-spacing: 0.04em;
       }
+      @media (max-width: 600px) {
+        .leaderEarnings { display: none; }
+        .leaderRank { flex-basis: 24px; }
+        .leaderRow { gap: 8px; }
+      }
 
       .onboarding { text-align: center; padding: 32px 16px; }
       .onboarding h2 { font-size: 20px; margin-bottom: 12px; }
@@ -4021,7 +4026,7 @@
           hName.className = "leaderName";
           hName.textContent = "Player";
           const hEarnings = document.createElement("div");
-          hEarnings.className = "leaderStat";
+          hEarnings.className = "leaderStat leaderEarnings";
           hEarnings.textContent = "Earnings";
           const hCredits = document.createElement("div");
           hCredits.className = "leaderStat";
@@ -4047,7 +4052,7 @@
             name.textContent = entry.username;
             if (entry.pubkey === me) name.style.fontWeight = "700";
             const earnings = document.createElement("div");
-            earnings.className = "leaderStat";
+            earnings.className = "leaderStat leaderEarnings";
             earnings.textContent = formatCredits(entry.totalEarnings);
             const credits = document.createElement("div");
             credits.className = "leaderStat";
