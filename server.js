@@ -223,21 +223,30 @@ app.get("/leaderboard", async (_req, res) => {
   }
 });
 
-// ── OM core JS (kept under /opinion-market/ so public/index.html stays
-// byte-identical to its source opinion-market.html) ─────────────────────────
+// ── OM JS modules served under /opinion-market/ ─────────────────────────────
+// The HTML loads these via the /opinion-market/ prefix (matching the canonical
+// platform mount), not the bare /public root, so the same `index.html`
+// works whether it's hosted standalone or behind a Caddy that adds a path
+// prefix. Both files are also `require()`-able from Node (shared with
+// `lib/leaderboard.js`).
 const PUBLIC_DIR = path.join(__dirname, "public");
-const OM_CORE_PATH = path.join(PUBLIC_DIR, "opinion-market-core.js");
-app.get("/opinion-market/opinion-market-core.js", (_req, res) => {
-  try {
-    const buf = fs.readFileSync(OM_CORE_PATH);
-    res.set("Content-Type", "application/javascript; charset=utf-8");
-    res.set("Cache-Control", "no-cache, must-revalidate");
-    res.set("X-App-Version", getBuildVersion());
-    res.send(buf);
-  } catch (e) {
-    res.status(500).type("text/plain").send("Failed to read opinion-market-core.js: " + e.message);
-  }
-});
+const OM_JS_MODULES = {
+  "/opinion-market/opinion-market-core.js": path.join(PUBLIC_DIR, "opinion-market-core.js"),
+  "/opinion-market/opinion-market-state.js": path.join(PUBLIC_DIR, "opinion-market-state.js"),
+};
+for (const [route, filePath] of Object.entries(OM_JS_MODULES)) {
+  app.get(route, (_req, res) => {
+    try {
+      const buf = fs.readFileSync(filePath);
+      res.set("Content-Type", "application/javascript; charset=utf-8");
+      res.set("Cache-Control", "no-cache, must-revalidate");
+      res.set("X-App-Version", getBuildVersion());
+      res.send(buf);
+    } catch (e) {
+      res.status(500).type("text/plain").send(`Failed to read ${path.basename(filePath)}: ${e.message}`);
+    }
+  });
+}
 
 // ── Global usernames cache ───────────────────────────────────────────────────
 // Same shared wiring as omCache, just for the global usernames address.

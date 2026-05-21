@@ -16,6 +16,7 @@
     <script src="/usernode-loading.js"></script>
     <script>UsernodeLoading.init({ appName: "Opinion Market", streamKey: "om" });</script>
     <script src="/opinion-market/opinion-market-core.js"></script>
+    <script src="/opinion-market/opinion-market-state.js"></script>
     <style>
       :root {
         color-scheme: light dark;
@@ -1602,24 +1603,21 @@
         function isGenesisGated() { return GENESIS_ACCOUNTS.size > 0; }
         function isGenesisAccount(addr) { return !isGenesisGated() || GENESIS_ACCOUNTS.has(addr); }
         function currentSurvey() { return SURVEYS_BY_ID.get(currentSurveyId) || null; }
+
+        // Balance accessors — delegated to the shared module so the client
+        // and server replay agree by construction. The shared module's
+        // Phase 2 initializes a CREDIT_FLOWS entry for every joined user,
+        // so the historical `if (!f) return INITIAL_CREDITS` fallback that
+        // silently masked rebuild bugs (see maragung diagnostic) is gone.
+        function _stateSnapshot() {
+          return { JOINED: JOINED, CREDIT_FLOWS: CREDIT_FLOWS, SURVEYS: SURVEYS, MARKETS: MARKETS };
+        }
         function myCredits() {
-          if (!me || !JOINED.has(me)) return 0;
-          const f = CREDIT_FLOWS.get(me);
-          if (!f) return INITIAL_CREDITS;
-          return INITIAL_CREDITS - f.antes - f.grossBets + f.netSells + f.payouts + f.dividends + f.creatorRewards;
+          if (!me) return 0;
+          return window.OpinionMarketState.userBalance(_stateSnapshot(), me);
         }
-
-        function getCreditFlow(pubkey) {
-          let f = CREDIT_FLOWS.get(pubkey);
-          if (!f) { f = { antes: 0, grossBets: 0, netSells: 0, payouts: 0, dividends: 0, creatorRewards: 0 }; CREDIT_FLOWS.set(pubkey, f); }
-          return f;
-        }
-
         function userBalance(pubkey) {
-          if (!JOINED.has(pubkey)) return 0;
-          const f = CREDIT_FLOWS.get(pubkey);
-          if (!f) return INITIAL_CREDITS;
-          return INITIAL_CREDITS - f.antes - f.grossBets + f.netSells + f.payouts + f.dividends + f.creatorRewards;
+          return window.OpinionMarketState.userBalance(_stateSnapshot(), pubkey);
         }
 
         function userShareValue(pubkey) {
@@ -1655,444 +1653,49 @@
           return total;
         }
 
-        function addPoolLiquidity(pools, amount) {
-          const total = Object.values(pools).reduce((s, p) => s + p.yes + p.no, 0);
-          if (total <= 0 || amount <= 0) return;
-          const scale = 1 + amount / total;
-          for (const k of Object.keys(pools)) {
-            pools[k] = { yes: pools[k].yes * scale, no: pools[k].no * scale };
-          }
-        }
-
         /* ================================================================
-         *  STATE REBUILD
+         *  STATE REBUILD — delegates to the shared opinion-market-state.js
+         *  module so the UI and the server-side /leaderboard endpoint run
+         *  the same code on the same input. If you need to change replay
+         *  semantics, edit `public/opinion-market-state.js`, not this file.
          * ================================================================ */
         const SURVEY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
         const MAX_SURVEYS_PER_WINDOW = 999;
 
-        function rebuildState(rawTxs) {
-          const parsed = [];
-          for (const raw of rawTxs) { const p = parseAppTx(raw); if (p) parsed.push(p); }
-          parsed.sort((a, b) => a.tx.ts - b.tx.ts);
+        async function rebuildState(rawTxs) {
+          const globalNames = (window.UsernodeUsernames && UsernodeUsernames.getAllUsernamesSync()) || {};
+          const adminPubkey = _explicitAdminPubkey || null;
+          const state = await window.OpinionMarketState.computeFullState({
+            // `rawTxs` is already vote-decrypted (refreshLoopOnce ran
+            // decryptVoteMemos before calling us), so pass it as
+            // `decryptedTxs` to skip re-decrypting on every refresh.
+            rawTxs: rawTxs,
+            decryptedTxs: rawTxs,
+            appPubkey: APP_PUBKEY,
+            adminPubkey: adminPubkey,
+            genesisAccounts: GENESIS_ACCOUNTS,
+            globalUsernames: globalNames,
+            now: Date.now(),
+          });
 
-          // Reset state
-          GLOBAL_USERNAMES = new Map();
-          JOINED = new Set();
-          MARKETS = new Map();
-          SETTLEMENTS = new Map();
-          CREDIT_FLOWS = new Map();
-          LEADERBOARD = [];
+          // Copy the rebuilt state into the module-level UI globals the
+          // rest of this file reads from. These are still mutated by some
+          // UI flows (e.g. local optimistic updates), so we keep them as
+          // top-level Maps rather than swapping to a "state" object.
+          SURVEYS = state.SURVEYS;
+          SURVEYS_BY_ID = state.SURVEYS_BY_ID;
+          MARKETS = state.MARKETS;
+          JOINED = state.JOINED;
+          GLOBAL_USERNAMES = state.GLOBAL_USERNAMES;
+          CREDIT_FLOWS = state.CREDIT_FLOWS;
+          SETTLEMENTS = state.SETTLEMENTS;
+          _firstJoiner = state.firstJoiner;
 
-          // --- Phase 1: Usernames ---
-          // Legacy per-app names (backward compat for old set_username txs to APP_PUBKEY)
-          const nameMap = new Map();
-          for (const { tx, memo } of parsed) {
-            if (memo.type !== "set_username") continue;
-            const prev = nameMap.get(tx.from);
-            if (!prev || tx.ts >= prev.ts) {
-              nameMap.set(tx.from, { name: normalizeUsername(memo.username, deriveDefaultUsername(tx.from), tx.from), ts: tx.ts });
-            }
-          }
-          for (const [addr, v] of nameMap) GLOBAL_USERNAMES.set(addr, v.name);
-          // Global identity names take precedence over legacy per-app names
-          if (window.UsernodeUsernames) {
-            const globalNames = UsernodeUsernames.getAllUsernamesSync();
-            for (const addr in globalNames) GLOBAL_USERNAMES.set(addr, globalNames[addr]);
-          }
-
-          // --- Phase 2: Joins (first per pubkey, genesis-gated) ---
-          _firstJoiner = null;
-          let _firstJoinTs = Infinity;
-          for (const { tx, memo } of parsed) {
-            if (memo.type !== "join" || !isGenesisAccount(tx.from)) continue;
-            JOINED.add(tx.from);
-            if (tx.ts < _firstJoinTs) { _firstJoinTs = tx.ts; _firstJoiner = tx.from; }
-          }
-
-          // --- Phase 3: Surveys (with rate limiting, genesis-gated, admin-only) ---
-          const adminPubkey = _explicitAdminPubkey || _firstJoiner;
-          const allCreations = [];
-          for (const { tx, memo } of parsed) {
-            if (memo.type !== "create_survey") continue;
-            if (!isGenesisAccount(tx.from)) continue;
-            if (adminPubkey && tx.from !== adminPubkey) continue;
-            const survey = normalizeSurveyDefinition(memo.survey);
-            if (survey) allCreations.push({ survey, ts: tx.ts, from: tx.from });
-          }
-          allCreations.sort((a, b) => a.ts - b.ts);
-          const creationsBySender = new Map();
-          const latestCreated = new Map();
-          for (const entry of allCreations) {
-            const times = creationsBySender.get(entry.from) || [];
-            const windowStart = entry.ts - SURVEY_COOLDOWN_MS;
-            const recent = times.filter(t => t > windowStart);
-            if (recent.length >= MAX_SURVEYS_PER_WINDOW) continue;
-            recent.push(entry.ts);
-            creationsBySender.set(entry.from, recent);
-            const existing = latestCreated.get(entry.survey.id);
-            if (!existing || entry.ts >= existing.ts) {
-              latestCreated.set(entry.survey.id, { survey: entry.survey, ts: entry.ts, from: entry.from });
-            }
-          }
-          // Scan for resolve_early txs (earliest per survey wins)
-          const earlyResolves = new Map();
-          for (const { tx, memo } of parsed) {
-            if (memo.type !== "resolve_early") continue;
-            const sv = memo.survey == null ? null : String(memo.survey);
-            if (!sv) continue;
-            const prev = earlyResolves.get(sv);
-            if (!prev || tx.ts < prev) earlyResolves.set(sv, tx.ts);
-          }
-          // Scan for delete_survey txs (admin-only; any delete wins)
-          const deletedSurveyIds = new Set();
-          for (const { tx, memo } of parsed) {
-            if (memo.type !== "delete_survey") continue;
-            const sv = memo.survey == null ? null : String(memo.survey);
-            if (!sv) continue;
-            const isAdminSender = _explicitAdminPubkey
-              ? tx.from === _explicitAdminPubkey
-              : !!_firstJoiner && tx.from === _firstJoiner;
-            if (isAdminSender) deletedSurveyIds.add(sv);
-          }
-
-          const now = Date.now();
-          SURVEYS = Array.from(latestCreated.values())
-            .filter(x => !deletedSurveyIds.has(x.survey.id))
-            .sort((a, b) => b.ts - a.ts)
-            .map(x => {
-              let expiresAtMs = x.ts + x.survey.activeDurationMs;
-              const earlyResolve = earlyResolves.get(x.survey.id);
-              if (earlyResolve && earlyResolve < expiresAtMs) expiresAtMs = earlyResolve;
-              return {
-                ...x.survey,
-                createdBy: x.from,
-                createdAtMs: x.ts,
-                expiresAtMs,
-                archived: now >= expiresAtMs,
-              };
-            });
-          SURVEYS_BY_ID = new Map();
-          for (const s of SURVEYS) SURVEYS_BY_ID.set(s.id, s);
-
-          // --- Phase 4: Custom options per survey (genesis-gated) ---
-          const optionsBySurvey = new Map();
-          for (const { tx, memo } of parsed) {
-            if (memo.type !== "add_option") continue;
-            if (!isGenesisAccount(tx.from)) continue;
-            const sv = memo.survey == null ? null : String(memo.survey);
-            const survey = SURVEYS_BY_ID.get(sv);
-            if (!survey || !survey.allowCustomOptions) continue;
-            if (survey.archived && tx.ts >= survey.expiresAtMs) continue;
-            const optObj = memo.option && typeof memo.option === "object" ? memo.option : null;
-            const label = optObj && optObj.label != null ? String(optObj.label).trim() : "";
-            if (!label) continue;
-            const key = (optObj && optObj.key != null ? String(optObj.key).trim() : slugify(label)) || `opt_${last6(tx.from)}_${String(tx.ts)}`;
-            if (!optionsBySurvey.has(sv)) optionsBySurvey.set(sv, new Map());
-            const senderMap = optionsBySurvey.get(sv);
-            const prev = senderMap.get(tx.from);
-            if (!prev || tx.ts < prev.ts) {
-              senderMap.set(tx.from, { key, label, ts: tx.ts, from: tx.from });
-            }
-          }
-          for (const survey of SURVEYS) {
-            const senderMap = optionsBySurvey.get(survey.id);
-            if (!senderMap) continue;
-            const existing = new Map(survey.options.map(o => [o.key, o]));
-            const added = Array.from(senderMap.values()).sort((a, b) => a.ts - b.ts);
-            for (const it of added) {
-              let key = it.key;
-              if (existing.has(key)) key = `${key}_${last6(it.from)}`;
-              if (existing.has(key)) key = `${key}_${String(it.ts).slice(-4)}`;
-              existing.set(key, { key, label: it.label, userAdded: true, addedBy: it.from });
-            }
-            survey.options = Array.from(existing.values());
-          }
-
-          // --- Phase 5: Votes (latest per sender per survey, genesis-gated) ---
-          const voteMap = new Map();
-          for (const { tx, memo } of parsed) {
-            if (memo.type !== "vote") continue;
-            if (!isGenesisAccount(tx.from)) continue;
-            const sv = memo.survey == null ? null : String(memo.survey);
-            const survey = SURVEYS_BY_ID.get(sv);
-            if (!survey) continue;
-            const ch = memo.choice != null ? String(memo.choice) : memo.vote != null ? String(memo.vote) : null;
-            if (!ch || !survey.options.some(o => o.key === ch)) continue;
-            const k = `${tx.from}:${sv}`;
-            const prev = voteMap.get(k);
-            if (!prev || tx.ts >= prev.ts) voteMap.set(k, { from: tx.from, survey: sv, choice: ch, ts: tx.ts });
-          }
-
-          // --- Phase 5b: Seed markets from creator ante (CPMM) ---
-          for (const survey of SURVEYS) {
-            if (!survey.createdBy || !JOINED.has(survey.createdBy)) continue;
-            if (userBalance(survey.createdBy) < MARKET_ANTE) continue;
-            const numOpts = survey.options.length;
-            if (numOpts < 2) continue;
-            const initPools = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, numOpts) : [];
-            if (initPools.length === 0) continue;
-            const mkt = { pools: {}, userShares: {}, userNoShares: {}, feePool: 0, grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0, creator: survey.createdBy, history: [], optionVolume: {} };
-            const seedPerOption = (MARKET_ANTE + PLATFORM_LIQUIDITY) / survey.options.length;
-            for (let i = 0; i < survey.options.length; i++) {
-              mkt.pools[survey.options[i].key] = { ...initPools[i] };
-              mkt.optionVolume[survey.options[i].key] = seedPerOption;
-            }
-            const initProbs = {};
-            for (const opt of survey.options) initProbs[opt.key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[opt.key]) : 0;
-            mkt.history.push({ ts: survey.createdAtMs, probs: initProbs });
-            MARKETS.set(survey.id, mkt);
-            getCreditFlow(survey.createdBy).antes += MARKET_ANTE;
-          }
-
-          // --- Phase 6: Market operations (chronological replay, CPMM) ---
-          for (const { tx, memo } of parsed) {
-            if (memo.type !== "place_bet" && memo.type !== "sell_shares") continue;
-            const sv = memo.survey == null ? null : String(memo.survey);
-            const survey = SURVEYS_BY_ID.get(sv);
-            if (!survey) continue;
-            if (tx.ts >= survey.expiresAtMs) continue;
-            const optKey = memo.option == null ? null : String(memo.option);
-            if (!optKey || !survey.options.some(o => o.key === optKey)) continue;
-            if (!JOINED.has(tx.from)) continue;
-
-            let mkt = MARKETS.get(sv);
-            if (!mkt) {
-              const numOpts = survey.options.length;
-              const initPools = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, numOpts) : [];
-              mkt = { pools: {}, userShares: {}, userNoShares: {}, feePool: 0, grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0, creator: survey.createdBy || null, history: [], optionVolume: {} };
-              if (initPools.length === numOpts) {
-                const spo = (MARKET_ANTE + PLATFORM_LIQUIDITY) / numOpts;
-                for (let i = 0; i < numOpts; i++) { mkt.pools[survey.options[i].key] = { ...initPools[i] }; mkt.optionVolume[survey.options[i].key] = spo; }
-                const ip = {}; for (const o of survey.options) ip[o.key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[o.key]) : 0;
-                mkt.history.push({ ts: survey.createdAtMs, probs: ip });
-              }
-              MARKETS.set(sv, mkt);
-            }
-
-            if (memo.type === "place_bet") {
-              const credits = typeof memo.credits === "number" ? memo.credits : Number(memo.credits);
-              if (!Number.isFinite(credits) || credits < 1) continue;
-              const bal = userBalance(tx.from);
-              if (bal < credits) continue;
-              const totalPoolValue = Object.values(mkt.pools).reduce((s, p) => s + p.yes + p.no, 0);
-              const maxBet = Math.floor(totalPoolValue * MAX_BET_POOL_RATIO);
-              if (credits > maxBet) continue;
-
-              const fee = credits * FEE_RATE;
-              const liquidityFee = credits * LIQUIDITY_FEE_RATE;
-              const creatorCut = Math.min(credits * CREATOR_REWARD_RATE, CREATOR_REWARD_CAP - mkt.creatorReward);
-              const voterFee = fee - Math.max(0, creatorCut) - liquidityFee;
-              const net = credits - fee;
-
-              const side = memo.side === "no" ? "no" : "yes";
-              const pool = mkt.pools[optKey];
-              if (!pool) continue;
-
-              let res;
-              if (side === "no") {
-                if (!CPMM.cpmmArbitrageNo) continue;
-                res = CPMM.cpmmArbitrageNo(mkt.pools, optKey, net);
-              } else {
-                if (!CPMM.cpmmArbitrage) continue;
-                res = CPMM.cpmmArbitrage(mkt.pools, optKey, net);
-              }
-              if (res.sharesReceived <= 0) continue;
-
-              for (const k of Object.keys(res.newPools)) mkt.pools[k] = res.newPools[k];
-              addPoolLiquidity(mkt.pools, liquidityFee);
-              if (side === "no") {
-                if (!mkt.userNoShares[tx.from]) mkt.userNoShares[tx.from] = {};
-                mkt.userNoShares[tx.from][optKey] = (mkt.userNoShares[tx.from][optKey] || 0) + res.sharesReceived;
-              } else {
-                if (!mkt.userShares[tx.from]) mkt.userShares[tx.from] = {};
-                mkt.userShares[tx.from][optKey] = (mkt.userShares[tx.from][optKey] || 0) + res.sharesReceived;
-              }
-              mkt.feePool += voterFee;
-              if (creatorCut > 0) {
-                mkt.creatorReward += creatorCut;
-                if (mkt.creator) getCreditFlow(mkt.creator).creatorRewards += creatorCut;
-              }
-              mkt.grossBetsByUser[tx.from] = (mkt.grossBetsByUser[tx.from] || 0) + credits;
-              getCreditFlow(tx.from).grossBets += credits;
-              mkt.optionVolume[optKey] = (mkt.optionVolume[optKey] || 0) + credits;
-              const _hp = {}; for (const _ok of Object.keys(mkt.pools)) _hp[_ok] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[_ok]) : 0;
-              mkt.history.push({ ts: tx.ts, probs: _hp });
-            }
-
-            if (memo.type === "sell_shares") {
-              const sharesToSell = typeof memo.shares === "number" ? memo.shares : Number(memo.shares);
-              if (!Number.isFinite(sharesToSell) || sharesToSell <= 0) continue;
-              const side = memo.side === "no" ? "no" : "yes";
-              const userHeld = side === "no"
-                ? ((mkt.userNoShares[tx.from] && mkt.userNoShares[tx.from][optKey]) || 0)
-                : ((mkt.userShares[tx.from] && mkt.userShares[tx.from][optKey]) || 0);
-              if (userHeld < sharesToSell) continue;
-              const pool = mkt.pools[optKey];
-              if (!pool) continue;
-
-              let grossCredits;
-              if (side === "no") {
-                if (CPMM.cpmmSellArbitrageNo && Object.keys(mkt.pools).length > 1) {
-                  const result = CPMM.cpmmSellArbitrageNo(mkt.pools, optKey, sharesToSell);
-                  grossCredits = result.creditsReceived;
-                  if (grossCredits <= 0) continue;
-                  for (const pk of Object.keys(result.newPools)) mkt.pools[pk] = result.newPools[pk];
-                } else if (CPMM.cpmmSellNo && CPMM.cpmmSellNoApply) {
-                  grossCredits = CPMM.cpmmSellNo(pool, sharesToSell);
-                  if (grossCredits <= 0) continue;
-                  mkt.pools[optKey] = CPMM.cpmmSellNoApply(pool, sharesToSell);
-                } else {
-                  continue;
-                }
-              } else {
-                if (CPMM.cpmmSellArbitrage && Object.keys(mkt.pools).length > 1) {
-                  const result = CPMM.cpmmSellArbitrage(mkt.pools, optKey, sharesToSell);
-                  grossCredits = result.creditsReceived;
-                  if (grossCredits <= 0) continue;
-                  for (const pk of Object.keys(result.newPools)) mkt.pools[pk] = result.newPools[pk];
-                } else if (CPMM.cpmmSellYes && CPMM.cpmmSellYesApply) {
-                  grossCredits = CPMM.cpmmSellYes(pool, sharesToSell);
-                  if (grossCredits <= 0) continue;
-                  mkt.pools[optKey] = CPMM.cpmmSellYesApply(pool, sharesToSell);
-                } else {
-                  continue;
-                }
-              }
-
-              const fee = grossCredits * FEE_RATE;
-              const liquidityFee = grossCredits * LIQUIDITY_FEE_RATE;
-              const creatorCut = Math.min(grossCredits * CREATOR_REWARD_RATE, CREATOR_REWARD_CAP - mkt.creatorReward);
-              const voterFee = fee - Math.max(0, creatorCut) - liquidityFee;
-              const netCredits = grossCredits - fee;
-
-              addPoolLiquidity(mkt.pools, liquidityFee);
-              if (side === "no") {
-                mkt.userNoShares[tx.from][optKey] = userHeld - sharesToSell;
-              } else {
-                mkt.userShares[tx.from][optKey] = userHeld - sharesToSell;
-              }
-              mkt.feePool += voterFee;
-              if (creatorCut > 0) {
-                mkt.creatorReward += creatorCut;
-                if (mkt.creator) getCreditFlow(mkt.creator).creatorRewards += creatorCut;
-              }
-              mkt.netSellsByUser[tx.from] = (mkt.netSellsByUser[tx.from] || 0) + netCredits;
-              getCreditFlow(tx.from).netSells += netCredits;
-              const _sp = {}; for (const _sk of Object.keys(mkt.pools)) _sp[_sk] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[_sk]) : 0;
-              mkt.history.push({ ts: tx.ts, probs: _sp });
-            }
-          }
-
-          // --- Phase 7: Settlement for expired surveys ---
-          for (const survey of SURVEYS) {
-            if (!survey.archived) continue;
-            const mkt = MARKETS.get(survey.id);
-
-            const voteCounts = {};
-            for (const opt of survey.options) voteCounts[opt.key] = 0;
-            const voterSet = new Set();
-            for (const [k, v] of voteMap) {
-              if (v.survey !== survey.id) continue;
-              voteCounts[v.choice] = (voteCounts[v.choice] || 0) + 1;
-              voterSet.add(v.from);
-            }
-
-            const totalPool = mkt ? cpmmTotalLiquidity(mkt) : 0;
-            const settlement = { winner: null, payouts: {}, voterDividendPer: 0, surprise: {}, totalPool, feePool: mkt ? mkt.feePool : 0, voteCounts, voterCount: voterSet.size, voters: voterSet };
-
-            if (mkt && totalPool > 0) {
-              settlement.feePool = mkt.feePool;
-              const totalVotes = Object.values(voteCounts).reduce((a, b) => a + b, 0);
-
-              // Surprise metric (CPMM: prob = cpmmProb(pool))
-              for (const opt of survey.options) {
-                const vs = totalVotes > 0 ? (voteCounts[opt.key] || 0) / totalVotes : 0;
-                const pool = mkt.pools[opt.key];
-                const mp = pool && CPMM.cpmmProb ? CPMM.cpmmProb(pool) : 0;
-                settlement.surprise[opt.key] = vs - mp;
-              }
-
-              if (totalVotes === 0) {
-                distributeRefund(mkt, settlement);
-              } else {
-                let maxVotes = 0;
-                let winners = [];
-                for (const [key, count] of Object.entries(voteCounts)) {
-                  if (count > maxVotes) { maxVotes = count; winners = [key]; }
-                  else if (count === maxVotes && count > 0) winners.push(key);
-                }
-                const K = winners.length;
-                settlement.winners = winners;
-                settlement.winner = K === 1 ? winners[0] : null;
-                const weights = {};
-                for (const opt of survey.options) weights[opt.key] = 0;
-                for (const w of winners) weights[w] = 1 / K;
-                settlement.resolutionWeights = weights;
-
-                for (const [pubkey, shares] of Object.entries(mkt.userShares)) {
-                  for (const [optKey, s] of Object.entries(shares)) {
-                    const w = weights[optKey] || 0;
-                    if (w > 0 && s > 0) settlement.payouts[pubkey] = (settlement.payouts[pubkey] || 0) + s * w;
-                  }
-                }
-                for (const [pubkey, noShares] of Object.entries(mkt.userNoShares || {})) {
-                  for (const [optKey, ns] of Object.entries(noShares)) {
-                    if (ns <= 0) continue;
-                    const w = weights[optKey] || 0;
-                    const noPayout = (1 - w) * ns;
-                    if (noPayout > 0) settlement.payouts[pubkey] = (settlement.payouts[pubkey] || 0) + noPayout;
-                  }
-                }
-              }
-
-              // Voter dividends
-              if (voterSet.size > 0 && mkt.feePool > 0) {
-                settlement.voterDividendPer = mkt.feePool / voterSet.size;
-              }
-
-              // Apply to credit flows
-              for (const [pubkey, amount] of Object.entries(settlement.payouts)) {
-                getCreditFlow(pubkey).payouts += amount;
-              }
-              if (settlement.voterDividendPer > 0) {
-                for (const voter of voterSet) {
-                  getCreditFlow(voter).dividends += settlement.voterDividendPer;
-                }
-              }
-            }
-
-            SETTLEMENTS.set(survey.id, settlement);
-          }
-
-          // --- Phase 8: Leaderboard (includes dividends) ---
-          const earningsMap = new Map();
-          for (const survey of SURVEYS) {
-            if (!survey.archived) continue;
-            const mkt = MARKETS.get(survey.id);
-            if (!mkt || cpmmTotalLiquidity(mkt) <= 0) continue;
-            const settlement = SETTLEMENTS.get(survey.id);
-            if (!settlement) continue;
-            const dividend = settlement.voterDividendPer || 0;
-            for (const pubkey of Object.keys(mkt.grossBetsByUser)) {
-              const grossBet = mkt.grossBetsByUser[pubkey] || 0;
-              if (grossBet <= 0) continue;
-              const netSells = mkt.netSellsByUser[pubkey] || 0;
-              const payout = settlement.payouts[pubkey] || 0;
-              const div = (settlement.voterCount > 0 && voteMap.has(pubkey + ":" + survey.id)) ? dividend : 0;
-              const profit = payout + netSells + div - grossBet;
-              const shares = mkt.userShares[pubkey] || {};
-              const noShares = (mkt.userNoShares || {})[pubkey] || {};
-              const sw = settlement.resolutionWeights || {};
-              const hadWinningYes = Object.entries(shares).some(([k, s]) => s > 0 && (sw[k] || 0) > 0);
-              const hadWinningNo = Object.entries(noShares).some(([k, s]) => s > 0 && (sw[k] || 0) < 1);
-              const hadWinningShares = hadWinningYes || hadWinningNo;
-              let e = earningsMap.get(pubkey);
-              if (!e) { e = { totalEarnings: 0, marketsParticipated: 0, marketsWon: 0 }; earningsMap.set(pubkey, e); }
-              e.marketsParticipated++;
-              e.totalEarnings += profit;
-              if (hadWinningShares && payout > 0) e.marketsWon++;
-            }
-          }
+          // Phase 8 — Leaderboard projection (UI-shaped). The shared
+          // module returns the per-user earningsMap; we compose it here
+          // into the table format the leaderboard panel renders, so the
+          // shared module stays free of UI concerns.
+          const earningsMap = state.earningsMap;
           const allPubkeys = new Set();
           for (const k of JOINED) allPubkeys.add(k);
           for (const k of GLOBAL_USERNAMES.keys()) allPubkeys.add(k);
@@ -2119,47 +1722,6 @@
               if (b.totalEarnings !== a.totalEarnings) return b.totalEarnings - a.totalEarnings;
               return a.username.localeCompare(b.username);
             });
-        }
-
-        function distributeRefund(mkt, settlement) {
-          for (const [pubkey, shares] of Object.entries(mkt.userShares)) {
-            for (const [optKey, s] of Object.entries(shares)) {
-              if (s <= 0) continue;
-              const pool = mkt.pools[optKey];
-              if (!pool) continue;
-              let credits;
-              if (CPMM.cpmmSellArbitrage && Object.keys(mkt.pools).length > 1) {
-                const result = CPMM.cpmmSellArbitrage(mkt.pools, optKey, s);
-                credits = result.creditsReceived;
-                for (const pk of Object.keys(result.newPools)) {
-                  mkt.pools[pk] = result.newPools[pk];
-                }
-              } else if (CPMM.cpmmSellYes) {
-                credits = CPMM.cpmmSellYes(pool, s);
-              } else {
-                continue;
-              }
-              if (credits > 0) settlement.payouts[pubkey] = (settlement.payouts[pubkey] || 0) + credits;
-            }
-          }
-          for (const [pubkey, noShares] of Object.entries(mkt.userNoShares || {})) {
-            for (const [optKey, s] of Object.entries(noShares)) {
-              if (s <= 0) continue;
-              const pool = mkt.pools[optKey];
-              if (!pool) continue;
-              let credits;
-              if (CPMM.cpmmSellArbitrageNo && Object.keys(mkt.pools).length > 1) {
-                const result = CPMM.cpmmSellArbitrageNo(mkt.pools, optKey, s);
-                credits = result.creditsReceived;
-                for (const pk of Object.keys(result.newPools)) mkt.pools[pk] = result.newPools[pk];
-              } else if (CPMM.cpmmSellNo) {
-                credits = CPMM.cpmmSellNo(pool, s);
-              } else {
-                continue;
-              }
-              if (credits > 0) settlement.payouts[pubkey] = (settlement.payouts[pubkey] || 0) + credits;
-            }
-          }
         }
 
         /* ================================================================
@@ -4073,6 +3635,12 @@
         /* ================================================================
          *  VOTE DECRYPTION PIPELINE
          * ================================================================ */
+        // Delegates to the shared module so the client and server see the
+        // same decryption pipeline. We still pass `_decryptCache` so that
+        // vote decryption (expensive on large feeds) is reused across
+        // refreshes. PUBKEY_MAP/PRIVKEY_MAP are rebuilt here only because
+        // other UI flows (e.g. `fetchPubkey`) still read from them; the
+        // shared module rebuilds them internally for actual decryption.
         async function decryptVoteMemos(txs) {
           PUBKEY_MAP = new Map();
           PRIVKEY_MAP = new Map();
@@ -4090,35 +3658,7 @@
               PRIVKEY_MAP.set(p.memo.survey, m);
             }
           }
-          const result = [];
-          for (const raw of txs) {
-            const txId = raw.tx_id || raw.id || raw.txid || raw.hash || null;
-            if (txId && _decryptCache.has(txId)) { result.push(_decryptCache.get(txId)); continue; }
-            const p = parseAppTx(raw);
-            if (!p || p.memo.type !== "vote" || !p.memo.ev || p.memo.ki == null) {
-              if (txId) _decryptCache.set(txId, raw);
-              result.push(raw); continue;
-            }
-            const surveyKeys = PRIVKEY_MAP.get(p.memo.survey);
-            const dScalar = surveyKeys ? surveyKeys.get(Number(p.memo.ki)) : null;
-            const pubMap = PUBKEY_MAP.get(p.memo.survey);
-            const pub = pubMap ? pubMap.get(Number(p.memo.ki)) : null;
-            if (!dScalar || !pub) {
-              result.push(raw); continue;
-            }
-            try {
-              const choice = await decryptVote(dScalar, pub, p.memo.ev);
-              const newMemo = Object.assign({}, p.memo, { choice });
-              delete newMemo.ev;
-              const newRaw = Object.assign({}, raw, { memo: JSON.stringify(newMemo) });
-              if (txId) _decryptCache.set(txId, newRaw);
-              result.push(newRaw);
-            } catch (e) {
-              console.warn("Vote decryption failed:", e.message);
-              result.push(raw);
-            }
-          }
-          return result;
+          return await window.OpinionMarketState.decryptVoteMemos(txs, APP_PUBKEY, _decryptCache);
         }
 
         async function fetchPubkey(surveyId, ki, survey) {
@@ -4182,7 +3722,7 @@
             const latestUsername = getMyLatestUsername(txs, me);
             if (latestUsername) { myUsername = latestUsername; setText($("headerUsername"), myUsername); }
 
-            rebuildState(txs);
+            await rebuildState(txs);
             if (_explicitAdminPubkey) {
               isAdmin = !!me && me === _explicitAdminPubkey;
             } else {

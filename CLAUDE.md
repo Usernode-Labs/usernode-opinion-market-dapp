@@ -21,9 +21,10 @@ conventions win.
 
 - `server.js` — Express server. Mock API (--local-dev), OM-specific routes
   (`/opinion-market/api/transactions`, `/__om/pubkeys/:surveyId`,
-  `/__config/opinion-market`, `/opinion-market/opinion-market-core.js`),
-  explorer proxy, static `public/`, recipient chain poller. No auth
-  middleware (OM is public — see "Auth model" below).
+  `/__config/opinion-market`, `/opinion-market/opinion-market-core.js`,
+  `/opinion-market/opinion-market-state.js`), explorer proxy, static
+  `public/`, recipient chain poller. No auth middleware (OM is public —
+  see "Auth model" below).
 - `vote-encryption.js` — Server-side key management. The analog of
   `game-logic.js` (lastwin) and `echo-logic.js` (echo): dedups incoming
   tx, registers surveys, derives per-survey ECDH key pairs from
@@ -37,17 +38,34 @@ conventions win.
   when fixes land there.
 - `lib/tx-match.js` — Vendored helper used by `lib/dapp-server.js` for
   matching transactions against bridge waiters. Same re-vendor rule.
-- `public/` — UI (`index.html` + `opinion-market-core.js`) plus the
-  shared `usernode-usernames.js` and `usernode-loading.js`. The bridge
-  is loaded from
+- `lib/leaderboard.js` — Thin wrapper over `public/opinion-market-state.js`
+  that shapes its output into the `/leaderboard` JSON payload. Do not put
+  replay logic here.
+- `public/` — UI (`index.html`) plus the shared, dual-mode (browser +
+  Node) modules `opinion-market-core.js` (pure CPMM math) and
+  `opinion-market-state.js` (Phases 1-8 state rebuild, vote decryption,
+  bet validation). **`opinion-market-state.js` is the single source of
+  truth for OM replay semantics** — both `public/index.html` (client UI)
+  and `lib/leaderboard.js` (server endpoint) consume it. Editing it
+  changes both at once; do not fork the pipeline back into either
+  consumer.
+  Also includes the shared `usernode-usernames.js` and
+  `usernode-loading.js`. The bridge is loaded from
   `https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js` —
   canonical source lives in the social-vibecoding repo at
   `public/usernode-bridge/v1/bridge.js`. Never vendor it per-app; bridge
   fixes ship from one SV redeploy, fleet-wide. The loader is still
-  shared infrastructure; do not fork it per-app. `index.html` is
-  byte-identical to the canonical `opinion-market.html` source — keep it
-  that way so the two files can be diffed for drift, and so the
-  `/opinion-market/...` prefixed asset references inside it keep working.
+  shared infrastructure; do not fork it per-app.
+- `simulate/` — Node-only diagnostic harness for replaying the live
+  chain feed offline (see `simulate/replay.js`). Useful for explaining
+  weird per-user states without touching production.
+
+**Canonical source.** This repository is the canonical source for the OM
+client (`public/index.html`) and the shared replay module
+(`public/opinion-market-state.js`). The platform-side
+`opinion-market.html` snapshot is a downstream copy — when you change
+files here, the next platform sync picks them up. Do not edit the
+downstream copy; do not assume byte-identity with it.
 
 ## Running locally
 
