@@ -49,6 +49,25 @@ conventions win.
   and `lib/leaderboard.js` (server endpoint) consume it. Editing it
   changes both at once; do not fork the pipeline back into either
   consumer.
+  - Phase 6 (market operations) and Phase 7 (survey settlement) are
+    **interleaved** into a single chronological event stream: trade
+    events and "survey expired" events are merged and sorted by ts so
+    that a settlement's payouts land in `CREDIT_FLOWS` BEFORE any later
+    bet's balance check. Before this interleaving, bets placed after a
+    settled survey would silently fail Phase 6's `bal < credits` check
+    (using a pre-settlement balance) while the UI header (which reads
+    post-Phase-7 balance) reported the higher number — burning users'
+    tx fees with no on-chain feedback (scraido/maragung, May 2026). The
+    `BUG-INLINE-SETTLEMENT` test in `simulate/replay.test.js` guards
+    this invariant.
+  - Every silently-dropped `place_bet` / `sell_shares` tx is recorded
+    in `state.rejectedSends` with a precise reason code
+    (`INSUFFICIENT_BALANCE`, `OVER_MAX_BET`, `EXPIRED`, etc). The UI
+    consumes this via `renderRejectedBanner()` and surfaces a sticky
+    banner to the user. `OMS.validatePlaceBet` enforces the same Phase
+    6 rules client-side as a preflight, so well-behaved clients never
+    burn a tx fee on a bet that would be dropped — `placeBetFlow` in
+    `public/index.html` calls it before `sendTransaction`.
   Also includes the shared `usernode-usernames.js` and
   `usernode-loading.js`. The bridge is loaded from
   `https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js` —

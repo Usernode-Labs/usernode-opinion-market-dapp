@@ -748,16 +748,160 @@
       getCreditFlow(sv7.createdBy).antes += MARKET_ANTE;
     }
 
-    /* --- Phase 6: Market operations (chronological replay) ---
+    /* Settlement logic, extracted so it can fire inline at expiresAtMs.
+     * Computes the settlement for one survey based on the current MARKETS
+     * state for it and the (already-finalized) voteMap. Mutates
+     * CREDIT_FLOWS to credit payouts/dividends to affected users. Idempotent
+     * to call once per survey (and that's all we do — one settlement event
+     * per archived survey). */
+    function settleSurvey(survey) {
+      var mkt = MARKETS.get(survey.id);
+
+      var voteCounts = {};
+      for (var vo = 0; vo < survey.options.length; vo++) voteCounts[survey.options[vo].key] = 0;
+      var voterSet = new Set();
+      var vmEntries = Array.from(voteMap.entries());
+      for (var ve = 0; ve < vmEntries.length; ve++) {
+        var v = vmEntries[ve][1];
+        if (v.survey !== survey.id) continue;
+        voteCounts[v.choice] = (voteCounts[v.choice] || 0) + 1;
+        voterSet.add(v.from);
+      }
+
+      var totalPool = mkt ? cpmmTotalLiquidity(mkt) : 0;
+      var settlement = {
+        winner: null, payouts: {}, voterDividendPer: 0, surprise: {},
+        totalPool: totalPool, feePool: mkt ? mkt.feePool : 0,
+        voteCounts: voteCounts, voterCount: voterSet.size, voters: voterSet,
+      };
+
+      if (mkt && totalPool > 0) {
+        settlement.feePool = mkt.feePool;
+        var totalVotes = Object.values(voteCounts).reduce(function (a, b) { return a + b; }, 0);
+
+        for (var soi = 0; soi < survey.options.length; soi++) {
+          var vs = totalVotes > 0 ? (voteCounts[survey.options[soi].key] || 0) / totalVotes : 0;
+          var pool8 = mkt.pools[survey.options[soi].key];
+          var mp = pool8 && CPMM.cpmmProb ? CPMM.cpmmProb(pool8) : 0;
+          settlement.surprise[survey.options[soi].key] = vs - mp;
+        }
+
+        if (totalVotes === 0) {
+          distributeRefund(mkt, settlement);
+        } else {
+          var maxVotes = 0;
+          var winners = [];
+          var vcEntries = Object.entries(voteCounts);
+          for (var vci = 0; vci < vcEntries.length; vci++) {
+            var key = vcEntries[vci][0];
+            var count = vcEntries[vci][1];
+            if (count > maxVotes) { maxVotes = count; winners = [key]; }
+            else if (count === maxVotes && count > 0) winners.push(key);
+          }
+          var K = winners.length;
+          settlement.winners = winners;
+          settlement.winner = K === 1 ? winners[0] : null;
+          var weights = {};
+          for (var owi = 0; owi < survey.options.length; owi++) weights[survey.options[owi].key] = 0;
+          for (var wi = 0; wi < winners.length; wi++) weights[winners[wi]] = 1 / K;
+          settlement.resolutionWeights = weights;
+
+          var ysEntries = Object.entries(mkt.userShares);
+          for (var ysi = 0; ysi < ysEntries.length; ysi++) {
+            var pkY = ysEntries[ysi][0];
+            var sharesY = ysEntries[ysi][1];
+            var sEntries = Object.entries(sharesY);
+            for (var ssi = 0; ssi < sEntries.length; ssi++) {
+              var optK2 = sEntries[ssi][0];
+              var sV = sEntries[ssi][1];
+              var w = weights[optK2] || 0;
+              if (w > 0 && sV > 0) settlement.payouts[pkY] = (settlement.payouts[pkY] || 0) + sV * w;
+            }
+          }
+          var nsEntries = Object.entries(mkt.userNoShares || {});
+          for (var nsi = 0; nsi < nsEntries.length; nsi++) {
+            var pkN = nsEntries[nsi][0];
+            var noShares = nsEntries[nsi][1];
+            var nEntries = Object.entries(noShares);
+            for (var nei = 0; nei < nEntries.length; nei++) {
+              var optK3 = nEntries[nei][0];
+              var ns = nEntries[nei][1];
+              if (ns <= 0) continue;
+              var wN = weights[optK3] || 0;
+              var noPayout = (1 - wN) * ns;
+              if (noPayout > 0) settlement.payouts[pkN] = (settlement.payouts[pkN] || 0) + noPayout;
+            }
+          }
+        }
+
+        if (voterSet.size > 0 && mkt.feePool > 0) {
+          settlement.voterDividendPer = mkt.feePool / voterSet.size;
+        }
+
+        var poEntries = Object.entries(settlement.payouts);
+        for (var poi = 0; poi < poEntries.length; poi++) {
+          getCreditFlow(poEntries[poi][0]).payouts += poEntries[poi][1];
+        }
+        if (settlement.voterDividendPer > 0) {
+          var vsArr = Array.from(voterSet);
+          for (var vsi = 0; vsi < vsArr.length; vsi++) {
+            getCreditFlow(vsArr[vsi]).dividends += settlement.voterDividendPer;
+          }
+        }
+      }
+
+      SETTLEMENTS.set(survey.id, settlement);
+    }
+
+    /* --- Phase 6/7 (interleaved): Trades + settlements in chronological order ---
      *
-     * Every silent rejection here also gets logged to REJECTED_SENDS so
-     * the UI can surface "your bet was dropped because X" feedback to
-     * the user. Without this, users pay the 1-token tx fee for every
-     * dropped bet and get no signal — which is how scraido (May 2026)
-     * burned ~14 fees with no UI feedback. */
+     * The bug this interleaving fixes: previously Phase 6 walked every
+     * place_bet/sell_shares first, then Phase 7 ran settlements at the
+     * end. That meant during the Phase 6 walk, payouts from already-
+     * expired surveys were not yet credited to CREDIT_FLOWS, so a bet
+     * placed days AFTER a previous survey settled would fail the
+     * `bal < credits` check using a pre-settlement balance. The header
+     * (which reads the post-rebuild state) reported the correct,
+     * post-settlement balance — so users saw e.g. 822 credits, tried to
+     * bet 320, the bet passed the client preflight, hit the chain, and
+     * was then silently dropped by the next rebuild. This is what
+     * burned scraido and maragung's tx fees in May 2026.
+     *
+     * Fix: merge trades and "survey expired" events into a single
+     * chronologically-sorted stream. When a settlement fires inline at
+     * `expiresAtMs`, its payouts/dividends land in CREDIT_FLOWS BEFORE
+     * subsequent trades evaluate their balance. Every silent rejection
+     * also gets logged to REJECTED_SENDS so the UI can surface "your
+     * bet was dropped because X" feedback. */
+    var tradeEvents = [];
     for (var ix7 = 0; ix7 < parsed.length; ix7++) {
-      var Pm = parsed[ix7];
-      if (Pm.memo.type !== "place_bet" && Pm.memo.type !== "sell_shares") continue;
+      var pt = parsed[ix7];
+      if (pt.memo.type === "place_bet" || pt.memo.type === "sell_shares") {
+        tradeEvents.push({ kind: "trade", ts: pt.tx.ts, p: pt });
+      }
+    }
+    var settlementEvents = [];
+    for (var ssx = 0; ssx < SURVEYS.length; ssx++) {
+      if (SURVEYS[ssx].archived) {
+        settlementEvents.push({ kind: "settle", ts: SURVEYS[ssx].expiresAtMs, survey: SURVEYS[ssx] });
+      }
+    }
+    var events = tradeEvents.concat(settlementEvents);
+    events.sort(function (a, b) {
+      if (a.ts !== b.ts) return a.ts - b.ts;
+      // At a tie: settlements BEFORE trades at the same instant, so a
+      // trade at exactly `expiresAtMs` (itself rejected as EXPIRED on
+      // that survey) can't beat a co-located settlement that should
+      // have already credited some OTHER user's payouts.
+      if (a.kind === "settle" && b.kind === "trade") return -1;
+      if (a.kind === "trade" && b.kind === "settle") return 1;
+      return 0;
+    });
+
+    for (var iev = 0; iev < events.length; iev++) {
+      var ev = events[iev];
+      if (ev.kind === "settle") { settleSurvey(ev.survey); continue; }
+      var Pm = ev.p;
       var svM = Pm.memo.survey == null ? null : String(Pm.memo.survey);
       var surveyM = SURVEYS_BY_ID.get(svM);
       if (!surveyM) { recordReject(Pm, "NO_SURVEY"); continue; }
@@ -912,108 +1056,6 @@
         for (var spk = 0; spk < poolKeysS.length; spk++) sp[poolKeysS[spk]] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt2.pools[poolKeysS[spk]]) : 0;
         mkt2.history.push({ ts: Pm.tx.ts, probs: sp });
       }
-    }
-
-    /* --- Phase 7: Settlement for expired surveys --- */
-    for (var stx = 0; stx < SURVEYS.length; stx++) {
-      var sv8 = SURVEYS[stx];
-      if (!sv8.archived) continue;
-      var mkt3 = MARKETS.get(sv8.id);
-
-      var voteCounts = {};
-      for (var vo = 0; vo < sv8.options.length; vo++) voteCounts[sv8.options[vo].key] = 0;
-      var voterSet = new Set();
-      var vmEntries = Array.from(voteMap.entries());
-      for (var ve = 0; ve < vmEntries.length; ve++) {
-        var v = vmEntries[ve][1];
-        if (v.survey !== sv8.id) continue;
-        voteCounts[v.choice] = (voteCounts[v.choice] || 0) + 1;
-        voterSet.add(v.from);
-      }
-
-      var totalPool = mkt3 ? cpmmTotalLiquidity(mkt3) : 0;
-      var settlement = {
-        winner: null, payouts: {}, voterDividendPer: 0, surprise: {},
-        totalPool: totalPool, feePool: mkt3 ? mkt3.feePool : 0,
-        voteCounts: voteCounts, voterCount: voterSet.size, voters: voterSet,
-      };
-
-      if (mkt3 && totalPool > 0) {
-        settlement.feePool = mkt3.feePool;
-        var totalVotes = Object.values(voteCounts).reduce(function (a, b) { return a + b; }, 0);
-
-        for (var soi = 0; soi < sv8.options.length; soi++) {
-          var vs = totalVotes > 0 ? (voteCounts[sv8.options[soi].key] || 0) / totalVotes : 0;
-          var pool8 = mkt3.pools[sv8.options[soi].key];
-          var mp = pool8 && CPMM.cpmmProb ? CPMM.cpmmProb(pool8) : 0;
-          settlement.surprise[sv8.options[soi].key] = vs - mp;
-        }
-
-        if (totalVotes === 0) {
-          distributeRefund(mkt3, settlement);
-        } else {
-          var maxVotes = 0;
-          var winners = [];
-          var vcEntries = Object.entries(voteCounts);
-          for (var vci = 0; vci < vcEntries.length; vci++) {
-            var key = vcEntries[vci][0];
-            var count = vcEntries[vci][1];
-            if (count > maxVotes) { maxVotes = count; winners = [key]; }
-            else if (count === maxVotes && count > 0) winners.push(key);
-          }
-          var K = winners.length;
-          settlement.winners = winners;
-          settlement.winner = K === 1 ? winners[0] : null;
-          var weights = {};
-          for (var owi = 0; owi < sv8.options.length; owi++) weights[sv8.options[owi].key] = 0;
-          for (var wi = 0; wi < winners.length; wi++) weights[winners[wi]] = 1 / K;
-          settlement.resolutionWeights = weights;
-
-          var ysEntries = Object.entries(mkt3.userShares);
-          for (var ysi = 0; ysi < ysEntries.length; ysi++) {
-            var pkY = ysEntries[ysi][0];
-            var sharesY = ysEntries[ysi][1];
-            var sEntries = Object.entries(sharesY);
-            for (var ssi = 0; ssi < sEntries.length; ssi++) {
-              var optK2 = sEntries[ssi][0];
-              var sV = sEntries[ssi][1];
-              var w = weights[optK2] || 0;
-              if (w > 0 && sV > 0) settlement.payouts[pkY] = (settlement.payouts[pkY] || 0) + sV * w;
-            }
-          }
-          var nsEntries = Object.entries(mkt3.userNoShares || {});
-          for (var nsi = 0; nsi < nsEntries.length; nsi++) {
-            var pkN = nsEntries[nsi][0];
-            var noShares = nsEntries[nsi][1];
-            var nEntries = Object.entries(noShares);
-            for (var nei = 0; nei < nEntries.length; nei++) {
-              var optK3 = nEntries[nei][0];
-              var ns = nEntries[nei][1];
-              if (ns <= 0) continue;
-              var wN = weights[optK3] || 0;
-              var noPayout = (1 - wN) * ns;
-              if (noPayout > 0) settlement.payouts[pkN] = (settlement.payouts[pkN] || 0) + noPayout;
-            }
-          }
-        }
-
-        if (voterSet.size > 0 && mkt3.feePool > 0) {
-          settlement.voterDividendPer = mkt3.feePool / voterSet.size;
-        }
-
-        var poEntries = Object.entries(settlement.payouts);
-        for (var poi = 0; poi < poEntries.length; poi++) {
-          getCreditFlow(poEntries[poi][0]).payouts += poEntries[poi][1];
-        }
-        if (settlement.voterDividendPer > 0) {
-          var vsArr = Array.from(voterSet);
-          for (var vsi = 0; vsi < vsArr.length; vsi++) {
-            getCreditFlow(vsArr[vsi]).dividends += settlement.voterDividendPer;
-          }
-        }
-      }
-
-      SETTLEMENTS.set(sv8.id, settlement);
     }
 
     /* --- Phase 8: Earnings (Bet P&L) per archived market --- */

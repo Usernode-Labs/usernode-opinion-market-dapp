@@ -421,6 +421,42 @@
       }
       .inline-toast.hide { display: none; opacity: 0; }
 
+      .rejected-banner {
+        position: sticky; top: 0; z-index: 9000;
+        margin: 0 auto; max-width: 720px;
+        padding: 12px 14px;
+        background: rgba(255,107,107,0.12);
+        border: 1px solid var(--danger, #ff6b6b);
+        border-radius: 8px;
+        color: var(--text, #f5f5f5);
+        font-size: 13px; line-height: 1.4;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+      }
+      .rejected-banner.hide { display: none; }
+      .rejected-banner-header {
+        display: flex; align-items: center; gap: 8px;
+        margin-bottom: 6px;
+      }
+      .rejected-banner-icon {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 20px; height: 20px; border-radius: 50%;
+        background: var(--danger, #ff6b6b); color: #fff;
+        font-weight: 700; font-size: 13px; flex-shrink: 0;
+      }
+      .rejected-banner-dismiss {
+        margin-left: auto; background: transparent; border: 0;
+        color: inherit; font-size: 22px; line-height: 1; cursor: pointer;
+        padding: 0 4px;
+      }
+      .rejected-banner-list {
+        margin: 0; padding-left: 18px;
+        font-variant-numeric: tabular-nums;
+      }
+      .rejected-banner-list li { margin: 2px 0; }
+      .rejected-banner-list .reason {
+        opacity: 0.85; font-style: italic;
+      }
+
       .optDot {
         display: inline-block;
         width: 10px; height: 10px;
@@ -843,6 +879,25 @@
     </header>
 
     <div id="inlineToast" class="inline-toast hide"></div>
+
+    <!--
+      Rejected-bets banner. When the on-chain replay drops a `place_bet` or
+      `sell_shares` tx silently (e.g. INSUFFICIENT_BALANCE, OVER_MAX_BET),
+      we surface it here so the user knows their tx fee was wasted and
+      why. Without this, the only signal was that the bet appeared to
+      succeed (the tx was confirmed) but nothing changed in the UI — and
+      users like scraido and maragung burned tens of fees this way in
+      May 2026. Dismissing the banner persists the rejected tx ids to
+      localStorage so they don't reappear on refresh.
+    -->
+    <div id="rejectedBanner" class="rejected-banner hide" role="alert">
+      <div class="rejected-banner-header">
+        <span class="rejected-banner-icon">!</span>
+        <strong id="rejectedBannerTitle"></strong>
+        <button class="rejected-banner-dismiss" id="rejectedBannerDismiss" aria-label="Dismiss">&times;</button>
+      </div>
+      <ul id="rejectedBannerList" class="rejected-banner-list"></ul>
+    </div>
 
     <!-- Bottom sheet buy/sell modal -->
     <div class="bottomSheet-backdrop" id="bsBackdrop"></div>
@@ -1581,6 +1636,7 @@
         let MARKETS = new Map();
         let SETTLEMENTS = new Map();
         let CREDIT_FLOWS = new Map();
+        let REJECTED_SENDS_FOR_ME = [];
         let LEADERBOARD = [];
         let latestTxs = [];
         let me = null;
@@ -1610,7 +1666,13 @@
         // so the historical `if (!f) return INITIAL_CREDITS` fallback that
         // silently masked rebuild bugs (see maragung diagnostic) is gone.
         function _stateSnapshot() {
-          return { JOINED: JOINED, CREDIT_FLOWS: CREDIT_FLOWS, SURVEYS: SURVEYS, MARKETS: MARKETS };
+          return {
+            JOINED: JOINED,
+            CREDIT_FLOWS: CREDIT_FLOWS,
+            SURVEYS: SURVEYS,
+            SURVEYS_BY_ID: SURVEYS_BY_ID,
+            MARKETS: MARKETS,
+          };
         }
         function myCredits() {
           if (!me) return 0;
@@ -1690,6 +1752,11 @@
           CREDIT_FLOWS = state.CREDIT_FLOWS;
           SETTLEMENTS = state.SETTLEMENTS;
           _firstJoiner = state.firstJoiner;
+          // Surface this rebuild's silently-dropped bets/sells for `me`
+          // so renderRejectedBanner can flag them in the UI. Without
+          // this, a user whose on-chain bet gets dropped pays the 1-token
+          // fee and gets no feedback.
+          REJECTED_SENDS_FOR_ME = me ? state.rejectedSends.filter(r => r.from === me) : [];
 
           // Phase 8 — Leaderboard projection (UI-shaped). The shared
           // module returns the per-user earningsMap; we compose it here
@@ -2042,6 +2109,81 @@
           _toastTimer = setTimeout(() => el.classList.add("hide"), 5000);
         }
 
+        /* Rejected-bets banner. The shared replay module records every
+         * silently-dropped `place_bet` / `sell_shares` in `rejectedSends`
+         * with a precise reason code. We surface those for the current
+         * user in a sticky banner so they know their tx fee was wasted
+         * and why. Dismissed tx ids are stored in localStorage so the
+         * banner doesn't reappear on every refresh after acknowledgement. */
+        const REJECTED_SEEN_KEY = "om:rejectedSeen:v1";
+        function loadRejectedSeen() {
+          try {
+            const raw = localStorage.getItem(REJECTED_SEEN_KEY);
+            if (!raw) return new Set();
+            const arr = JSON.parse(raw);
+            return new Set(Array.isArray(arr) ? arr : []);
+          } catch (_) { return new Set(); }
+        }
+        function saveRejectedSeen(seen) {
+          try { localStorage.setItem(REJECTED_SEEN_KEY, JSON.stringify(Array.from(seen))); }
+          catch (_) {}
+        }
+        function rejectedReasonLabel(r) {
+          switch (r.reason) {
+            case "INSUFFICIENT_BALANCE": return `not enough credits (had ${Math.floor(r.balance ?? 0)}, needed ${r.needed})`;
+            case "OVER_MAX_BET":         return `over the ${Math.round(MAX_BET_POOL_RATIO * 100)}% pool cap (max ${r.maxBet})`;
+            case "EXPIRED":              return "question had already ended";
+            case "NO_SURVEY":            return "the question no longer exists";
+            case "NO_OPTION":            return "that option no longer exists";
+            case "NOT_JOINED":           return "you weren't joined when this landed";
+            case "BAD_CREDITS":          return "invalid credit amount";
+            case "BAD_SHARES":           return "invalid share amount";
+            case "INSUFFICIENT_SHARES":  return `not enough shares (had ${r.held}, needed ${r.needed})`;
+            case "NO_POOL":              return "the option's market pool was missing";
+            case "ZERO_SHARES":          return "bet rounded down to zero shares";
+            case "CPMM_UNAVAILABLE":     return "market calculator not loaded";
+            default:                     return r.reason || "unknown reason";
+          }
+        }
+        function renderRejectedBanner() {
+          const banner = $("rejectedBanner");
+          const list = $("rejectedBannerList");
+          const title = $("rejectedBannerTitle");
+          if (!banner || !list || !title) return;
+          const seen = loadRejectedSeen();
+          const unseen = (REJECTED_SENDS_FOR_ME || []).filter(r => !seen.has(r.txId));
+          if (unseen.length === 0) { banner.classList.add("hide"); return; }
+          const verbCount = unseen.length === 1 ? "1 transaction was" : `${unseen.length} transactions were`;
+          title.textContent = `${verbCount} dropped on-chain`;
+          list.innerHTML = "";
+          for (const r of unseen.slice(0, 5)) {
+            const li = document.createElement("li");
+            const survey = SURVEYS_BY_ID.get(r.surveyId);
+            const surveyLabel = survey ? (survey.title || survey.question || r.surveyId) : r.surveyId;
+            const amount = r.credits != null ? `${r.credits}c` : `${r.shares}sh`;
+            const sideLbl = r.side === "no" ? " NO" : "";
+            const action = r.type === "sell_shares" ? "sell" : "bet";
+            li.innerHTML = `<strong>${amount}${sideLbl}</strong> ${action} on "${escapeHtml(String(surveyLabel))}" \u2014 <span class="reason">${escapeHtml(rejectedReasonLabel(r))}</span>`;
+            list.appendChild(li);
+          }
+          if (unseen.length > 5) {
+            const more = document.createElement("li");
+            more.textContent = `\u2026 and ${unseen.length - 5} more`;
+            list.appendChild(more);
+          }
+          banner.classList.remove("hide");
+        }
+        function dismissRejectedBanner() {
+          const seen = loadRejectedSeen();
+          for (const r of REJECTED_SENDS_FOR_ME || []) seen.add(r.txId);
+          saveRejectedSeen(seen);
+          const banner = $("rejectedBanner");
+          if (banner) banner.classList.add("hide");
+        }
+        function escapeHtml(s) {
+          return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+        }
+
         function setSending(v, txSucceeded) {
           sending = !!v;
           if (v) startTxProgress();
@@ -2255,17 +2397,26 @@
         }
 
         async function placeBetFlow(surveyId, optionKey, credits, side) {
-          const s = SURVEYS_BY_ID.get(surveyId);
-          if (!s) throw new Error("Question not found");
-          if (s.archived) throw new Error("Question has ended");
-          if (!JOINED.has(me)) throw new Error("Join first to get credits");
-          if (credits < 1) throw new Error("Minimum bet is 1 credit");
-          if (credits > myCredits()) throw new Error("Insufficient credits");
-          const mkt = MARKETS.get(surveyId);
-          if (mkt) {
-            const poolTotal = Object.values(mkt.pools).reduce((s, p) => s + p.yes + p.no, 0);
-            const maxBet = Math.floor(poolTotal * MAX_BET_POOL_RATIO);
-            if (credits > maxBet) throw new Error("Max bet is " + maxBet + " credits (30% of pool)");
+          // Single source of truth: ask the shared replay module whether
+          // this bet would survive Phase 6. Any mismatch between this and
+          // Phase 6 would silently drop the bet on the next rebuild and
+          // burn 1 token in tx fees (see maragung/scraido May 2026).
+          const v = window.OpinionMarketState.validatePlaceBet(_stateSnapshot(), {
+            pubkey: me, surveyId, optionKey, credits, side,
+          });
+          if (!v.ok) {
+            switch (v.reason) {
+              case "NOT_JOINED":          throw new Error("Join first to get credits");
+              case "NO_SURVEY":           throw new Error("Question not found");
+              case "ARCHIVED":            throw new Error("Question has ended");
+              case "NO_OPTION":           throw new Error("That option no longer exists");
+              case "BAD_CREDITS":         throw new Error("Minimum bet is 1 credit");
+              case "INSUFFICIENT_BALANCE": throw new Error("Insufficient credits (you have " + Math.floor(v.balance) + ", tried to bet " + v.needed + ")");
+              case "NO_MARKET":           throw new Error("This question doesn't have a market yet");
+              case "OVER_MAX_BET":        throw new Error("Max bet is " + v.maxBet + " credits (30% of pool)");
+              case "CPMM_UNAVAILABLE":    throw new Error("Market calculator not loaded \u2014 reload the page");
+              default:                    throw new Error("Bet rejected: " + v.reason);
+            }
           }
           setSending(true);
           showPending("bsBuyProgress", "Placing bet...");
@@ -3744,6 +3895,7 @@
             }
 
             renderSurveyList();
+            renderRejectedBanner();
 
             mySurveyCreationTimes = getMySurveyCreationsInWindow(txs, me);
             updateSurveyCooldownUi();
@@ -3869,6 +4021,8 @@
 
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
+          const rbDismiss = $("rejectedBannerDismiss");
+          if (rbDismiss) rbDismiss.addEventListener("click", dismissRejectedBanner);
 
           let _resolveConfirmId = null, _resolveConfirmTimer = null;
           $("resolveEarlyBtn").addEventListener("click", async () => {
