@@ -356,7 +356,7 @@
         letter-spacing: 0.04em;
       }
       @media (max-width: 600px) {
-        .leaderEarnings { display: none; }
+        .leaderEarnings, .leaderVoted { display: none; }
         .leaderRank { flex-basis: 24px; }
         .leaderRow { gap: 8px; }
       }
@@ -1771,7 +1771,7 @@
 
           LEADERBOARD = Array.from(allPubkeys)
             .map((pubkey) => {
-              const e = earningsMap.get(pubkey) || { totalEarnings: 0, marketsParticipated: 0, marketsWon: 0 };
+              const e = earningsMap.get(pubkey) || { totalEarnings: 0, marketsBetOn: 0, marketsVotedOn: 0, marketsWon: 0 };
               const liquid = userBalance(pubkey);
               const shares = userShareValue(pubkey);
               return {
@@ -1779,9 +1779,10 @@
                 username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
                 credits: liquid + shares,
                 totalEarnings: JOINED.has(pubkey) ? liquid + shares - INITIAL_CREDITS : 0,
-                marketsParticipated: e.marketsParticipated,
+                marketsBetOn: e.marketsBetOn,
+                marketsVotedOn: e.marketsVotedOn,
                 marketsWon: e.marketsWon,
-                winRate: e.marketsParticipated > 0 ? e.marketsWon / e.marketsParticipated : 0,
+                winRate: e.marketsBetOn > 0 ? e.marketsWon / e.marketsBetOn : 0,
               };
             })
             .sort((a, b) => {
@@ -3744,6 +3745,9 @@
           const hCredits = document.createElement("div");
           hCredits.className = "leaderStat";
           hCredits.textContent = "Credits";
+          const hVoted = document.createElement("div");
+          hVoted.className = "leaderStat leaderVoted";
+          hVoted.textContent = "Voted";
           const hWr = document.createElement("div");
           hWr.className = "leaderStat";
           hWr.style.minWidth = "60px";
@@ -3752,6 +3756,7 @@
           header.appendChild(hName);
           header.appendChild(hEarnings);
           header.appendChild(hCredits);
+          header.appendChild(hVoted);
           header.appendChild(hWr);
           el.appendChild(header);
           LEADERBOARD.forEach((entry, i) => {
@@ -3770,14 +3775,18 @@
             const credits = document.createElement("div");
             credits.className = "leaderStat";
             credits.textContent = formatCredits(entry.credits);
+            const voted = document.createElement("div");
+            voted.className = "leaderStat leaderVoted";
+            voted.textContent = String(entry.marketsVotedOn);
             const wr = document.createElement("div");
             wr.className = "leaderStat";
             wr.style.minWidth = "60px";
-            wr.textContent = `${entry.marketsWon}/${entry.marketsParticipated} (${Math.round(entry.winRate * 100)}%)`;
+            wr.textContent = `${entry.marketsWon}/${entry.marketsBetOn} (${Math.round(entry.winRate * 100)}%)`;
             row.appendChild(rank);
             row.appendChild(name);
             row.appendChild(earnings);
             row.appendChild(credits);
+            row.appendChild(voted);
             row.appendChild(wr);
             el.appendChild(row);
           });

@@ -485,7 +485,7 @@
    *     SETTLEMENTS          — Map<surveyId, settlement>
    *     voteMap              — Map<"pubkey:surveyId", { from, survey, choice, ts }>
    *     firstJoiner          — pubkey (or null)
-   *     earningsMap          — Map<pubkey, { totalEarnings, marketsParticipated, marketsWon }>
+   *     earningsMap          — Map<pubkey, { totalEarnings, marketsBetOn, marketsVotedOn, marketsWon }>
    *     parsedTxs            — chronologically-sorted [{ tx, memo }] for downstream UI use
    *     decryptedTxs         — the (possibly-decrypted) tx feed; pass back next round
    */
@@ -1084,11 +1084,22 @@
         var hadWinningNo = Object.entries(noShares9).some(function (e) { return e[1] > 0 && (sw[e[0]] || 0) < 1; });
         var hadWinningShares = hadWinningYes || hadWinningNo;
         var ent = earningsMap.get(pubkey);
-        if (!ent) { ent = { totalEarnings: 0, marketsParticipated: 0, marketsWon: 0 }; earningsMap.set(pubkey, ent); }
-        ent.marketsParticipated++;
+        if (!ent) { ent = { totalEarnings: 0, marketsBetOn: 0, marketsVotedOn: 0, marketsWon: 0 }; earningsMap.set(pubkey, ent); }
+        ent.marketsBetOn++;
         ent.totalEarnings += profit;
         if (hadWinningShares && payout > 0) ent.marketsWon++;
       }
+    }
+
+    /* --- Phase 8b: marketsVotedOn (from voteMap, all surveys) --- */
+    var vmIter = voteMap.entries();
+    var vmNext = vmIter.next();
+    while (!vmNext.done) {
+      var vEntry = vmNext.value[1];
+      var ent2 = earningsMap.get(vEntry.from);
+      if (!ent2) { ent2 = { totalEarnings: 0, marketsBetOn: 0, marketsVotedOn: 0, marketsWon: 0 }; earningsMap.set(vEntry.from, ent2); }
+      ent2.marketsVotedOn++;
+      vmNext = vmIter.next();
     }
 
     return {
