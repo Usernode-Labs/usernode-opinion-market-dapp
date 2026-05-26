@@ -199,7 +199,7 @@ app.get("/__config/opinion-market", (_req, res) => {
 // instead of replaying the chain themselves. Includes every account that
 // has interacted with the dapp — not just users who appear on the Bet P&L
 // leaderboard inside the UI.
-app.get("/leaderboard", async (_req, res) => {
+app.get("/leaderboard", async (req, res) => {
   res.set("Cache-Control", "no-store");
   res.set("Access-Control-Allow-Origin", "*");
   try {
@@ -211,12 +211,19 @@ app.get("/leaderboard", async (_req, res) => {
       globalUsernames: usernamesState.usernames || {},
       now: Date.now(),
     });
-    res.json({
-      app: "opinion-market",
-      app_pubkey: APP_PUBKEY,
-      generated_at: Date.now(),
-      ...result,
-    });
+    if (req.query.only_credits === "1") {
+      res.json({
+        generated_at: Date.now(),
+        users: result.users.map(({ pubkey, credits }) => ({ pubkey, credits })),
+      });
+    } else {
+      res.json({
+        app: "opinion-market",
+        app_pubkey: APP_PUBKEY,
+        generated_at: Date.now(),
+        ...result,
+      });
+    }
   } catch (e) {
     console.error("[/leaderboard] failed:", e);
     res.status(500).json({ error: e.message || String(e) });
