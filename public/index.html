@@ -221,6 +221,42 @@
       .statCard-value { font-size: 26px; font-weight: 700; margin: 4px 0 2px; }
       .statCard-detail { font-size: 11px; color: var(--muted); margin: 0; }
 
+      .history-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        background: transparent;
+        transition: border-color 0.15s;
+      }
+      .history-row:hover { border-color: var(--accent); }
+      .history-icon { font-size: 18px; flex: 0 0 auto; line-height: 1; margin-top: 1px; }
+      .history-body { flex: 1; min-width: 0; }
+      .history-label { font-size: 13px; line-height: 1.4; }
+      .history-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+      .history-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+      .history-time { font-size: 11px; color: var(--muted); }
+      .history-badge {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 1px 7px;
+        border-radius: 999px;
+      }
+      .history-badge.won { background: color-mix(in oklab, var(--ok) 20%, transparent); color: var(--ok); }
+      .history-badge.lost { background: color-mix(in oklab, var(--danger) 20%, transparent); color: var(--danger); }
+      .history-badge.live { background: color-mix(in oklab, var(--accent) 20%, transparent); color: var(--accent); }
+      .history-badge.neutral { background: color-mix(in oklab, var(--muted) 20%, transparent); color: var(--muted); }
+      .history-badge.failed { background: color-mix(in oklab, var(--danger) 20%, transparent); color: var(--danger); }
+      .history-profit { font-size: 13px; font-weight: 600; }
+      .history-profit.pos { color: var(--ok); }
+      .history-profit.neg { color: var(--danger); }
+      .history-empty { text-align: center; padding: 40px 16px; color: var(--muted); font-size: 14px; }
+
       .bar {
         height: 10px;
         border-radius: 999px;
@@ -883,6 +919,7 @@
           <button class="pill pillButton" id="headerUsernameBtn" type="button">
             User: <code id="headerUsername">(loading...)</code>
           </button>
+          <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
           <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
           <button class="btn" id="backBtn" style="display: none;">Back</button>
@@ -1217,6 +1254,13 @@
               <h2 style="margin-bottom: 12px;">Leaderboard</h2>
               <p class="muted" style="font-size: 13px; margin: 0 0 12px;">Lifetime earnings from correct predictions.</p>
               <div id="leaderboardContent"></div>
+            </div>
+
+            <!-- My History -->
+            <div class="panel hide" id="screenHistory">
+              <h2 style="margin-bottom: 12px;">My History</h2>
+              <div id="historyStats" class="statsGrid" style="margin-bottom: 16px;"></div>
+              <div id="historyTimeline"></div>
             </div>
 
             <!-- How it works -->
@@ -1663,6 +1707,9 @@
         let SETTLEMENTS = new Map();
         let CREDIT_FLOWS = new Map();
         let REJECTED_SENDS_FOR_ME = [];
+        let VOTE_MAP = new Map();
+        let PARSED_TXS = [];
+        let EARNINGS_MAP = new Map();
         let LEADERBOARD = [];
         let latestTxs = [];
         let me = null;
@@ -1783,6 +1830,9 @@
           // this, a user whose on-chain bet gets dropped pays the 1-token
           // fee and gets no feedback.
           REJECTED_SENDS_FOR_ME = me ? state.rejectedSends.filter(r => r.from === me) : [];
+          VOTE_MAP = state.voteMap;
+          PARSED_TXS = state.parsedTxs || [];
+          EARNINGS_MAP = state.earningsMap;
 
           // Phase 8 — Leaderboard projection (UI-shaped). The shared
           // module returns the per-user earningsMap; we compose it here
@@ -2544,6 +2594,7 @@
          * ================================================================ */
         function syncHash() {
           if (currentSurveyId) history.replaceState(null, "", "#survey/" + encodeURIComponent(currentSurveyId));
+          else if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) history.replaceState(null, "", "#history");
           else if ($("screenLeaderboard") && !$("screenLeaderboard").classList.contains("hide")) history.replaceState(null, "", "#leaderboard");
           else if ($("screenInfo") && !$("screenInfo").classList.contains("hide")) history.replaceState(null, "", "#info");
           else if (location.hash) history.replaceState(null, "", location.pathname + location.search);
@@ -2559,6 +2610,7 @@
           show($("screenActiveList"), joined);
           show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
           show($("screenSurvey"), false);
+          show($("screenHistory"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "none";
@@ -2575,6 +2627,7 @@
           show($("screenActiveList"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), true);
+          show($("screenHistory"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
@@ -2656,6 +2709,7 @@
           show($("screenActiveList"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
+          show($("screenHistory"), false);
           show($("screenLeaderboard"), true);
           show($("screenInfo"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
@@ -2669,9 +2723,25 @@
           show($("screenActiveList"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
+          show($("screenHistory"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), true);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
+          syncHash();
+        }
+
+        function navigateToHistory() {
+          if (!me || !JOINED.has(me)) { navigateToList(); return; }
+          currentSurveyId = null;
+          show($("myStatsPanel"), false);
+          show($("screenActiveList"), false);
+          show($("screenArchivedList"), false);
+          show($("screenSurvey"), false);
+          show($("screenHistory"), true);
+          show($("screenLeaderboard"), false);
+          show($("screenInfo"), false);
+          const bb = $("backBtn"); if (bb) bb.style.display = "";
+          renderHistoryPanel();
           syncHash();
         }
 
@@ -2701,14 +2771,277 @@
           setText($("statBetCount"), String(entry ? entry.marketsBetOn : 0));
         }
 
+        let _historyShowAll = false;
+        function timeAgo(ms) {
+          const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+          if (sec < 60) return "just now";
+          const min = Math.floor(sec / 60);
+          if (min < 60) return min + "m ago";
+          const hr = Math.floor(min / 60);
+          if (hr < 24) return hr + "h ago";
+          const d = Math.floor(hr / 24);
+          if (d < 30) return d + "d ago";
+          return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        }
+
+        function getOptionLabel(surveyId, optionKey) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          if (!s) return optionKey || "?";
+          const opt = s.options.find(o => o.key === optionKey);
+          return opt ? opt.label : optionKey || "?";
+        }
+
+        function getSurveyLabel(surveyId) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          return s ? (s.title || s.question || surveyId) : surveyId;
+        }
+
+        function renderHistoryPanel() {
+          const stats = $("historyStats");
+          const timeline = $("historyTimeline");
+          if (!stats || !timeline) return;
+          if (!me || !JOINED.has(me)) { stats.innerHTML = ""; timeline.innerHTML = ""; return; }
+
+          const entry = EARNINGS_MAP.get(me) || { totalEarnings: 0, marketsBetOn: 0, marketsVotedOn: 0, marketsWon: 0 };
+
+          const myBets = PARSED_TXS.filter(p => p.tx.from === me && p.memo.type === "place_bet");
+          const mySells = PARSED_TXS.filter(p => p.tx.from === me && p.memo.type === "sell_shares");
+
+          let myVotes = [];
+          const vmIter = VOTE_MAP.entries();
+          let vmN = vmIter.next();
+          while (!vmN.done) {
+            if (vmN.value[1].from === me) myVotes.push(vmN.value[1]);
+            vmN = vmIter.next();
+          }
+
+          const winRate = entry.marketsBetOn > 0 ? Math.round(entry.marketsWon / entry.marketsBetOn * 100) : 0;
+          stats.innerHTML = [
+            { label: "Bets placed", value: myBets.length, detail: "all time" },
+            { label: "Votes cast", value: myVotes.length, detail: "all time" },
+            { label: "Net P&L", value: (entry.totalEarnings >= 0 ? "+" : "") + formatCredits(entry.totalEarnings), detail: "settled markets" },
+            { label: "Win rate", value: winRate + "%", detail: entry.marketsBetOn > 0 ? entry.marketsWon + "/" + entry.marketsBetOn : "no bets settled" },
+          ].map(s => `<div class="panel"><p class="statCard-label">${escapeHtml(s.label)}</p><div class="statCard-value">${escapeHtml(String(s.value))}</div><p class="statCard-detail">${escapeHtml(s.detail)}</p></div>`).join("");
+
+          const events = [];
+
+          for (const p of myBets) {
+            const surveyId = p.memo.survey;
+            const optKey = p.memo.option;
+            const side = p.memo.side || "yes";
+            const settlement = SETTLEMENTS.get(surveyId);
+            let badge = "live", badgeLabel = "Live";
+            if (settlement) {
+              const w = (settlement.resolutionWeights || {})[optKey] || 0;
+              const won = side === "yes" ? w > 0 : w < 1;
+              badge = won ? "won" : "lost";
+              badgeLabel = won ? "Won" : "Lost";
+            }
+            events.push({
+              ts: p.tx.ts,
+              icon: "🎲",
+              label: `Bet ${formatCredits(p.memo.credits)}c ${side.toUpperCase()} on "${escapeHtml(getOptionLabel(surveyId, optKey))}"`,
+              sub: escapeHtml(getSurveyLabel(surveyId)),
+              badge, badgeLabel,
+              surveyId,
+            });
+          }
+
+          for (const p of mySells) {
+            const surveyId = p.memo.survey;
+            const optKey = p.memo.option;
+            const side = p.memo.side || "yes";
+            events.push({
+              ts: p.tx.ts,
+              icon: "💰",
+              label: `Sold ${p.memo.shares} ${side.toUpperCase()} shares on "${escapeHtml(getOptionLabel(surveyId, optKey))}"`,
+              sub: escapeHtml(getSurveyLabel(surveyId)),
+              badge: "neutral", badgeLabel: "Executed",
+              surveyId,
+            });
+          }
+
+          for (const v of myVotes) {
+            const surveyId = v.survey;
+            const settlement = SETTLEMENTS.get(surveyId);
+            let badge = "live", badgeLabel = "Pending";
+            const choiceLabel = getOptionLabel(surveyId, v.choice);
+            const isEncrypted = !v.choice || v.choice.length > 60;
+            if (settlement) {
+              const correct = settlement.winners && settlement.winners.includes(v.choice);
+              badge = correct ? "won" : "neutral";
+              badgeLabel = correct ? "Correct" : "Wrong";
+            }
+            events.push({
+              ts: v.ts,
+              icon: "🗳️",
+              label: isEncrypted
+                ? "Vote cast (encrypted — reveals at next checkpoint)"
+                : `Voted "${escapeHtml(choiceLabel)}"`,
+              sub: escapeHtml(getSurveyLabel(surveyId)),
+              badge, badgeLabel,
+              surveyId,
+            });
+          }
+
+          for (const r of REJECTED_SENDS_FOR_ME) {
+            const surveyId = r.surveyId;
+            const optKey = r.optionKey;
+            const action = r.type === "sell_shares" ? "Sell" : "Bet";
+            const amount = r.credits != null ? formatCredits(r.credits) + "c" : r.shares + "sh";
+            const side = r.side ? " " + r.side.toUpperCase() : "";
+            events.push({
+              ts: r.ts,
+              icon: "⚠️",
+              label: `${action} ${amount}${side} on "${escapeHtml(getOptionLabel(surveyId, optKey))}" — DROPPED`,
+              sub: escapeHtml(getSurveyLabel(surveyId)),
+              badge: "failed", badgeLabel: "Failed",
+              reason: rejectedReasonLabel(r),
+              surveyId,
+            });
+          }
+
+          for (const [surveyId, settlement] of SETTLEMENTS) {
+            const mkt = MARKETS.get(surveyId);
+            if (!mkt) continue;
+            const grossBet = (mkt.grossBetsByUser || {})[me] || 0;
+            const netSells = (mkt.netSellsByUser || {})[me] || 0;
+            const payout = settlement.payouts[me] || 0;
+            const iVoted = settlement.voters && settlement.voters.has(me);
+            const div = iVoted && settlement.voterDividendPer > 0 ? settlement.voterDividendPer : 0;
+            if (grossBet <= 0 && div <= 0) continue;
+            const profit = payout + netSells + div - grossBet;
+            const s = SURVEYS_BY_ID.get(surveyId);
+            const expiresAt = s ? s.expiresAtMs : 0;
+
+            let winnerLabel;
+            if (settlement.voterCount === 0) {
+              winnerLabel = "no votes — shares refunded";
+            } else if (settlement.winners && settlement.winners.length > 1) {
+              winnerLabel = "Tie: " + settlement.winners.map(w => getOptionLabel(surveyId, w)).join(", ");
+            } else if (settlement.winner) {
+              winnerLabel = getOptionLabel(surveyId, settlement.winner);
+            } else {
+              winnerLabel = "settled";
+            }
+
+            const profitSign = profit >= 0 ? "pos" : "neg";
+            const profitStr = (profit >= 0 ? "+" : "") + formatCredits(profit);
+            const breakdown = [];
+            if (payout > 0) breakdown.push("payout " + formatCredits(payout));
+            if (div > 0) breakdown.push("dividend " + formatCredits(div));
+            if (netSells > 0) breakdown.push("sells " + formatCredits(netSells));
+            if (grossBet > 0) breakdown.push("wagered " + formatCredits(grossBet));
+
+            events.push({
+              ts: expiresAt || 0,
+              icon: "⚖️",
+              label: `"${escapeHtml(getSurveyLabel(surveyId))}" settled — ${escapeHtml(winnerLabel)}`,
+              sub: breakdown.length ? escapeHtml(breakdown.join(" | ")) : "",
+              profitStr, profitSign,
+              isSettlement: true,
+              surveyId,
+            });
+          }
+
+          events.sort((a, b) => b.ts - a.ts);
+
+          if (events.length === 0) {
+            timeline.innerHTML = '<div class="history-empty">No activity yet. Vote on a poll or place a bet to see your history here.</div>';
+            return;
+          }
+
+          const limit = _historyShowAll ? events.length : Math.min(events.length, 100);
+          const frag = document.createDocumentFragment();
+
+          for (let i = 0; i < limit; i++) {
+            const ev = events[i];
+            const row = document.createElement("div");
+            row.className = "history-row";
+            if (ev.surveyId && SURVEYS_BY_ID.has(ev.surveyId)) {
+              row.addEventListener("click", ((sid) => () => { navigateToSurvey(sid); refreshLoopOnce(); })(ev.surveyId));
+            } else {
+              row.style.cursor = "default";
+            }
+
+            const icon = document.createElement("div");
+            icon.className = "history-icon";
+            icon.textContent = ev.icon;
+            row.appendChild(icon);
+
+            const body = document.createElement("div");
+            body.className = "history-body";
+
+            const lbl = document.createElement("div");
+            lbl.className = "history-label";
+            lbl.innerHTML = ev.label;
+            body.appendChild(lbl);
+
+            if (ev.sub) {
+              const sub = document.createElement("div");
+              sub.className = "history-sub";
+              sub.innerHTML = ev.sub;
+              body.appendChild(sub);
+            }
+
+            if (ev.reason) {
+              const reason = document.createElement("div");
+              reason.className = "history-sub";
+              reason.style.color = "var(--danger)";
+              reason.textContent = ev.reason;
+              body.appendChild(reason);
+            }
+
+            const meta = document.createElement("div");
+            meta.className = "history-meta";
+
+            if (ev.isSettlement) {
+              const pl = document.createElement("span");
+              pl.className = "history-profit " + ev.profitSign;
+              pl.textContent = ev.profitStr + "c";
+              meta.appendChild(pl);
+            } else {
+              const badge = document.createElement("span");
+              badge.className = "history-badge " + ev.badge;
+              badge.textContent = ev.badgeLabel;
+              meta.appendChild(badge);
+            }
+
+            if (ev.ts > 0) {
+              const time = document.createElement("span");
+              time.className = "history-time";
+              time.textContent = timeAgo(ev.ts);
+              meta.appendChild(time);
+            }
+
+            body.appendChild(meta);
+            row.appendChild(body);
+            frag.appendChild(row);
+          }
+
+          if (!_historyShowAll && events.length > 100) {
+            const more = document.createElement("button");
+            more.className = "btn";
+            more.style.cssText = "width:100%;margin-top:4px;text-align:center;";
+            more.textContent = `Show all (${events.length})`;
+            more.addEventListener("click", () => { _historyShowAll = true; renderHistoryPanel(); });
+            frag.appendChild(more);
+          }
+
+          timeline.innerHTML = "";
+          timeline.appendChild(frag);
+        }
+
         function updateCreditsDisplay() {
           const el = $("creditsDisplay");
           const amt = $("creditsAmount");
           if (me && JOINED.has(me)) {
             show(el, true);
+            show($("historyBtn"), true);
             setText(amt, formatCredits(myCredits()));
           } else {
             show(el, false);
+            show($("historyBtn"), false);
           }
           show($("leaderboardBtn"), true);
         }
@@ -2727,6 +3060,7 @@
           const archived = SURVEYS.filter(s => s.archived);
           const _joined = me && JOINED.has(me);
           const onList = !currentSurveyId
+            && (!$("screenHistory") || $("screenHistory").classList.contains("hide"))
             && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
             && (!$("screenInfo") || $("screenInfo").classList.contains("hide"));
           if (onList) show($("screenArchivedList"), _joined && archived.length > 0);
@@ -3938,6 +4272,7 @@
             const joined = me && JOINED.has(me);
             show($("onboardingPanel"), me && !joined);
             const onList = !currentSurveyId
+              && (!$("screenHistory") || $("screenHistory").classList.contains("hide"))
               && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
               && (!$("screenInfo") || $("screenInfo").classList.contains("hide"));
             if (onList) {
@@ -3947,6 +4282,7 @@
 
             renderSurveyList();
             renderRejectedBanner();
+            if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) renderHistoryPanel();
 
             mySurveyCreationTimes = getMySurveyCreationsInWindow(txs, me);
             updateSurveyCooldownUi();
@@ -4028,6 +4364,7 @@
           // --- Event listeners ---
           function navigateFromHash(hash) {
             const h = typeof hash === "string" ? hash : (location.hash || "");
+            if (h === "#history") { navigateToHistory(); return; }
             if (h === "#leaderboard") { navigateToLeaderboard(); return; }
             if (h === "#info") { navigateToInfo(); return; }
             const m = h.match(/^#survey\/(.+)$/);
@@ -4070,6 +4407,7 @@
             catch (e) { setSending(false, false); showInlineError(e.message || e); }
           });
 
+          $("historyBtn").addEventListener("click", navigateToHistory);
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
           const rbDismiss = $("rejectedBannerDismiss");
