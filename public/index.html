@@ -209,6 +209,18 @@
         .grid2 { grid-template-columns: 1fr 1fr; align-items: start; }
       }
 
+      .statsGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      @media (max-width: 480px) {
+        .statsGrid { grid-template-columns: 1fr; }
+      }
+      .statCard-label { font-size: 13px; color: var(--muted); margin: 0; }
+      .statCard-value { font-size: 26px; font-weight: 700; margin: 4px 0 2px; }
+      .statCard-detail { font-size: 11px; color: var(--muted); margin: 0; }
+
       .bar {
         height: 10px;
         border-radius: 999px;
@@ -1033,6 +1045,20 @@
               </div>
             </div>
 
+            <!-- My stats -->
+            <div id="myStatsPanel" class="statsGrid hide">
+              <div class="panel">
+                <p class="statCard-label">Polls voted in</p>
+                <div class="statCard-value" id="statVotedCount">0</div>
+                <p class="statCard-detail">active + settled</p>
+              </div>
+              <div class="panel">
+                <p class="statCard-label">Markets bet on</p>
+                <div class="statCard-value" id="statBetCount">0</div>
+                <p class="statCard-detail">settled markets</p>
+              </div>
+            </div>
+
             <!-- Active survey list -->
             <div class="panel" id="screenActiveList">
               <div class="row" style="justify-content: space-between; align-items: baseline;">
@@ -1790,6 +1816,7 @@
               if (b.totalEarnings !== a.totalEarnings) return b.totalEarnings - a.totalEarnings;
               return a.username.localeCompare(b.username);
             });
+          renderMyStats();
         }
 
         /* ================================================================
@@ -2536,6 +2563,7 @@
           show($("screenInfo"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "none";
           updateCreditsDisplay();
+          renderMyStats();
           syncHash();
         }
 
@@ -2543,6 +2571,7 @@
           currentSurveyId = id;
           const s = currentSurvey();
           if (!s) return;
+          show($("myStatsPanel"), false);
           show($("screenActiveList"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), true);
@@ -2623,6 +2652,7 @@
 
         function navigateToLeaderboard() {
           currentSurveyId = null;
+          show($("myStatsPanel"), false);
           show($("screenActiveList"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
@@ -2635,6 +2665,7 @@
 
         function navigateToInfo() {
           currentSurveyId = null;
+          show($("myStatsPanel"), false);
           show($("screenActiveList"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
@@ -2657,6 +2688,17 @@
             delete el.dataset.expires;
             el.style.display = "none";
           }
+        }
+
+        function renderMyStats() {
+          const panel = $("myStatsPanel");
+          if (!panel) return;
+          const joined = me && JOINED.has(me);
+          show(panel, !!joined);
+          if (!joined) return;
+          const entry = LEADERBOARD.find(e => e.pubkey === me);
+          setText($("statVotedCount"), String(entry ? entry.marketsVotedOn : 0));
+          setText($("statBetCount"), String(entry ? entry.marketsBetOn : 0));
         }
 
         function updateCreditsDisplay() {
