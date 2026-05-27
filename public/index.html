@@ -2229,7 +2229,7 @@
           const title = $("rejectedBannerTitle");
           if (!banner || !list || !title) return;
           const seen = loadRejectedSeen();
-          const unseen = (REJECTED_SENDS_FOR_ME || []).filter(r => !seen.has(r.txId));
+          const unseen = (REJECTED_SENDS_FOR_ME || []).filter(r => !seen.has(r.txId) && r.reason !== "NO_SURVEY");
           if (unseen.length === 0) { banner.classList.add("hide"); return; }
           const verbCount = unseen.length === 1 ? "1 transaction was" : `${unseen.length} transactions were`;
           title.textContent = `${verbCount} dropped on-chain`;
