@@ -4311,8 +4311,6 @@
           attachRubberBand();
 
           try { me = await getNodeAddress(); } catch (_) {}
-          me = "ut1qrrdtajluecvmuurfj02pn8gtzz4kqhvne5hx5w755aqhatjg4gsz3qrtc";
-          console.warn("[om] DEBUG: hardcoded local_pubkey override active — viewing as Mobayer (ut1qrrdtajluecvmuurfj02pn8gtzz4kqhvne5hx5w755aqhatjg4gsz3qrtc)");
           myUsername = deriveDefaultUsername(me);
           setText($("headerUsername"), myUsername);
 
