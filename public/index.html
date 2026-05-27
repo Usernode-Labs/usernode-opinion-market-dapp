@@ -2945,6 +2945,10 @@
           }
 
           events.sort((a, b) => b.ts - a.ts);
+          const HISTORY_CUTOFF_MS = 1746057600000; // 2025-05-01T00:00:00Z
+          for (let i = events.length - 1; i >= 0; i--) {
+            if (events[i].ts < HISTORY_CUTOFF_MS) events.splice(i, 1);
+          }
 
           if (events.length === 0) {
             timeline.innerHTML = '<div class="history-empty">No activity yet. Vote on a poll or place a bet to see your history here.</div>';
