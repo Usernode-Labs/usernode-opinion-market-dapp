@@ -1178,7 +1178,7 @@
                 <h2>Proposed questions</h2>
                 <button class="btn small" id="addProposalBtn" type="button">+ Propose</button>
               </div>
-              <p style="margin: 2px 0 0;">Anyone can propose a question. When at least half of the users active in the last 72 hours upvote it, it goes live as a market.</p>
+              <p style="margin: 2px 0 0;" id="proposalIntro">Anyone can propose a question. When at least half of the users active in the last 72 hours upvote it, it goes live as a market.</p>
 
               <div class="panel hide" id="addProposalPanel" style="margin-top: 10px;">
                 <h3>Propose a question</h3>
@@ -3336,6 +3336,16 @@
           if (!listEl) return;
           listEl.textContent = "";
 
+          const { activeCount, threshold } = currentPromotionThreshold();
+
+          // Intro/header copy carries the live active-user denominator so the
+          // "half of active users" rule is concrete before you read any card.
+          const introEl = $("proposalIntro");
+          if (introEl) {
+            const userLbl = activeCount === 1 ? "user" : "users";
+            setText(introEl, `Anyone can propose a question. When at least half of the users active in the last 72 hours upvote it (currently ${activeCount} ${userLbl} active in the last 72h), it goes live as a market.`);
+          }
+
           const capHint = $("proposalCapHint");
           if (capHint) {
             const cap = window.OpinionMarketState.MAX_OPEN_PROPOSALS_PER_USER;
@@ -3354,8 +3364,6 @@
             listEl.appendChild(e);
             return;
           }
-
-          const { activeCount, threshold } = currentPromotionThreshold();
 
           for (const pr of OPEN_PROPOSALS) {
             const card = document.createElement("div");
