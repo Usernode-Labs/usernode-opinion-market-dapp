@@ -3355,7 +3355,7 @@
             return;
           }
 
-          const { threshold } = currentPromotionThreshold();
+          const { activeCount, threshold } = currentPromotionThreshold();
 
           for (const pr of OPEN_PROPOSALS) {
             const card = document.createElement("div");
@@ -3387,8 +3387,12 @@
             progWrap.appendChild(bar);
             const progLabel = document.createElement("div");
             progLabel.className = "muted";
-            progLabel.style.cssText = "font-size:11px;font-variant-numeric:tabular-nums;";
-            progLabel.textContent = `${upvotes} of ~${threshold} upvotes needed to launch`;
+            progLabel.style.cssText = "font-size:11px;line-height:1.4;";
+            // At-now progress estimate. The authoritative promotion check
+            // runs in replay at each upvote tx's ts; this denominator is
+            // computed at `now` for user guidance only.
+            progLabel.textContent = `When at least half of the users active in the last 72 hours upvote it (currently ${upvotes} / ${activeCount} users), it goes live as a market.`;
+            progLabel.title = "Estimate computed now. The actual launch check runs when each upvote is recorded on-chain.";
             progWrap.appendChild(progLabel);
             card.appendChild(progWrap);
 
