@@ -3342,8 +3342,14 @@
           // "half of active users" rule is concrete before you read any card.
           const introEl = $("proposalIntro");
           if (introEl) {
-            const userLbl = activeCount === 1 ? "user" : "users";
-            setText(introEl, `Anyone can propose a question. When at least half of the users active in the last 72 hours upvote it (currently ${activeCount} ${userLbl} active in the last 72h), it goes live as a market.`);
+            const base = "Anyone can propose a question. When at least half of the users active in the last 72 hours upvote it";
+            // Below 5 active users the live denominator is noisy/misleading
+            // (e.g. "0 users"), so show only the base rule until it's meaningful.
+            if (activeCount >= 5) {
+              setText(introEl, `${base} (currently ${activeCount} users active in the last 72h), it goes live as a market.`);
+            } else {
+              setText(introEl, `${base}, it goes live as a market.`);
+            }
           }
 
           const capHint = $("proposalCapHint");
