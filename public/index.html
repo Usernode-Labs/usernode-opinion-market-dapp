@@ -476,7 +476,7 @@
         background: rgba(255,107,107,0.12);
         border: 1px solid var(--danger, #ff6b6b);
         border-radius: 8px;
-        color: var(--fg);
+        color: var(--text, #f5f5f5);
         font-size: 13px; line-height: 1.4;
         box-shadow: 0 2px 8px rgba(0,0,0,0.18);
       }
@@ -2229,7 +2229,7 @@
           const title = $("rejectedBannerTitle");
           if (!banner || !list || !title) return;
           const seen = loadRejectedSeen();
-          const unseen = (REJECTED_SENDS_FOR_ME || []).filter(r => !seen.has(r.txId) && r.reason !== "NO_SURVEY");
+          const unseen = (REJECTED_SENDS_FOR_ME || []).filter(r => !seen.has(r.txId));
           if (unseen.length === 0) { banner.classList.add("hide"); return; }
           const verbCount = unseen.length === 1 ? "1 transaction was" : `${unseen.length} transactions were`;
           title.textContent = `${verbCount} dropped on-chain`;
@@ -2945,10 +2945,6 @@
           }
 
           events.sort((a, b) => b.ts - a.ts);
-          const HISTORY_CUTOFF_MS = 1777593600000; // 2026-05-01T00:00:00Z
-          for (let i = events.length - 1; i >= 0; i--) {
-            if (events[i].ts < HISTORY_CUTOFF_MS) events.splice(i, 1);
-          }
 
           if (events.length === 0) {
             timeline.innerHTML = '<div class="history-empty">No activity yet. Vote on a poll or place a bet to see your history here.</div>';
