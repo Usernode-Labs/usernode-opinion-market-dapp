@@ -1167,6 +1167,61 @@
               <div id="activeSurveyList" style="display: grid; gap: 10px; margin-top: 8px;"></div>
             </div>
 
+            <!-- Question proposals — anyone can propose a question and upvote
+                 others. A proposal goes live as a real market once it's been
+                 upvoted by at least half of the users active in the trailing
+                 72 hours. Promotion is derived deterministically in
+                 opinion-market-state.js, so this panel is purely a view + two
+                 new tx flows (propose_question, upvote_proposal). -->
+            <div class="panel hide" id="screenProposals">
+              <div class="row" style="justify-content: space-between; align-items: baseline;">
+                <h2>Proposed questions</h2>
+                <button class="btn small" id="addProposalBtn" type="button">+ Propose</button>
+              </div>
+              <p style="margin: 2px 0 0;">Anyone can propose a question. When at least half of the users active in the last 72 hours upvote it, it goes live as a market.</p>
+
+              <div class="panel hide" id="addProposalPanel" style="margin-top: 10px;">
+                <h3>Propose a question</h3>
+                <div id="proposalCapHint" class="muted hide" style="font-size: 12px; margin-bottom: 8px;"></div>
+                <div class="muted" style="font-size: 12px; margin-bottom: 8px;">Proposing is free. It auto-counts as your upvote. Once enough active users upvote, it launches as a market (seeded with 50 credits from the platform).</div>
+                <label style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Title</span>
+                  <input id="newProposalTitle" class="input" maxlength="80" />
+                </label>
+                <label style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Question</span>
+                  <input id="newProposalQuestion" class="input" maxlength="160" />
+                </label>
+                <div style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Options</span>
+                  <div id="proposalOptionsList" style="display: grid; gap: 6px;"></div>
+                  <button class="btn small" id="addProposalOptionBtn" type="button">+ Add option</button>
+                </div>
+                <div class="toggleRow" style="margin-top: 10px;">
+                  <span class="muted" style="font-size: 13px;">Allow custom options</span>
+                  <label class="toggle">
+                    <input type="checkbox" id="newProposalAllowCustom" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="row" style="margin-top: 10px;">
+                  <button class="btn primary" id="saveProposalBtn" type="button">Submit proposal</button>
+                  <button class="btn" id="cancelProposalBtn" type="button">Cancel</button>
+                </div>
+                <div id="addProposalPending" class="tx-progress hide" role="status" aria-live="polite">
+                  <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+                  <div class="tx-progress-label">Submitting proposal...</div>
+                </div>
+              </div>
+
+              <div id="proposalPending" class="tx-progress hide" role="status" aria-live="polite">
+                <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+                <div class="tx-progress-label">Upvoting...</div>
+              </div>
+
+              <div id="proposalList" style="display: grid; gap: 10px; margin-top: 8px;"></div>
+            </div>
+
             <div class="panel archivedDock hide" id="screenArchivedList">
               <h3>Recently settled</h3>
               <div id="archivedSurveyList" style="display: grid; gap: 10px;"></div>
@@ -1710,6 +1765,12 @@
         let VOTE_MAP = new Map();
         let PARSED_TXS = [];
         let EARNINGS_MAP = new Map();
+        let OPEN_PROPOSALS = [];
+        let PROPOSALS = new Map();
+        // Set of proposal ids already promoted as of the last rebuild, so we
+        // can detect *new* promotions between refreshes and toast about them.
+        let _seenPromotedIds = new Set();
+        let _proposalsBootstrapped = false;
         let LEADERBOARD = [];
         let latestTxs = [];
         let me = null;
@@ -1833,6 +1894,26 @@
           VOTE_MAP = state.voteMap;
           PARSED_TXS = state.parsedTxs || [];
           EARNINGS_MAP = state.earningsMap;
+
+          // Proposals + promotion. The shared module decides promotion
+          // deterministically; here we just surface open proposals and
+          // detect newly-promoted ones so we can toast the user. We skip the
+          // toast on the very first rebuild (everything already-promoted at
+          // page load is "old news"), then track the promoted set going
+          // forward.
+          PROPOSALS = state.PROPOSALS || new Map();
+          OPEN_PROPOSALS = state.openProposals || [];
+          const promotedNow = new Set();
+          PROPOSALS.forEach((pr) => { if (pr.promoted) promotedNow.add(pr.id); });
+          if (_proposalsBootstrapped) {
+            for (const pr of PROPOSALS.values()) {
+              if (pr.promoted && !_seenPromotedIds.has(pr.id)) {
+                showPromotionToast(pr);
+              }
+            }
+          }
+          _seenPromotedIds = promotedNow;
+          _proposalsBootstrapped = true;
 
           // Phase 8 — Leaderboard projection (UI-shaped). The shared
           // module returns the per-user earningsMap; we compose it here
@@ -2325,6 +2406,49 @@
           addSurveyOptionField("");
         }
 
+        function addProposalOptionField(value) {
+          const list = $("proposalOptionsList");
+          if (!list) return;
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;gap:6px;align-items:center;";
+          const inp = document.createElement("input");
+          inp.className = "input";
+          inp.maxLength = 80;
+          inp.placeholder = "Option " + (list.children.length + 1);
+          inp.value = value || "";
+          const rm = document.createElement("button");
+          rm.type = "button";
+          rm.className = "btn small";
+          rm.style.cssText = "padding:4px 8px;flex:0 0 auto;";
+          rm.textContent = "✕";
+          rm.addEventListener("click", () => {
+            row.remove();
+            Array.from(list.children).forEach((r, i) => { const inp2 = r.querySelector("input"); if (inp2) inp2.placeholder = "Option " + (i + 1); });
+          });
+          row.appendChild(inp);
+          row.appendChild(rm);
+          list.appendChild(row);
+        }
+
+        function getProposalOptionInputs() {
+          const list = $("proposalOptionsList");
+          return list ? Array.from(list.querySelectorAll("input")) : [];
+        }
+
+        function initProposalOptionFields() {
+          const list = $("proposalOptionsList");
+          if (list) list.innerHTML = "";
+          addProposalOptionField("");
+          addProposalOptionField("");
+        }
+
+        function clearAddProposalForm() {
+          const t = $("newProposalTitle"); if (t) t.value = "";
+          const q = $("newProposalQuestion"); if (q) q.value = "";
+          initProposalOptionFields();
+          const c = $("newProposalAllowCustom"); if (c) c.checked = false;
+        }
+
         function clearAddSurveyForm() {
           const t = $("newSurveyTitle"); if (t) t.value = "";
           const q = $("newSurveyQuestion"); if (q) q.value = "";
@@ -2542,6 +2666,52 @@
           await postActionRefresh();
         }
 
+        function myOpenProposalCount() {
+          if (!me) return 0;
+          let n = 0;
+          for (const pr of OPEN_PROPOSALS) { if (pr.proposedBy === me) n++; }
+          return n;
+        }
+
+        async function proposeQuestionFlow() {
+          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can propose questions");
+          if (me && !JOINED.has(me)) throw new Error("Join first to propose questions");
+          if (myOpenProposalCount() >= window.OpinionMarketState.MAX_OPEN_PROPOSALS_PER_USER) {
+            throw new Error(`You already have ${window.OpinionMarketState.MAX_OPEN_PROPOSALS_PER_USER} open proposals. Wait for one to launch or expire.`);
+          }
+          const title = String(($("newProposalTitle") || {}).value || "").trim();
+          const question = String(($("newProposalQuestion") || {}).value || "").trim();
+          if (!title) throw new Error("Title is required");
+          if (!question) throw new Error("Question is required");
+          const labels = getProposalOptionInputs().map(i => i.value.trim()).filter(Boolean);
+          const options = labels.map((label, i) => ({ key: slugify(label) || `opt_${i + 1}`, label }));
+          const allowCustomOptions = ($("newProposalAllowCustom") || {}).checked !== false;
+          const memo = makeMemo({
+            app: "opinion-market",
+            type: "propose_question",
+            proposal: { title, question, options, allow_custom_options: allowCustomOptions },
+          });
+          if (memo.length > 1024) throw new Error("Proposal payload too large — please shorten your title, question, or option labels.");
+          setSending(true);
+          showPending("addProposalPending", "Submitting proposal...");
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Propose question", confirmSubtitle: "Opinion Market — Propose a new question for the community to upvote." });
+          await postActionRefresh();
+        }
+
+        async function upvoteProposalFlow(proposalId) {
+          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can upvote");
+          if (me && !JOINED.has(me)) throw new Error("Join first to upvote proposals");
+          const pr = PROPOSALS.get(proposalId);
+          if (!pr) throw new Error("Proposal not found");
+          if (pr.promoted) throw new Error("This proposal has already launched");
+          if (pr.upvoters && pr.upvoters.has(me)) throw new Error("You already upvoted this proposal");
+          setSending(true);
+          showPending("proposalPending", "Upvoting...");
+          const memo = makeMemo({ app: "opinion-market", type: "upvote_proposal", proposal: proposalId });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Upvote proposal", confirmSubtitle: "Opinion Market — Upvote this proposed question." });
+          await postActionRefresh();
+        }
+
         async function resolveEarlyFlow(surveyId) {
           const s = SURVEYS_BY_ID.get(surveyId);
           if (!s) throw new Error("Question not found");
@@ -2608,12 +2778,14 @@
           currentSurveyId = null;
           const joined = me && JOINED.has(me);
           show($("screenActiveList"), joined);
+          show($("screenProposals"), joined);
           show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
           show($("screenSurvey"), false);
           show($("screenHistory"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "none";
+          renderProposalList();
           updateCreditsDisplay();
           renderMyStats();
           syncHash();
@@ -2625,6 +2797,7 @@
           if (!s) return;
           show($("myStatsPanel"), false);
           show($("screenActiveList"), false);
+          show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), true);
           show($("screenHistory"), false);
@@ -2707,6 +2880,7 @@
           currentSurveyId = null;
           show($("myStatsPanel"), false);
           show($("screenActiveList"), false);
+          show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
           show($("screenHistory"), false);
@@ -2721,6 +2895,7 @@
           currentSurveyId = null;
           show($("myStatsPanel"), false);
           show($("screenActiveList"), false);
+          show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
           show($("screenHistory"), false);
@@ -2735,6 +2910,7 @@
           currentSurveyId = null;
           show($("myStatsPanel"), false);
           show($("screenActiveList"), false);
+          show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
           show($("screenHistory"), true);
@@ -3144,6 +3320,112 @@
 
           for (const s of active) activeEl.appendChild(buildCard(s, "\u23F1 " + formatCountdown(s.expiresAtMs)));
           for (const s of archived) archivedEl.appendChild(buildCard(s, formatArchivedDate(s.expiresAtMs)));
+        }
+
+        /* Threshold a proposal must reach RIGHT NOW to launch: at least half
+         * of the users active in the trailing 72h, rounded up. This is an
+         * at-now estimate for display only — the canonical promotion check
+         * runs in the shared module at each upvote tx's timestamp. */
+        function currentPromotionThreshold() {
+          const activeCount = window.OpinionMarketState.activeUsersInWindow(PARSED_TXS, Date.now()).size;
+          return { activeCount, threshold: Math.max(1, Math.ceil(activeCount / 2)) };
+        }
+
+        function renderProposalList() {
+          const listEl = $("proposalList");
+          if (!listEl) return;
+          listEl.textContent = "";
+
+          const capHint = $("proposalCapHint");
+          if (capHint) {
+            const cap = window.OpinionMarketState.MAX_OPEN_PROPOSALS_PER_USER;
+            const mine = myOpenProposalCount();
+            const atCap = mine >= cap;
+            setText(capHint, atCap
+              ? `You have ${mine}/${cap} open proposals — wait for one to launch or expire before adding another.`
+              : `You have ${mine}/${cap} open proposals.`);
+            show(capHint, !!me && JOINED.has(me));
+          }
+
+          if (!OPEN_PROPOSALS.length) {
+            const e = document.createElement("div");
+            e.className = "muted";
+            e.textContent = "No open proposals. Propose a question to get started.";
+            listEl.appendChild(e);
+            return;
+          }
+
+          const { threshold } = currentPromotionThreshold();
+
+          for (const pr of OPEN_PROPOSALS) {
+            const card = document.createElement("div");
+            card.className = "panel";
+            card.style.cssText = "display:grid;gap:6px;";
+
+            const titleEl = document.createElement("div");
+            titleEl.style.cssText = "font-weight:600;line-height:1.3;";
+            titleEl.textContent = pr.def.title;
+            card.appendChild(titleEl);
+
+            const qEl = document.createElement("div");
+            qEl.className = "muted";
+            qEl.style.cssText = "font-size:12px;line-height:1.4;";
+            qEl.textContent = pr.def.question;
+            card.appendChild(qEl);
+
+            const upvotes = pr.upvoters ? pr.upvoters.size : 0;
+            const need = Math.max(threshold, upvotes);
+
+            const progWrap = document.createElement("div");
+            progWrap.style.cssText = "display:grid;gap:4px;";
+            const bar = document.createElement("div");
+            bar.style.cssText = "height:6px;border-radius:3px;background:rgba(127,127,127,0.2);overflow:hidden;";
+            const fill = document.createElement("div");
+            const pct = need > 0 ? Math.min(100, Math.round((upvotes / need) * 100)) : 100;
+            fill.style.cssText = "height:100%;width:" + pct + "%;background:var(--accent,#4a90d9);";
+            bar.appendChild(fill);
+            progWrap.appendChild(bar);
+            const progLabel = document.createElement("div");
+            progLabel.className = "muted";
+            progLabel.style.cssText = "font-size:11px;font-variant-numeric:tabular-nums;";
+            progLabel.textContent = `${upvotes} of ~${threshold} upvotes needed to launch`;
+            progWrap.appendChild(progLabel);
+            card.appendChild(progWrap);
+
+            const proposer = GLOBAL_USERNAMES.get(pr.proposedBy) || deriveDefaultUsername(pr.proposedBy);
+            const metaEl = document.createElement("div");
+            metaEl.className = "muted";
+            metaEl.style.cssText = "font-size:11px;";
+            metaEl.textContent = "by " + proposer;
+            card.appendChild(metaEl);
+
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "btn small primary";
+            btn.style.cssText = "justify-self:start;";
+            const alreadyUpvoted = !!(me && pr.upvoters && pr.upvoters.has(me));
+            const notJoined = !me || !JOINED.has(me);
+            const notGenesis = isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me);
+            if (alreadyUpvoted) {
+              btn.textContent = "✓ Upvoted";
+              btn.disabled = true;
+            } else {
+              btn.textContent = "▲ Upvote";
+              btn.disabled = sending || notJoined || !!notGenesis;
+              btn.addEventListener("click", async () => {
+                try { await upvoteProposalFlow(pr.id); }
+                catch (e) { showInlineError(e.message || String(e)); setSending(false); }
+              });
+            }
+            card.appendChild(btn);
+
+            listEl.appendChild(card);
+          }
+        }
+
+        function showPromotionToast(pr) {
+          const title = pr && pr.def && pr.def.title ? pr.def.title : "A proposal";
+          showInlineError(`🎉 "${title}" reached enough upvotes and is now live as a market!`);
         }
 
         /* ================================================================
@@ -4281,10 +4563,12 @@
               && (!$("screenInfo") || $("screenInfo").classList.contains("hide"));
             if (onList) {
               show($("screenActiveList"), joined);
+              show($("screenProposals"), joined);
               show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
             }
 
             renderSurveyList();
+            renderProposalList();
             renderRejectedBanner();
             if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) renderHistoryPanel();
 
@@ -4496,6 +4780,35 @@
           });
 
           initSurveyOptionFields();
+
+          // --- Question proposal event listeners ---
+          $("addProposalOptionBtn").addEventListener("click", () => addProposalOptionField(""));
+
+          $("addProposalBtn").addEventListener("click", () => {
+            if (me && !JOINED.has(me)) { showInlineError("Join first to propose questions"); return; }
+            if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) { showInlineError("Only genesis ledger participants can propose questions"); return; }
+            const panel = $("addProposalPanel");
+            const opening = panel && panel.classList.contains("hide");
+            show(panel, !!opening);
+            if (opening) renderProposalList();
+            else clearAddProposalForm();
+          });
+
+          $("cancelProposalBtn").addEventListener("click", () => {
+            show($("addProposalPanel"), false);
+            clearAddProposalForm();
+          });
+
+          $("saveProposalBtn").addEventListener("click", async () => {
+            try {
+              await proposeQuestionFlow();
+              show($("addProposalPanel"), false);
+              clearAddProposalForm();
+              setSending(false, true);
+            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+          });
+
+          initProposalOptionFields();
 
           // --- Vote bottom sheet event listeners ---
           $("voteSurveyBtn").addEventListener("click", () => {

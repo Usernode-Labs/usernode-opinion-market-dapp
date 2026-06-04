@@ -134,14 +134,30 @@ Memos are JSON. OM only acts on these:
 - `client → OM (custom option)`: `{"app":"opinion-market","type":"add_option","survey":"<id>","option":{…}}`
 - `client → OM (display name)`:  `{"app":"opinion-market","type":"set_username","username":"<name>"}`
   (also: the global usernames address — see `usernode-usernames.js`)
+- `client → OM (propose)`:       `{"app":"opinion-market","type":"propose_question","proposal":{"title":"…","question":"…","options":[…],"allow_custom_options":<bool>}}`
+- `client → OM (upvote)`:        `{"app":"opinion-market","type":"upvote_proposal","proposal":"<proposalId>"}`
 - `server → OM (pubkeys)`:       `{"app":"opinion-market","type":"publish_pubkeys","survey":"<id>","batch":<n>,"pubkeys":[…]}`
 - `server → OM (reveal)`:        `{"app":"opinion-market","type":"reveal_key","survey":"<id>","interval":<i>,"jwk":{…}}`
 
-The server is a no-op consumer for `vote` and `add_option` memos — it
-just keeps them in the raw-tx cache for the client to render. Surveys
-are registered when the server sees their `create_survey` tx, which
-schedules the immediate `publish_pubkeys` send and the per-checkpoint
-`reveal_key` sends.
+The server is a no-op consumer for `vote`, `add_option`,
+`propose_question`, and `upvote_proposal` memos — it just keeps them in
+the raw-tx cache for the client to render. Surveys are registered when
+the server sees their `create_survey` tx, which schedules the immediate
+`publish_pubkeys` send and the per-checkpoint `reveal_key` sends.
+
+Question proposals (`propose_question` / `upvote_proposal`) need **no**
+server work: promotion is derived deterministically in
+`public/opinion-market-state.js` Phase 3a. A proposal goes live as a
+real survey/market once its upvoter set reaches `ceil(activeUsers/2)`,
+where `activeUsers` is the count of distinct accounts with an
+ACTIVITY_TYPES tx in the trailing `PROPOSAL_ACTIVE_WINDOW_MS` (72h)
+**anchored to the triggering upvote tx's `ts`, never `now`** so client
+and server replay always agree. The proposer auto-upvotes their own
+proposal; promotion latches (later upvotes don't move `promotedAtMs`);
+each user may hold at most `MAX_OPEN_PROPOSALS_PER_USER` (3) open
+proposals; proposals expire after `PROPOSAL_EXPIRY_MS` (7 days). Promoted
+proposals are merged into Phase 3's survey list (bypassing the admin
+gate/cooldown) and seed a market like any other survey.
 
 ## Sidecar dependency
 
