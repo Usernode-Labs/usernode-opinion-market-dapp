@@ -47,6 +47,7 @@
   var DEFAULT_SURVEY_DURATION_MS = 7 * 86400000;
   var ALLOWED_SURVEY_DURATION_MS = new Set([
     60000, 180000, 600000,
+    86400000, // 1 day — the daily-BTC question cadence
     2 * 86400000, 3 * 86400000, 4 * 86400000, 5 * 86400000, 6 * 86400000, 7 * 86400000,
     14 * 86400000, 30 * 86400000, 90 * 86400000,
   ]);
@@ -192,10 +193,24 @@
     var revealRaw = rawSurvey.reveal_interval_ms;
     var revealIntervalMs = (typeof revealRaw === "number" && ALLOWED_REVEAL_INTERVALS.has(revealRaw)) ? revealRaw : null;
     var allowCustomOptions = rawSurvey.allow_custom_options !== false;
+    // Daily-BTC marker fields. These ride inside the survey definition so a
+    // server-authored `create_daily_btc` memo can carry the strike and the
+    // pricing timestamp through replay untouched. Plain surveys leave `kind`
+    // null and the numeric fields null.
+    var kind = typeof rawSurvey.kind === "string" && rawSurvey.kind ? rawSurvey.kind : null;
+    var strikeUsd = pickNumber(rawSurvey.strike_usd, rawSurvey.strikeUsd);
+    var pricedAt = pickNumber(rawSurvey.priced_at, rawSurvey.pricedAt);
     return {
       id: idBase, title: title, question: question, activeDurationMs: activeDurationMs,
       options: options, revealIntervalMs: revealIntervalMs, allowCustomOptions: allowCustomOptions,
+      kind: kind, strikeUsd: strikeUsd, pricedAt: pricedAt,
     };
+  }
+
+  function pickNumber(a, b) {
+    if (typeof a === "number" && Number.isFinite(a)) return a;
+    if (typeof b === "number" && Number.isFinite(b)) return b;
+    return null;
   }
 
   function normalizeProposalDefinition(rawProposal, fromAddr) {
@@ -746,6 +761,48 @@
       if (sv) PROMOTED_SURVEYS.push({ survey: sv, ts: pr.promotedAtMs, from: pr.proposedBy });
     });
 
+    /* --- Phase 3b: Daily BTC questions + oracle resolutions ---
+     *
+     * `create_daily_btc` and `resolve_btc` are server-authored memos. They
+     * bypass the admin gate entirely (like promoted proposals) — the server's
+     * sender pubkey is not the admin. Determinism across restarts and the
+     * parallel-deploy topology (two servers sharing APP_PUBKEY may each post a
+     * memo with a marginally different CoinGecko reading) is guaranteed by
+     * deterministic per-day ids plus an EARLIEST-memo-wins tie-break (tx ts,
+     * then tx id). Replay never calls CoinGecko — every price is read off-chain. */
+    var BTC_CREATIONS = new Map();   // surveyId -> { survey, ts, from, txId }
+    var BTC_RESOLUTIONS = new Map(); // surveyId -> { winner, strikeUsd, resolvedPriceUsd, resolvedAt, ts, txId }
+    function earlierWins(prev, ts, txId) {
+      if (!prev) return true;
+      if (ts !== prev.ts) return ts < prev.ts;
+      return String(txId) < String(prev.txId);
+    }
+    for (var ixb = 0; ixb < parsed.length; ixb++) {
+      var Pb = parsed[ixb];
+      if (Pb.memo.type === "create_daily_btc") {
+        var svb = normalizeSurveyDefinition(Pb.memo.survey);
+        if (!svb || svb.kind !== "btc_daily") continue;
+        var prevB = BTC_CREATIONS.get(svb.id);
+        if (earlierWins(prevB, Pb.tx.ts, Pb.tx.id)) {
+          BTC_CREATIONS.set(svb.id, { survey: svb, ts: Pb.tx.ts, from: Pb.tx.from, txId: Pb.tx.id });
+        }
+      } else if (Pb.memo.type === "resolve_btc" && Pb.memo.survey != null) {
+        var rid = String(Pb.memo.survey);
+        var rWinner = Pb.memo.winner == null ? null : String(Pb.memo.winner);
+        if (rWinner !== "higher" && rWinner !== "lower") rWinner = null; // null = push/tie
+        var prevR = BTC_RESOLUTIONS.get(rid);
+        if (earlierWins(prevR, Pb.tx.ts, Pb.tx.id)) {
+          BTC_RESOLUTIONS.set(rid, {
+            winner: rWinner,
+            strikeUsd: pickNumber(Pb.memo.strike_usd, Pb.memo.strikeUsd),
+            resolvedPriceUsd: pickNumber(Pb.memo.resolved_price_usd, Pb.memo.resolvedPriceUsd),
+            resolvedAt: pickNumber(Pb.memo.resolved_at, Pb.memo.resolvedAt) || Pb.tx.ts,
+            ts: Pb.tx.ts, txId: Pb.tx.id,
+          });
+        }
+      }
+    }
+
     /* --- Phase 3: Surveys (admin-only, rate-limited, with delete/resolve_early) --- */
     var effectiveAdmin = adminPubkey || firstJoiner;
     var allCreations = [];
@@ -787,6 +844,13 @@
         from: pmEntry.from,
       });
     }
+    // Merge daily-BTC questions, also bypassing the admin gate / cooldown.
+    // `from` is forced to null so Phase 5b skips creator-ante seeding (no
+    // joined creator) and Phase 6 seeds the market lazily from platform
+    // liquidity on the first bet — no ante charged, no creator reward leaked.
+    BTC_CREATIONS.forEach(function (b) {
+      latestCreated.set(b.survey.id, { survey: b.survey, ts: b.ts, from: null });
+    });
     var earlyResolves = new Map();
     for (var ie = 0; ie < parsed.length; ie++) {
       var Pe = parsed[ie];
@@ -934,6 +998,75 @@
         totalPool: totalPool, feePool: mkt ? mkt.feePool : 0,
         voteCounts: voteCounts, voterCount: voterSet.size, voters: voterSet,
       };
+
+      /* Daily-BTC oracle settlement. These markets resolve against the real
+       * next-day price posted on-chain by the server, NEVER by vote majority.
+       * If the resolution memo hasn't landed yet (expired-but-unresolved), the
+       * survey is left `pending` and pays no one — a later resolve_btc tx
+       * settles it on the next rebuild. */
+      if (survey.kind === "btc_daily") {
+        var btcRes = BTC_RESOLUTIONS.get(survey.id);
+        settlement.kind = "btc_daily";
+        settlement.strikeUsd = (typeof survey.strikeUsd === "number") ? survey.strikeUsd : null;
+        if (!btcRes) {
+          settlement.pending = true;
+          settlement.resolvedPriceUsd = null;
+          settlement.btcWinner = null;
+          SETTLEMENTS.set(survey.id, settlement);
+          return;
+        }
+        settlement.resolvedPriceUsd = btcRes.resolvedPriceUsd;
+        settlement.btcWinner = btcRes.winner;
+        settlement.resolvedAt = btcRes.resolvedAt;
+        if (mkt && totalPool > 0) {
+          settlement.feePool = mkt.feePool;
+          if (btcRes.winner === null) {
+            // Push / tie — refund all share holders proportionally.
+            distributeRefund(mkt, settlement);
+          } else {
+            var bweights = {};
+            for (var bwi = 0; bwi < survey.options.length; bwi++) bweights[survey.options[bwi].key] = 0;
+            bweights[btcRes.winner] = 1;
+            settlement.winner = btcRes.winner;
+            settlement.winners = [btcRes.winner];
+            settlement.resolutionWeights = bweights;
+            // YES holders of the winning option get 1x per share; others 0.
+            var byEntries = Object.entries(mkt.userShares);
+            for (var byi = 0; byi < byEntries.length; byi++) {
+              var bpkY = byEntries[byi][0];
+              var bShares = Object.entries(byEntries[byi][1]);
+              for (var bsi = 0; bsi < bShares.length; bsi++) {
+                var bw = bweights[bShares[bsi][0]] || 0;
+                if (bw > 0 && bShares[bsi][1] > 0) {
+                  settlement.payouts[bpkY] = (settlement.payouts[bpkY] || 0) + bShares[bsi][1] * bw;
+                }
+              }
+            }
+            // NO holders pay out (1 - weight) per share.
+            var bnEntries = Object.entries(mkt.userNoShares || {});
+            for (var bni = 0; bni < bnEntries.length; bni++) {
+              var bpkN = bnEntries[bni][0];
+              var bNo = Object.entries(bnEntries[bni][1]);
+              for (var bnoi = 0; bnoi < bNo.length; bnoi++) {
+                if (bNo[bnoi][1] <= 0) continue;
+                var bnoPayout = (1 - (bweights[bNo[bnoi][0]] || 0)) * bNo[bnoi][1];
+                if (bnoPayout > 0) settlement.payouts[bpkN] = (settlement.payouts[bpkN] || 0) + bnoPayout;
+              }
+            }
+          }
+          if (voterSet.size > 0 && mkt.feePool > 0) {
+            settlement.voterDividendPer = mkt.feePool / voterSet.size;
+          }
+          var bpo = Object.entries(settlement.payouts);
+          for (var bpoi = 0; bpoi < bpo.length; bpoi++) getCreditFlow(bpo[bpoi][0]).payouts += bpo[bpoi][1];
+          if (settlement.voterDividendPer > 0) {
+            var bvs = Array.from(voterSet);
+            for (var bvsi = 0; bvsi < bvs.length; bvsi++) getCreditFlow(bvs[bvsi]).dividends += settlement.voterDividendPer;
+          }
+        }
+        SETTLEMENTS.set(survey.id, settlement);
+        return;
+      }
 
       if (mkt && totalPool > 0) {
         settlement.feePool = mkt.feePool;
