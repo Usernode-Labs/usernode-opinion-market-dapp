@@ -52,6 +52,25 @@
   ]);
   var ALLOWED_REVEAL_INTERVALS = new Set([86400000, 172800000, 259200000, 604800000]);
 
+  /* ── Proposals (community question creation) ──────────────────────── */
+
+  // Sliding window used to size the promotion electorate. A proposal goes
+  // live once its upvoter set reaches at least half of the users active in
+  // the trailing 72h (measured at the triggering tx's timestamp).
+  var PROPOSAL_ACTIVE_WINDOW_MS = 72 * 60 * 60 * 1000;
+  // An un-promoted proposal expires after this long from its proposedAtMs.
+  var PROPOSAL_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+  // Per-user cap on simultaneously-open (non-promoted, non-expired) proposals.
+  var MAX_OPEN_PROPOSALS_PER_USER = 3;
+  // Memo types that count a sender as "active" for the 72h electorate. Read
+  // from the plaintext tx envelope only — no vote decryption needed (a
+  // vote's `type` is plaintext even though its choice is encrypted).
+  // Excludes cosmetic set_username and server-authored key txs.
+  var ACTIVITY_TYPES = new Set([
+    "join", "create_survey", "add_option", "vote", "place_bet",
+    "sell_shares", "propose_question", "upvote_proposal",
+  ]);
+
   /* ── Tx normalization & parsing ───────────────────────────────────── */
 
   function pick(obj, keys) {
@@ -177,6 +196,47 @@
       id: idBase, title: title, question: question, activeDurationMs: activeDurationMs,
       options: options, revealIntervalMs: revealIntervalMs, allowCustomOptions: allowCustomOptions,
     };
+  }
+
+  function normalizeProposalDefinition(rawProposal, fromAddr) {
+    if (!rawProposal || typeof rawProposal !== "object") return null;
+    var title = String(rawProposal.title || "").trim();
+    var question = String(rawProposal.question || "").trim();
+    if (!title || !question) return null;
+    var optionsRaw = Array.isArray(rawProposal.options) ? rawProposal.options : [];
+    var options = [];
+    for (var i = 0; i < optionsRaw.length; i++) {
+      var o = optionsRaw[i];
+      if (!o || typeof o !== "object") continue;
+      var label = String(o.label || "").trim();
+      if (!label) continue;
+      options.push({ key: String(o.key || slugify(label) || "opt_" + (i + 1)), label: label });
+    }
+    // Deterministic, cross-proposer-unique id: slug of the title suffixed
+    // with the proposer's address tail. Two proposers proposing the same
+    // title get distinct proposals; the same proposer re-proposing the same
+    // title updates the existing one (latest definition wins).
+    var slug = slugify(title);
+    var id = (slug || "q") + "_" + last6(fromAddr);
+    var allowCustomOptions = rawProposal.allow_custom_options !== false;
+    return { id: id, title: title, question: question, options: options, allowCustomOptions: allowCustomOptions };
+  }
+
+  /**
+   * Distinct senders whose ACTIVITY_TYPES tx falls in
+   * (refMs - PROPOSAL_ACTIVE_WINDOW_MS, refMs]. Pure; takes the already-
+   * parsed/sorted tx list ([{ tx, memo }]) so callers reuse one parse.
+   */
+  function activeUsersInWindow(parsedTxs, refMs) {
+    var set = new Set();
+    var lo = refMs - PROPOSAL_ACTIVE_WINDOW_MS;
+    for (var i = 0; i < parsedTxs.length; i++) {
+      var P = parsedTxs[i];
+      if (!P || !P.tx || !P.memo || !P.tx.from) continue;
+      if (!ACTIVITY_TYPES.has(P.memo.type)) continue;
+      if (P.tx.ts > lo && P.tx.ts <= refMs) set.add(P.tx.from);
+    }
+    return set;
   }
 
   function getRevealCheckpoints(survey) {
@@ -600,6 +660,92 @@
     var joinedArr = Array.from(JOINED);
     for (var ji = 0; ji < joinedArr.length; ji++) getCreditFlow(joinedArr[ji]);
 
+    /* --- Phase 3a: Proposals & Promotion ---
+     *
+     * Community question creation. Anyone (subject to genesis gating) can
+     * `propose_question`; anyone can `upvote_proposal`. A proposal goes live
+     * the moment its upvoter set reaches at least half of the users active
+     * in the trailing 72h. This bypasses Phase 3's admin/cooldown gate on
+     * purpose — promoted proposals are a separate, community-authorized
+     * survey source.
+     *
+     * Determinism: we walk propose/upvote events in chronological order and
+     * anchor the active-user denominator to each triggering tx's ts (never
+     * `now`). Once promoted, a proposal latches (later upvotes ignored).
+     * Expiry and the per-user open cap are pure functions of timestamps, so
+     * client and server replay always agree. */
+    var PROPOSALS = new Map();
+
+    function evaluateProposalPromotion(pr, ts) {
+      if (pr.promoted) return;
+      var activeCount = activeUsersInWindow(parsed, ts).size;
+      if (activeCount < 1) return; // no electorate → never promote
+      var threshold = Math.ceil(activeCount / 2); // "at least half", rounded up
+      if (pr.upvoters.size >= threshold) { pr.promoted = true; pr.promotedAtMs = ts; }
+    }
+
+    for (var ixp = 0; ixp < parsed.length; ixp++) {
+      var Pp = parsed[ixp];
+      if (Pp.memo.type === "propose_question") {
+        if (!isGenesisAccount(Pp.tx.from)) continue;
+        var pdef = normalizeProposalDefinition(Pp.memo.proposal, Pp.tx.from);
+        if (!pdef) continue;
+        var existingPr = PROPOSALS.get(pdef.id);
+        if (existingPr) {
+          // Same proposer re-proposing the same title: latest definition
+          // wins and the expiry clock resets. Keep the accrued upvoters.
+          if (Pp.tx.ts >= existingPr.proposedAtMs) {
+            existingPr.def = pdef;
+            existingPr.proposedAtMs = Pp.tx.ts;
+          }
+          existingPr.upvoters.add(Pp.tx.from);
+          evaluateProposalPromotion(existingPr, Pp.tx.ts);
+          continue;
+        }
+        // Per-user open-proposal cap: count this proposer's still-open
+        // (non-promoted, non-expired-as-of-now) proposals at this instant.
+        var openCount = 0;
+        PROPOSALS.forEach(function (pr) {
+          if (pr.proposedBy !== Pp.tx.from) return;
+          if (pr.promoted) return;
+          if (pr.proposedAtMs + PROPOSAL_EXPIRY_MS <= Pp.tx.ts) return;
+          openCount++;
+        });
+        if (openCount >= MAX_OPEN_PROPOSALS_PER_USER) continue; // over cap → drop
+        var newPr = {
+          id: pdef.id, def: pdef, proposedBy: Pp.tx.from, proposedAtMs: Pp.tx.ts,
+          upvoters: new Set([Pp.tx.from]), promoted: false, promotedAtMs: null,
+        };
+        PROPOSALS.set(pdef.id, newPr);
+        // Proposer auto-upvotes their own proposal; evaluate immediately so
+        // a brand-new proposal in a tiny active population can go live at
+        // once (see "zero active users" edge case in the spec).
+        evaluateProposalPromotion(newPr, Pp.tx.ts);
+      } else if (Pp.memo.type === "upvote_proposal") {
+        if (!isGenesisAccount(Pp.tx.from)) continue;
+        var pid = Pp.memo.proposal == null ? null : String(Pp.memo.proposal);
+        if (!pid) continue;
+        var pr2 = PROPOSALS.get(pid);
+        if (!pr2 || pr2.promoted) continue; // missing or latched → no-op
+        if (pr2.proposedAtMs + PROPOSAL_EXPIRY_MS <= Pp.tx.ts) continue; // expired
+        pr2.upvoters.add(Pp.tx.from); // Set → double-upvote deduped
+        evaluateProposalPromotion(pr2, Pp.tx.ts);
+      }
+    }
+
+    // Synthetic survey-creation records for promoted proposals, shaped like
+    // Phase 3's allCreations entries so they merge into latestCreated below.
+    var PROMOTED_SURVEYS = [];
+    PROPOSALS.forEach(function (pr) {
+      if (!pr.promoted) return;
+      var sv = normalizeSurveyDefinition({
+        id: pr.def.id, title: pr.def.title, question: pr.def.question,
+        options: pr.def.options, allow_custom_options: pr.def.allowCustomOptions,
+        active_duration_ms: DEFAULT_SURVEY_DURATION_MS, reveal_interval_ms: null,
+      });
+      if (sv) PROMOTED_SURVEYS.push({ survey: sv, ts: pr.promotedAtMs, from: pr.proposedBy });
+    });
+
     /* --- Phase 3: Surveys (admin-only, rate-limited, with delete/resolve_early) --- */
     var effectiveAdmin = adminPubkey || firstJoiner;
     var allCreations = [];
@@ -626,6 +772,20 @@
       if (!existing || entry.ts >= existing.ts) {
         latestCreated.set(entry.survey.id, { survey: entry.survey, ts: entry.ts, from: entry.from });
       }
+    }
+    // Merge promoted proposals as surveys, NOT subject to the admin filter
+    // or per-sender cooldown above. On id collision with an existing
+    // create_survey survey, suffix so we never clobber an admin survey.
+    for (var pmi = 0; pmi < PROMOTED_SURVEYS.length; pmi++) {
+      var pmEntry = PROMOTED_SURVEYS[pmi];
+      var sid = pmEntry.survey.id;
+      if (latestCreated.has(sid)) sid = sid + "_" + last6(pmEntry.from);
+      if (latestCreated.has(sid)) sid = sid + "_" + String(pmEntry.ts).slice(-4);
+      latestCreated.set(sid, {
+        survey: Object.assign({}, pmEntry.survey, { id: sid }),
+        ts: pmEntry.ts,
+        from: pmEntry.from,
+      });
     }
     var earlyResolves = new Map();
     for (var ie = 0; ie < parsed.length; ie++) {
@@ -1102,6 +1262,15 @@
       vmNext = vmIter.next();
     }
 
+    // Open proposals = not promoted and not expired as of `now`, newest-first.
+    var openProposals = [];
+    PROPOSALS.forEach(function (pr) {
+      if (pr.promoted) return;
+      if (pr.proposedAtMs + PROPOSAL_EXPIRY_MS <= now) return;
+      openProposals.push(pr);
+    });
+    openProposals.sort(function (a, b) { return b.proposedAtMs - a.proposedAtMs; });
+
     return {
       SURVEYS: SURVEYS,
       SURVEYS_BY_ID: SURVEYS_BY_ID,
@@ -1114,6 +1283,8 @@
       firstJoiner: firstJoiner,
       earningsMap: earningsMap,
       rejectedSends: REJECTED_SENDS,
+      PROPOSALS: PROPOSALS,
+      openProposals: openProposals,
       parsedTxs: parsed,
       decryptedTxs: decryptedTxs,
     };
@@ -1200,6 +1371,10 @@
     DEFAULT_SURVEY_DURATION_MS: DEFAULT_SURVEY_DURATION_MS,
     ALLOWED_SURVEY_DURATION_MS: ALLOWED_SURVEY_DURATION_MS,
     ALLOWED_REVEAL_INTERVALS: ALLOWED_REVEAL_INTERVALS,
+    PROPOSAL_ACTIVE_WINDOW_MS: PROPOSAL_ACTIVE_WINDOW_MS,
+    PROPOSAL_EXPIRY_MS: PROPOSAL_EXPIRY_MS,
+    MAX_OPEN_PROPOSALS_PER_USER: MAX_OPEN_PROPOSALS_PER_USER,
+    ACTIVITY_TYPES: ACTIVITY_TYPES,
 
     // Pure helpers
     parseMemo: parseMemo,
@@ -1212,6 +1387,8 @@
     normalizeUsername: normalizeUsername,
     normalizeSurveyDurationMs: normalizeSurveyDurationMs,
     normalizeSurveyDefinition: normalizeSurveyDefinition,
+    normalizeProposalDefinition: normalizeProposalDefinition,
+    activeUsersInWindow: activeUsersInWindow,
     getRevealCheckpoints: getRevealCheckpoints,
     cpmmTotalLiquidity: cpmmTotalLiquidity,
     addPoolLiquidity: addPoolLiquidity,

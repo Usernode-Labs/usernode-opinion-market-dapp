@@ -379,6 +379,177 @@ test("interleaved settlement: snapshot balance >= bet amount for every accepted 
   assert(snapBal >= 250, "snapshot balance " + snapBal + " at the moment of the 250 bet must be >= 250");
 });
 
+/* ── Proposals (Phase 3a) ─────────────────────────────────────────── */
+
+const PROP = { title: "Best lunch?", question: "Where?", options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }] };
+function proposalId(from) { return OMS.normalizeProposalDefinition(PROP, from).id; }
+function propose(from, ts) { return tx(from, "propose_question", { proposal: PROP }, ts); }
+function upvote(from, pid, ts) { return tx(from, "upvote_proposal", { proposal: pid }, ts); }
+
+async function build(txs, now) {
+  return OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: null, genesisAccounts: [], globalUsernames: {}, now: now,
+  });
+}
+
+test("proposal auto-upvotes on propose and promotes immediately in a tiny population", async () => {
+  nextTxId = 1;
+  const pid = proposalId(USER_A);
+  const txs = [tx(USER_A, "join", null, 0), propose(USER_A, 1000)];
+  const state = await build(txs, 1700000000000 + 5000);
+  const pr = state.PROPOSALS.get(pid);
+  assert(pr, "proposal registered");
+  assert(pr.upvoters.has(USER_A), "proposer auto-upvotes");
+  assert(pr.promoted, "promotes immediately (1 active user, threshold 1)");
+  // Promoted proposal surfaces as a live survey.
+  assert(state.SURVEYS.some(s => s.id === pid), "promoted proposal becomes a survey");
+  assert.strictEqual(state.openProposals.length, 0, "not in open proposals once promoted");
+});
+
+test("promotion respects the ceil(n/2) rounding boundary", async () => {
+  nextTxId = 1;
+  const pid = proposalId(USER_A);
+  const D = "ut1zuserddddddddddddddddddddddddddddddddddddddddddddd1ddddd";
+  const E = "ut1zuinteract4eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1eeeee";
+  // 5 active users → threshold = ceil(5/2) = 3. Two upvoters is NOT enough.
+  const base = [
+    tx(USER_A, "join", null, 0), tx(USER_B, "join", null, 100),
+    tx(USER_C, "join", null, 200), tx(D, "join", null, 300), tx(E, "join", null, 400),
+    propose(USER_A, 1000),           // upvoters {A} = 1
+    upvote(USER_B, pid, 2000),       // upvoters {A,B} = 2  (< 3)
+  ];
+  const sTwo = await build(base, 1700000000000 + 5000);
+  assert(!sTwo.PROPOSALS.get(pid).promoted, "2 of 5 upvotes does NOT promote (need 3)");
+
+  const withThird = base.concat([upvote(USER_C, pid, 3000)]); // upvoters {A,B,C} = 3 ≥ 3
+  const sThree = await build(withThird, 1700000000000 + 5000);
+  assert(sThree.PROPOSALS.get(pid).promoted, "3 of 5 upvotes promotes");
+});
+
+test("double-upvote by the same user is deduped", async () => {
+  nextTxId = 1;
+  const pid = proposalId(USER_A);
+  const D = "ut1zuserddddddddddddddddddddddddddddddddddddddddddddd1ddddd";
+  const E = "ut1zuinteract5eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1eeeee";
+  // 5 active → threshold 3. A proposes (1). B upvotes twice (still 2). No promo.
+  const txs = [
+    tx(USER_A, "join", null, 0), tx(USER_B, "join", null, 100),
+    tx(USER_C, "join", null, 200), tx(D, "join", null, 300), tx(E, "join", null, 400),
+    propose(USER_A, 1000),
+    upvote(USER_B, pid, 2000),
+    upvote(USER_B, pid, 2500),   // duplicate — must not count twice
+  ];
+  const state = await build(txs, 1700000000000 + 5000);
+  const pr = state.PROPOSALS.get(pid);
+  assert.strictEqual(pr.upvoters.size, 2, "duplicate upvote deduped to 2 distinct upvoters");
+  assert(!pr.promoted, "2 distinct upvoters < threshold 3 → not promoted");
+});
+
+test("promotion latches: later upvotes don't move promotedAtMs", async () => {
+  nextTxId = 1;
+  const pid = proposalId(USER_A);
+  const D = "ut1zuserddddddddddddddddddddddddddddddddddddddddddddd1ddddd";
+  const E = "ut1zuinteract6eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1eeeee";
+  const txs = [
+    tx(USER_A, "join", null, 0), tx(USER_B, "join", null, 100),
+    tx(USER_C, "join", null, 200), tx(D, "join", null, 300), tx(E, "join", null, 400),
+    propose(USER_A, 1000),
+    upvote(USER_B, pid, 2000),
+    upvote(USER_C, pid, 3000),   // promotes here (3 of 5)
+    upvote(D, pid, 9000),        // later upvote — must be a no-op
+    upvote(E, pid, 9500),
+  ];
+  const state = await build(txs, 1700000000000 + 20000);
+  const pr = state.PROPOSALS.get(pid);
+  assert(pr.promoted, "promoted");
+  assert.strictEqual(pr.promotedAtMs, 1700000000000 + 3000, "promotedAtMs latched at the decisive upvote");
+});
+
+test("per-user open-proposal cap of 3 is enforced", async () => {
+  nextTxId = 1;
+  const D = "ut1zuserddddddddddddddddddddddddddddddddddddddddddddd1ddddd";
+  // 4 active users so a lone auto-upvote (1) < threshold ceil(4/2)=2 → proposals stay open.
+  const titles = ["Q one", "Q two", "Q three", "Q four"];
+  const txs = [
+    tx(USER_A, "join", null, 0), tx(USER_B, "join", null, 100),
+    tx(USER_C, "join", null, 200), tx(D, "join", null, 300),
+  ];
+  titles.forEach((title, i) => {
+    txs.push(tx(USER_A, "propose_question", { proposal: { title, question: "Q?", options: PROP.options } }, 1000 + i * 100));
+  });
+  const state = await build(txs, 1700000000000 + 5000);
+  const mine = state.openProposals.filter(p => p.proposedBy === USER_A);
+  assert.strictEqual(mine.length, 3, "only 3 open proposals registered for USER_A (4th dropped by cap)");
+});
+
+test("expired proposals drop out and free up the cap", async () => {
+  nextTxId = 1;
+  const D = "ut1zuserddddddddddddddddddddddddddddddddddddddddddddd1ddddd";
+  const txs = [
+    tx(USER_A, "join", null, 0), tx(USER_B, "join", null, 100),
+    tx(USER_C, "join", null, 200), tx(D, "join", null, 300),
+    tx(USER_A, "propose_question", { proposal: { title: "Old Q", question: "Q?", options: PROP.options } }, 1000),
+  ];
+  // now is well past PROPOSAL_EXPIRY_MS after the proposal.
+  const state = await build(txs, 1700000000000 + 1000 + OMS.PROPOSAL_EXPIRY_MS + 1);
+  assert.strictEqual(state.openProposals.length, 0, "expired proposal excluded from openProposals");
+});
+
+test("promoted proposal seeds a market and settles like any survey", async () => {
+  nextTxId = 1;
+  const pid = proposalId(USER_A);
+  // Single active user → promotes immediately; proposer is joined with 1000
+  // credits so Phase 5b seeds the market from the 50-credit ante.
+  const txs = [
+    tx(USER_A, "join", null, 0),
+    propose(USER_A, 1000),
+    tx(USER_A, "vote", { survey: pid, choice: "yes" }, 2000),
+  ];
+  // now far enough in the future that the 7-day promoted survey has expired.
+  const state = await build(txs, 1700000000000 + 1000 + OMS.DEFAULT_SURVEY_DURATION_MS + 60000);
+  const survey = state.SURVEYS_BY_ID.get(pid);
+  assert(survey, "promoted survey exists");
+  assert(survey.archived, "promoted survey archived after its 7-day window");
+  const mkt = state.MARKETS.get(pid);
+  assert(mkt && Object.keys(mkt.pools).length === 2, "market seeded with both option pools");
+  assert(state.SETTLEMENTS.has(pid), "promoted survey settled");
+  // Proposer paid the 50-credit ante.
+  assert.strictEqual(state.CREDIT_FLOWS.get(USER_A).antes, OMS.MARKET_ANTE, "creator ante charged");
+});
+
+test("activeUsersInWindow honors the 72h sliding window", () => {
+  const ref = 1700000000000;
+  const parsed = [
+    { tx: { from: USER_A, ts: ref - 1000 }, memo: { type: "vote" } },           // in window
+    { tx: { from: USER_B, ts: ref - OMS.PROPOSAL_ACTIVE_WINDOW_MS - 1 }, memo: { type: "join" } }, // too old
+    { tx: { from: USER_C, ts: ref - 5000 }, memo: { type: "set_username" } },    // not an activity type
+    { tx: { from: USER_A, ts: ref + 1000 }, memo: { type: "place_bet" } },       // future
+  ];
+  const active = OMS.activeUsersInWindow(parsed, ref);
+  assert(active.has(USER_A), "recent voter counted");
+  assert(!active.has(USER_B), "user outside 72h window excluded");
+  assert(!active.has(USER_C), "set_username does not count as activity");
+  assert.strictEqual(active.size, 1);
+});
+
+test("client and server agree on proposal promotion (shared module)", async () => {
+  nextTxId = 1;
+  const pid = proposalId(USER_A);
+  const txs = [
+    tx(USER_A, "join", null, 0), tx(USER_B, "join", null, 100), tx(USER_C, "join", null, 200),
+    propose(USER_A, 1000), upvote(USER_B, pid, 2000),
+  ];
+  const opts = {
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: null, genesisAccounts: [], globalUsernames: {}, now: 1700000000000 + 5000,
+  };
+  const a = await OMS.computeFullState(opts);
+  const b = await OMS.computeFullState(opts);
+  assert.strictEqual(a.PROPOSALS.get(pid).promoted, b.PROPOSALS.get(pid).promoted);
+  assert.strictEqual(a.openProposals.length, b.openProposals.length);
+});
+
 test("parseAppTx filters by app+to_pubkey", () => {
   const parse = OMS.makeParseAppTx(APP_PUBKEY);
   // Not to APP_PUBKEY → null.
