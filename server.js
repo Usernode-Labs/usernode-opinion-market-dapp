@@ -66,6 +66,7 @@ const {
   fetchGenesisAccounts,
 } = require("./lib/dapp-server");
 const createVoteEncryption = require("./vote-encryption");
+const createDailyBtc = require("./daily-btc");
 const { buildLeaderboard } = require("./lib/leaderboard");
 
 loadEnvFile();
@@ -163,6 +164,18 @@ const omCache = createAppStateCache({
   nodeRpcUrl: NODE_RPC_URL,
 });
 omCache.start();
+
+// ── Daily BTC price-prediction scheduler ─────────────────────────────────────
+// Reuses vote-encryption's signer path (sendMemo) to post server-authored
+// `create_daily_btc` / `resolve_btc` memos on a UTC-daily cadence. Reads the
+// cache's raw-tx feed for idempotency so restarts and parallel deploys don't
+// double-create. CoinGecko is keyless — no new secret is required.
+const dailyBtc = createDailyBtc({
+  appPubkey: APP_PUBKEY,
+  getRawTransactions: () => omCache.getRawTransactions(),
+  sendMemo: voteEncryption.sendMemo,
+});
+dailyBtc.start();
 
 app.use((req, res, next) => {
   if (omCache.handleRequest(req, res, req.path)) return;

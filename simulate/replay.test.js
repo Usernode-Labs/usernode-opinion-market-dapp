@@ -567,4 +567,124 @@ test("parseAppTx filters by app+to_pubkey", () => {
   assert(result && result.memo.type === "join");
 });
 
+/* ── Daily BTC oracle settlement ──────────────────────────────────── */
+
+const SERVER = "ut1zserverserverserverserverserverserverserverserver1srv";
+const BASE = 1700000000000;
+const BTC_DUR = 86400000;
+
+function btcSurvey() {
+  return {
+    id: "btc-daily-test", title: "Daily BTC",
+    question: "Will BTC be higher or lower than $68,000 by tomorrow?",
+    options: [{ key: "higher", label: "Higher" }, { key: "lower", label: "Lower" }],
+    active_duration_ms: BTC_DUR, reveal_interval_ms: null, allow_custom_options: false,
+    kind: "btc_daily", strike_usd: 68000, priced_at: BASE,
+  };
+}
+
+// Shared tx stream: server creates the question (NOT admin), a user joins,
+// votes "higher" and bets "higher". The oracle resolution is added per-test.
+function btcStream() {
+  nextTxId = 1;
+  return [
+    tx(SERVER, "create_daily_btc", { survey: btcSurvey() }, 0),
+    tx(USER_A, "join", null, 1000),
+    tx(USER_A, "vote", { survey: "btc-daily-test", choice: "higher" }, 1500),
+    tx(USER_A, "place_bet", { survey: "btc-daily-test", option: "higher", credits: 100, side: "yes" }, 2000),
+  ];
+}
+
+test("BTC: server-authored question registers past the admin gate", async () => {
+  const txs = btcStream();
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: BASE + 3000,
+  });
+  const sv = state.SURVEYS_BY_ID.get("btc-daily-test");
+  assert(sv, "btc-daily survey registered despite non-admin sender");
+  assert.strictEqual(sv.kind, "btc_daily");
+  assert.strictEqual(sv.strikeUsd, 68000);
+  assert.strictEqual(sv.createdBy, null, "BTC survey has no joined creator");
+});
+
+test("BTC: resolves to the oracle winner, not the vote majority", async () => {
+  const txs = btcStream().concat([
+    // Real price 69000 > strike 68000 → higher wins.
+    tx(SERVER, "resolve_btc", {
+      survey: "btc-daily-test", strike_usd: 68000, resolved_price_usd: 69000,
+      resolved_at: BASE + 90000000, winner: "higher",
+    }, 90000000),
+  ]);
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: BASE + 90000001,
+  });
+  const settlement = state.SETTLEMENTS.get("btc-daily-test");
+  assert(settlement, "settlement exists");
+  assert.strictEqual(settlement.pending, undefined, "resolved, not pending");
+  assert.strictEqual(settlement.btcWinner, "higher");
+  assert.strictEqual(settlement.winner, "higher");
+  assert.strictEqual(settlement.resolvedPriceUsd, 69000);
+  assert(settlement.payouts[USER_A] > 0, "winning YES holder is paid the oracle outcome");
+});
+
+test("BTC: expired but unresolved stays pending and pays no one", async () => {
+  const txs = btcStream(); // no resolve_btc memo
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: BASE + 90000000,
+  });
+  const sv = state.SURVEYS_BY_ID.get("btc-daily-test");
+  assert(sv.archived, "survey is past expiry");
+  const settlement = state.SETTLEMENTS.get("btc-daily-test");
+  assert.strictEqual(settlement.pending, true, "pending — never settled by vote majority");
+  assert.strictEqual(Object.keys(settlement.payouts).length, 0, "no payouts while unresolved");
+  // USER_A voted "higher" and bet 100 on "higher". If BTC settled by vote,
+  // they'd be paid; while pending they must only be down the 100 they bet.
+  assert.strictEqual(OMS.userBalance(state, USER_A), 900, "no oracle payout yet");
+});
+
+test("BTC: push (price == strike) refunds all share holders", async () => {
+  const txs = btcStream().concat([
+    tx(SERVER, "resolve_btc", {
+      survey: "btc-daily-test", strike_usd: 68000, resolved_price_usd: 68000,
+      resolved_at: BASE + 90000000, winner: null,
+    }, 90000000),
+  ]);
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: BASE + 90000001,
+  });
+  const settlement = state.SETTLEMENTS.get("btc-daily-test");
+  assert.strictEqual(settlement.btcWinner, null, "push has no winner");
+  assert(settlement.payouts[USER_A] > 0, "push refunds the share holder");
+});
+
+test("BTC: replay is deterministic (client == server) under duplicate memos", async () => {
+  // Two `resolve_btc` memos with marginally different prices (parallel
+  // deploys). Earliest-memo-wins must make both rebuilds identical.
+  const txs = btcStream().concat([
+    tx(SERVER, "resolve_btc", {
+      survey: "btc-daily-test", strike_usd: 68000, resolved_price_usd: 69000,
+      resolved_at: BASE + 90000000, winner: "higher",
+    }, 90000000),
+    tx(SERVER, "resolve_btc", {
+      survey: "btc-daily-test", strike_usd: 68000, resolved_price_usd: 70000,
+      resolved_at: BASE + 90000500, winner: "higher",
+    }, 90000500),
+  ]);
+  const opts = {
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: BASE + 90001000,
+  };
+  const a = await OMS.computeFullState(opts);
+  const b = await OMS.computeFullState(opts);
+  const sa = a.SETTLEMENTS.get("btc-daily-test");
+  const sb = b.SETTLEMENTS.get("btc-daily-test");
+  assert.strictEqual(sa.resolvedPriceUsd, 69000, "earliest resolution wins");
+  assert.strictEqual(sa.resolvedPriceUsd, sb.resolvedPriceUsd);
+  assert.strictEqual(sa.payouts[USER_A], sb.payouts[USER_A]);
+});
+
 run();

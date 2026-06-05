@@ -374,6 +374,33 @@
         padding-left: 10px;
         margin: 4px 0;
       }
+      .btcBadge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #f7931a;
+        border: 1px solid #f7931a;
+        border-radius: 999px;
+        padding: 1px 7px;
+        white-space: nowrap;
+        vertical-align: middle;
+      }
+      .btcInfo {
+        border: 1px solid #f7931a55;
+        background: #f7931a14;
+        border-radius: 10px;
+        padding: 8px 12px;
+        margin: 8px 0;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .btcInfo .btcLive {
+        color: var(--muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
       .surpriseTag {
         font-size: 11px;
         padding: 2px 6px;
@@ -1236,6 +1263,7 @@
                 </div>
               </div>
               <p style="margin-top: 0;" id="surveyQuestion"></p>
+              <div id="surveyBtcInfo" class="btcInfo hide"></div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0;">
                 <div id="surveyCreatedBy" class="muted" style="font-size: 11px;"></div>
                 <div id="surveyVoterCount" class="muted" style="font-size: 11px;"></div>
@@ -1367,6 +1395,19 @@
                 When a question ends, votes are counted. The option with the most votes wins.
                 The entire betting pool (including the creator's initial seed) is split among people who bet on the winner, proportional to how much they invested.
                 The voter fee pool is distributed equally to everyone who voted.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;"><span class="btcBadge">₿ Daily BTC</span> &nbsp;Daily Bitcoin question</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Every day the app automatically opens one question &mdash; <em>"Will BTC be higher or lower than $X by tomorrow?"</em> &mdash;
+                where <strong>$X</strong> (the strike) is Bitcoin's live price at the moment the question is created, read from the free CoinGecko price feed.
+                You vote and bet on <strong>Higher</strong> or <strong>Lower</strong> just like any other question.
+              </p>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Unlike normal questions, the daily BTC question does <strong>not</strong> resolve by vote &mdash; it resolves against the
+                <strong>real Bitcoin price</strong> a day later. If the price is above the strike, <strong>Higher</strong> wins; below, <strong>Lower</strong> wins;
+                exactly equal is a push and all bets are refunded. While the next day's price hasn't been recorded yet, the question shows
+                <em>"Awaiting BTC resolution"</em>. Any live price shown on an open question is indicative only and never decides the outcome.
               </p>
 
               <h3 style="margin: 16px 0 6px; font-size: 15px;">Probabilities</h3>
@@ -2110,6 +2151,32 @@
         }
 
         function formatPct(n) { return (n * 100).toFixed(1) + "%"; }
+
+        // ── Daily-BTC helpers ──────────────────────────────────────────────
+        function fmtUsdFull(n) {
+          if (typeof n !== "number" || !isFinite(n)) return "—";
+          return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+        }
+        // Cosmetic-only live spot, fetched client-side and cached. NEVER used
+        // for resolution — resolution is decided solely by the on-chain
+        // `resolve_btc` memo. Throttled to one request per minute.
+        let _btcLivePrice = null;
+        let _btcLiveFetchedAt = 0;
+        async function ensureBtcLivePrice() {
+          const now = Date.now();
+          if (_btcLivePrice != null && now - _btcLiveFetchedAt < 60000) return;
+          _btcLiveFetchedAt = now;
+          try {
+            const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
+            const j = await r.json();
+            const p = j && j.bitcoin && j.bitcoin.usd;
+            if (typeof p === "number" && isFinite(p)) {
+              _btcLivePrice = p;
+              const el = $("btcLivePrice");
+              if (el) el.textContent = "Live BTC (indicative): $" + fmtUsdFull(p);
+            }
+          } catch (_) { /* cosmetic only — ignore failures */ }
+        }
 
         const IMAGE_URL_RE = /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?\S*)?/i;
         const ANY_URL_RE = /https?:\/\/\S+/gi;
@@ -3237,6 +3304,9 @@
           archivedEl.textContent = "";
 
           const active = SURVEYS.filter(s => !s.archived);
+          // Pin the daily-BTC question to the top (stable sort preserves the
+          // existing newest-first order among the rest).
+          active.sort((a, b) => ((b.kind === "btc_daily") ? 1 : 0) - ((a.kind === "btc_daily") ? 1 : 0));
           const archived = SURVEYS.filter(s => s.archived);
           const _joined = me && JOINED.has(me);
           const onList = !currentSurveyId
@@ -3266,6 +3336,13 @@
             const titleEl = document.createElement("div");
             titleEl.style.cssText = "font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;";
             titleEl.textContent = s.title;
+            if (s.kind === "btc_daily") {
+              const badge = document.createElement("span");
+              badge.className = "btcBadge";
+              badge.textContent = "₿ Daily";
+              badge.style.marginRight = "6px";
+              titleEl.insertBefore(badge, titleEl.firstChild);
+            }
             row1.appendChild(titleEl);
 
             if (hasMarket && s.options && s.options.length > 0) {
@@ -3304,6 +3381,7 @@
             const parts = [];
             parts.push(votes === 1 ? "1 vote" : votes + " votes");
             if (totalVol > 0) parts.push(formatCredits(totalVol) + "c volume");
+            if (s.kind === "btc_daily" && typeof s.strikeUsd === "number") parts.push("strike $" + s.strikeUsd.toLocaleString("en-US", { maximumFractionDigits: 0 }));
             statsEl.textContent = parts.length > 0 ? parts.join(" \u00B7 ") : "";
             if (badgeText) {
               if (parts.length > 0) statsEl.appendChild(document.createTextNode(" \u00B7 "));
@@ -3991,6 +4069,58 @@
           const mkt = MARKETS.get(s.id);
           const settlement = SETTLEMENTS.get(s.id);
 
+          // --- Daily-BTC info panel: strike + outcome / pending / live spot ---
+          const btcEl = $("surveyBtcInfo");
+          if (btcEl) {
+            if (s.kind === "btc_daily") {
+              btcEl.textContent = "";
+              const strike = (typeof s.strikeUsd === "number")
+                ? s.strikeUsd
+                : (settlement && typeof settlement.strikeUsd === "number" ? settlement.strikeUsd : null);
+              const head = document.createElement("div");
+              const badge = document.createElement("span");
+              badge.className = "btcBadge";
+              badge.textContent = "₿ Daily BTC";
+              head.appendChild(badge);
+              head.appendChild(document.createTextNode("  Strike: "));
+              const strikeStrong = document.createElement("strong");
+              strikeStrong.textContent = "$" + fmtUsdFull(strike);
+              head.appendChild(strikeStrong);
+              btcEl.appendChild(head);
+
+              if (s.archived) {
+                const line = document.createElement("div");
+                line.style.marginTop = "4px";
+                if (settlement && settlement.pending) {
+                  line.className = "muted";
+                  line.textContent = "Awaiting BTC resolution…";
+                } else if (settlement && settlement.kind === "btc_daily" && settlement.resolvedPriceUsd != null) {
+                  const w = settlement.btcWinner;
+                  const outcome = w === "higher" ? "HIGHER wins" : w === "lower" ? "LOWER wins" : "Tie — refunded";
+                  line.innerHTML = "BTC resolved at <strong>$" + fmtUsdFull(settlement.resolvedPriceUsd) +
+                    "</strong> — <strong>" + outcome + "</strong>";
+                } else {
+                  line.className = "muted";
+                  line.textContent = "Awaiting BTC resolution…";
+                }
+                btcEl.appendChild(line);
+              } else {
+                const live = document.createElement("div");
+                live.className = "btcLive";
+                live.id = "btcLivePrice";
+                live.style.marginTop = "4px";
+                live.textContent = _btcLivePrice != null
+                  ? "Live BTC (indicative): $" + fmtUsdFull(_btcLivePrice)
+                  : "Live BTC (indicative): …";
+                btcEl.appendChild(live);
+                ensureBtcLivePrice();
+              }
+              show(btcEl, true);
+            } else {
+              show(btcEl, false);
+            }
+          }
+
           const vc = countUniqueVoters(latestTxs, s.id);
           const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
           const canBet = !s.archived && JOINED.has(me);
@@ -4260,7 +4390,7 @@
           const settledSection = $("settledSection");
           const settledContent = $("settledContent");
           if (settledSection && settledContent) {
-            if (s.archived && settlement && settlement.totalPool > 0) {
+            if (s.archived && settlement && settlement.totalPool > 0 && !settlement.pending) {
               show(settledSection, true);
               settledContent.textContent = "";
 

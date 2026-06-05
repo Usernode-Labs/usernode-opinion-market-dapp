@@ -111,7 +111,9 @@ function createVoteEncryption(opts) {
     } catch (_) { return; }
     if (!memo || memo.app !== APP_ID) return;
 
-    if (memo.type === "create_survey" && memo.survey) {
+    if ((memo.type === "create_survey" || memo.type === "create_daily_btc") && memo.survey) {
+      // Daily-BTC questions carry encrypted votes exactly like normal
+      // surveys, so they must register for pubkey publication + reveal too.
       const s = memo.survey;
       const ts = rawTx.timestamp_ms || (rawTx.created_at ? Date.parse(rawTx.created_at) : null) || Date.now();
       const activeDuration = s.active_duration_ms || s.activeDurationMs;
@@ -347,6 +349,10 @@ function createVoteEncryption(opts) {
     buildPubkeysForSurvey,
     reset,
     surveys,
+    // Generic server-authored memo sender. Reuses the configured signer /
+    // mock path so other server modules (e.g. daily-btc.js) can publish
+    // memos to APP_PUBKEY without duplicating signer setup.
+    sendMemo: sendKeyTx,
   };
 }
 
