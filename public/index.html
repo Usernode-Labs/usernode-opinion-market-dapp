@@ -1229,6 +1229,9 @@
 
             <!-- Survey detail -->
             <div class="panel hide" id="screenSurvey">
+              <div style="margin-bottom: 10px;">
+                <button class="btn small" id="allMarketsBtn" type="button" style="padding: 4px 10px; font-size: 13px;">&#8592; All Markets</button>
+              </div>
               <div class="row" style="justify-content: space-between; align-items: center;">
                 <h2 id="surveyTitle">(question)</h2>
                 <div class="row" style="gap: 8px; align-items: center;">
@@ -4683,6 +4686,7 @@
           window.addEventListener("hashchange", () => navigateFromHash());
 
           $("backBtn").addEventListener("click", navigateToList);
+          $("allMarketsBtn").addEventListener("click", navigateToList);
 
           $("headerUsernameBtn").addEventListener("click", () => {
             if (sending) return;
