@@ -17,9 +17,27 @@
     <script>UsernodeLoading.init({ appName: "Opinion Market", streamKey: "om" });</script>
     <script src="/opinion-market/opinion-market-core.js"></script>
     <script src="/opinion-market/opinion-market-state.js"></script>
+    <!-- Apply the persisted theme before first paint to avoid a flash of the
+         wrong palette. If the user has never chosen, we leave data-theme
+         unset so the prefers-color-scheme media query picks the default. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("om:theme");
+          if (saved === "light" || saved === "dark") {
+            document.documentElement.setAttribute("data-theme", saved);
+          }
+        } catch (_) {}
+      })();
+    </script>
     <style>
+      /* Dark theme is the :root default. Light theme is applied either
+         explicitly (user toggled it: :root[data-theme="light"]) or by the
+         system preference on first visit, before any explicit choice
+         (:root:not([data-theme]) inside the prefers-color-scheme query).
+         An explicit data-theme always wins over the system preference. */
       :root {
-        color-scheme: light dark;
+        color-scheme: dark;
         --bg: #0b0f16;
         --fg: #e7edf7;
         --muted: #a8b3c7;
@@ -30,8 +48,23 @@
         --ok: #5dd39e;
         --warn: #e6a817;
       }
+      :root[data-theme="dark"] { color-scheme: dark; }
+
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --fg: #0b1220;
+        --muted: #4b5568;
+        --card: #ffffff;
+        --border: rgba(15, 23, 42, 0.12);
+        --accent: #2563eb;
+        --danger: #c81e1e;
+        --ok: #0f766e;
+        --warn: #b45309;
+      }
       @media (prefers-color-scheme: light) {
-        :root {
+        :root:not([data-theme]) {
+          color-scheme: light;
           --bg: #f7f8fb;
           --fg: #0b1220;
           --muted: #4b5568;
@@ -949,6 +982,7 @@
           <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
           <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
+          <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
           <button class="btn" id="backBtn" style="display: none;">Back</button>
         </div>
       </div>
@@ -4850,6 +4884,48 @@
           $("historyBtn").addEventListener("click", navigateToHistory);
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
+
+          // --- Light/dark theme toggle ---------------------------------
+          // The theme is driven by the data-theme attribute on <html> (set
+          // before first paint by the inline head script). When no explicit
+          // choice has been made, fall back to the system preference so the
+          // toggle reflects what the user is actually seeing.
+          const THEME_KEY = "om:theme";
+          const prefersDark = () =>
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const effectiveTheme = () => {
+            const explicit = document.documentElement.getAttribute("data-theme");
+            if (explicit === "light" || explicit === "dark") return explicit;
+            return prefersDark() ? "dark" : "light";
+          };
+          const syncThemeToggle = () => {
+            const btn = $("themeToggleBtn");
+            if (!btn) return;
+            const isDark = effectiveTheme() === "dark";
+            // Show the icon for the mode you'd switch TO.
+            btn.textContent = isDark ? "☀️" : "🌙";
+            btn.title = isDark ? "Switch to light theme" : "Switch to dark theme";
+          };
+          const applyTheme = (theme) => {
+            document.documentElement.setAttribute("data-theme", theme);
+            try { localStorage.setItem(THEME_KEY, theme); } catch (_) {}
+            syncThemeToggle();
+          };
+          $("themeToggleBtn").addEventListener("click", () => {
+            applyTheme(effectiveTheme() === "dark" ? "light" : "dark");
+          });
+          // Keep the icon current if the system preference changes while the
+          // user hasn't made an explicit choice.
+          if (window.matchMedia) {
+            try {
+              window
+                .matchMedia("(prefers-color-scheme: dark)")
+                .addEventListener("change", syncThemeToggle);
+            } catch (_) {}
+          }
+          syncThemeToggle();
+
           const rbDismiss = $("rejectedBannerDismiss");
           if (rbDismiss) rbDismiss.addEventListener("click", dismissRejectedBanner);
 
