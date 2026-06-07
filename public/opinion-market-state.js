@@ -1018,6 +1018,13 @@
         settlement.resolvedPriceUsd = btcRes.resolvedPriceUsd;
         settlement.btcWinner = btcRes.winner;
         settlement.resolvedAt = btcRes.resolvedAt;
+        // Record the resolved winner regardless of whether a market/trades
+        // exist. Buy/sell trading was removed, so BTC questions resolve with
+        // a winner for display even though there are no share holders to pay.
+        if (btcRes.winner !== null) {
+          settlement.winner = btcRes.winner;
+          settlement.winners = [btcRes.winner];
+        }
         if (mkt && totalPool > 0) {
           settlement.feePool = mkt.feePool;
           if (btcRes.winner === null) {
@@ -1146,209 +1153,25 @@
       SETTLEMENTS.set(survey.id, settlement);
     }
 
-    /* --- Phase 6/7 (interleaved): Trades + settlements in chronological order ---
+    /* --- Phase 6/7: Survey settlements (chronological) ---
      *
-     * The bug this interleaving fixes: previously Phase 6 walked every
-     * place_bet/sell_shares first, then Phase 7 ran settlements at the
-     * end. That meant during the Phase 6 walk, payouts from already-
-     * expired surveys were not yet credited to CREDIT_FLOWS, so a bet
-     * placed days AFTER a previous survey settled would fail the
-     * `bal < credits` check using a pre-settlement balance. The header
-     * (which reads the post-rebuild state) reported the correct,
-     * post-settlement balance — so users saw e.g. 822 credits, tried to
-     * bet 320, the bet passed the client preflight, hit the chain, and
-     * was then silently dropped by the next rebuild. This is what
-     * burned scraido and maragung's tx fees in May 2026.
-     *
-     * Fix: merge trades and "survey expired" events into a single
-     * chronologically-sorted stream. When a settlement fires inline at
-     * `expiresAtMs`, its payouts/dividends land in CREDIT_FLOWS BEFORE
-     * subsequent trades evaluate their balance. Every silent rejection
-     * also gets logged to REJECTED_SENDS so the UI can surface "your
-     * bet was dropped because X" feedback. */
-    var tradeEvents = [];
-    for (var ix7 = 0; ix7 < parsed.length; ix7++) {
-      var pt = parsed[ix7];
-      if (pt.memo.type === "place_bet" || pt.memo.type === "sell_shares") {
-        tradeEvents.push({ kind: "trade", ts: pt.tx.ts, p: pt });
-      }
-    }
+     * Buy/sell trading has been removed from the app, so the state engine
+     * no longer processes `place_bet` / `sell_shares` memos at all — they
+     * are ignored entirely. The only events replayed here are survey
+     * settlements. Markets are still seeded (Phase 5b) and surveys still
+     * resolve a winner (BTC-oracle or, historically, vote outcome) and pay
+     * out any share holders — but with trading gone no one accrues shares,
+     * so settlements credit no one. Settlements fire in chronological order
+     * by expiry so the rebuild stays deterministic. */
     var settlementEvents = [];
     for (var ssx = 0; ssx < SURVEYS.length; ssx++) {
       if (SURVEYS[ssx].archived) {
-        settlementEvents.push({ kind: "settle", ts: SURVEYS[ssx].expiresAtMs, survey: SURVEYS[ssx] });
+        settlementEvents.push({ ts: SURVEYS[ssx].expiresAtMs, survey: SURVEYS[ssx] });
       }
     }
-    var events = tradeEvents.concat(settlementEvents);
-    events.sort(function (a, b) {
-      if (a.ts !== b.ts) return a.ts - b.ts;
-      // At a tie: settlements BEFORE trades at the same instant, so a
-      // trade at exactly `expiresAtMs` (itself rejected as EXPIRED on
-      // that survey) can't beat a co-located settlement that should
-      // have already credited some OTHER user's payouts.
-      if (a.kind === "settle" && b.kind === "trade") return -1;
-      if (a.kind === "trade" && b.kind === "settle") return 1;
-      return 0;
-    });
-
-    for (var iev = 0; iev < events.length; iev++) {
-      var ev = events[iev];
-      if (ev.kind === "settle") { settleSurvey(ev.survey); continue; }
-      var Pm = ev.p;
-      var svM = Pm.memo.survey == null ? null : String(Pm.memo.survey);
-      var surveyM = SURVEYS_BY_ID.get(svM);
-      if (!surveyM) { recordReject(Pm, "NO_SURVEY"); continue; }
-      if (Pm.tx.ts >= surveyM.expiresAtMs) { recordReject(Pm, "EXPIRED"); continue; }
-      var optKey = Pm.memo.option == null ? null : String(Pm.memo.option);
-      if (!optKey || !surveyM.options.some(function (o) { return o.key === optKey; })) {
-        recordReject(Pm, "NO_OPTION");
-        continue;
-      }
-      if (!JOINED.has(Pm.tx.from)) { recordReject(Pm, "NOT_JOINED"); continue; }
-
-      var mkt2 = MARKETS.get(svM);
-      if (!mkt2) {
-        var n2 = surveyM.options.length;
-        var initPools2 = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, n2) : [];
-        mkt2 = {
-          pools: {}, userShares: {}, userNoShares: {}, feePool: 0,
-          grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0,
-          creator: surveyM.createdBy || null, history: [], optionVolume: {},
-        };
-        if (initPools2.length === n2) {
-          var spo = (MARKET_ANTE + PLATFORM_LIQUIDITY) / n2;
-          for (var ii2 = 0; ii2 < n2; ii2++) {
-            mkt2.pools[surveyM.options[ii2].key] = Object.assign({}, initPools2[ii2]);
-            mkt2.optionVolume[surveyM.options[ii2].key] = spo;
-          }
-          var ip = {};
-          for (var oo = 0; oo < surveyM.options.length; oo++) {
-            ip[surveyM.options[oo].key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt2.pools[surveyM.options[oo].key]) : 0;
-          }
-          mkt2.history.push({ ts: surveyM.createdAtMs, probs: ip });
-        }
-        MARKETS.set(svM, mkt2);
-      }
-
-      if (Pm.memo.type === "place_bet") {
-        var credits = typeof Pm.memo.credits === "number" ? Pm.memo.credits : Number(Pm.memo.credits);
-        if (!Number.isFinite(credits) || credits < 1) { recordReject(Pm, "BAD_CREDITS"); continue; }
-        var bal = localUserBalance(Pm.tx.from);
-        if (bal < credits) { recordReject(Pm, "INSUFFICIENT_BALANCE", { balance: bal, needed: credits }); continue; }
-        var totalPoolValue = Object.values(mkt2.pools).reduce(function (s, pp) { return s + pp.yes + pp.no; }, 0);
-        var maxBet = Math.floor(totalPoolValue * MAX_BET_POOL_RATIO);
-        if (credits > maxBet) { recordReject(Pm, "OVER_MAX_BET", { maxBet: maxBet, poolTotal: totalPoolValue }); continue; }
-
-        var fee = credits * FEE_RATE;
-        var liquidityFee = credits * LIQUIDITY_FEE_RATE;
-        var creatorCut = Math.min(credits * CREATOR_REWARD_RATE, CREATOR_REWARD_CAP - mkt2.creatorReward);
-        var voterFee = fee - Math.max(0, creatorCut) - liquidityFee;
-        var net = credits - fee;
-
-        var side = Pm.memo.side === "no" ? "no" : "yes";
-        var pool = mkt2.pools[optKey];
-        if (!pool) { recordReject(Pm, "NO_POOL"); continue; }
-
-        var res;
-        if (side === "no") {
-          if (!CPMM.cpmmArbitrageNo) { recordReject(Pm, "CPMM_UNAVAILABLE"); continue; }
-          res = CPMM.cpmmArbitrageNo(mkt2.pools, optKey, net);
-        } else {
-          if (!CPMM.cpmmArbitrage) { recordReject(Pm, "CPMM_UNAVAILABLE"); continue; }
-          res = CPMM.cpmmArbitrage(mkt2.pools, optKey, net);
-        }
-        if (res.sharesReceived <= 0) { recordReject(Pm, "ZERO_SHARES"); continue; }
-
-        var npKeys2 = Object.keys(res.newPools);
-        for (var npi = 0; npi < npKeys2.length; npi++) mkt2.pools[npKeys2[npi]] = res.newPools[npKeys2[npi]];
-        addPoolLiquidity(mkt2.pools, liquidityFee);
-        if (side === "no") {
-          if (!mkt2.userNoShares[Pm.tx.from]) mkt2.userNoShares[Pm.tx.from] = {};
-          mkt2.userNoShares[Pm.tx.from][optKey] = (mkt2.userNoShares[Pm.tx.from][optKey] || 0) + res.sharesReceived;
-        } else {
-          if (!mkt2.userShares[Pm.tx.from]) mkt2.userShares[Pm.tx.from] = {};
-          mkt2.userShares[Pm.tx.from][optKey] = (mkt2.userShares[Pm.tx.from][optKey] || 0) + res.sharesReceived;
-        }
-        mkt2.feePool += voterFee;
-        if (creatorCut > 0) {
-          mkt2.creatorReward += creatorCut;
-          if (mkt2.creator) getCreditFlow(mkt2.creator).creatorRewards += creatorCut;
-        }
-        mkt2.grossBetsByUser[Pm.tx.from] = (mkt2.grossBetsByUser[Pm.tx.from] || 0) + credits;
-        getCreditFlow(Pm.tx.from).grossBets += credits;
-        mkt2.optionVolume[optKey] = (mkt2.optionVolume[optKey] || 0) + credits;
-        var hp = {};
-        var poolKeys = Object.keys(mkt2.pools);
-        for (var hk = 0; hk < poolKeys.length; hk++) hp[poolKeys[hk]] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt2.pools[poolKeys[hk]]) : 0;
-        mkt2.history.push({ ts: Pm.tx.ts, probs: hp });
-      }
-
-      if (Pm.memo.type === "sell_shares") {
-        var sharesToSell = typeof Pm.memo.shares === "number" ? Pm.memo.shares : Number(Pm.memo.shares);
-        if (!Number.isFinite(sharesToSell) || sharesToSell <= 0) { recordReject(Pm, "BAD_SHARES"); continue; }
-        var sideS = Pm.memo.side === "no" ? "no" : "yes";
-        var userHeld = sideS === "no"
-          ? ((mkt2.userNoShares[Pm.tx.from] && mkt2.userNoShares[Pm.tx.from][optKey]) || 0)
-          : ((mkt2.userShares[Pm.tx.from] && mkt2.userShares[Pm.tx.from][optKey]) || 0);
-        if (userHeld < sharesToSell) { recordReject(Pm, "INSUFFICIENT_SHARES", { held: userHeld, needed: sharesToSell }); continue; }
-        var poolS = mkt2.pools[optKey];
-        if (!poolS) { recordReject(Pm, "NO_POOL"); continue; }
-
-        var grossCredits;
-        if (sideS === "no") {
-          if (CPMM.cpmmSellArbitrageNo && Object.keys(mkt2.pools).length > 1) {
-            var resultS = CPMM.cpmmSellArbitrageNo(mkt2.pools, optKey, sharesToSell);
-            grossCredits = resultS.creditsReceived;
-            if (grossCredits <= 0) continue;
-            var spKeys = Object.keys(resultS.newPools);
-            for (var spi = 0; spi < spKeys.length; spi++) mkt2.pools[spKeys[spi]] = resultS.newPools[spKeys[spi]];
-          } else if (CPMM.cpmmSellNo && CPMM.cpmmSellNoApply) {
-            grossCredits = CPMM.cpmmSellNo(poolS, sharesToSell);
-            if (grossCredits <= 0) continue;
-            mkt2.pools[optKey] = CPMM.cpmmSellNoApply(poolS, sharesToSell);
-          } else {
-            continue;
-          }
-        } else {
-          if (CPMM.cpmmSellArbitrage && Object.keys(mkt2.pools).length > 1) {
-            var resultY = CPMM.cpmmSellArbitrage(mkt2.pools, optKey, sharesToSell);
-            grossCredits = resultY.creditsReceived;
-            if (grossCredits <= 0) continue;
-            var syKeys = Object.keys(resultY.newPools);
-            for (var syi = 0; syi < syKeys.length; syi++) mkt2.pools[syKeys[syi]] = resultY.newPools[syKeys[syi]];
-          } else if (CPMM.cpmmSellYes && CPMM.cpmmSellYesApply) {
-            grossCredits = CPMM.cpmmSellYes(poolS, sharesToSell);
-            if (grossCredits <= 0) continue;
-            mkt2.pools[optKey] = CPMM.cpmmSellYesApply(poolS, sharesToSell);
-          } else {
-            continue;
-          }
-        }
-
-        var feeS = grossCredits * FEE_RATE;
-        var liquidityFeeS = grossCredits * LIQUIDITY_FEE_RATE;
-        var creatorCutS = Math.min(grossCredits * CREATOR_REWARD_RATE, CREATOR_REWARD_CAP - mkt2.creatorReward);
-        var voterFeeS = feeS - Math.max(0, creatorCutS) - liquidityFeeS;
-        var netCredits = grossCredits - feeS;
-
-        addPoolLiquidity(mkt2.pools, liquidityFeeS);
-        if (sideS === "no") {
-          mkt2.userNoShares[Pm.tx.from][optKey] = userHeld - sharesToSell;
-        } else {
-          mkt2.userShares[Pm.tx.from][optKey] = userHeld - sharesToSell;
-        }
-        mkt2.feePool += voterFeeS;
-        if (creatorCutS > 0) {
-          mkt2.creatorReward += creatorCutS;
-          if (mkt2.creator) getCreditFlow(mkt2.creator).creatorRewards += creatorCutS;
-        }
-        mkt2.netSellsByUser[Pm.tx.from] = (mkt2.netSellsByUser[Pm.tx.from] || 0) + netCredits;
-        getCreditFlow(Pm.tx.from).netSells += netCredits;
-        var sp = {};
-        var poolKeysS = Object.keys(mkt2.pools);
-        for (var spk = 0; spk < poolKeysS.length; spk++) sp[poolKeysS[spk]] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt2.pools[poolKeysS[spk]]) : 0;
-        mkt2.history.push({ ts: Pm.tx.ts, probs: sp });
-      }
+    settlementEvents.sort(function (a, b) { return a.ts - b.ts; });
+    for (var iev = 0; iev < settlementEvents.length; iev++) {
+      settleSurvey(settlementEvents[iev].survey);
     }
 
     /* --- Phase 8: Earnings (Bet P&L) per archived market --- */
@@ -1423,48 +1246,6 @@
     };
   }
 
-  /* ── Bet validation (preflight) ───────────────────────────────────── */
-
-  /**
-   * Apply the same validation that Phase 6 would apply to a hypothetical
-   * `place_bet`. Returns `{ ok: true }` or `{ ok: false, reason, ... }`.
-   *
-   * The client should use this BEFORE handing a bet to `sendTransaction` —
-   * a `false` answer means the bet would be silently dropped by every
-   * subsequent state rebuild, so don't even pay the on-chain 1-token fee.
-   *
-   * IMPORTANT: this enforces the SAME rules as `computeFullState` Phase 6.
-   * Any drift between this function and Phase 6 is a bug.
-   */
-  function validatePlaceBet(state, params) {
-    var pubkey = params.pubkey;
-    var surveyId = params.surveyId;
-    var optionKey = params.optionKey;
-    var credits = typeof params.credits === "number" ? params.credits : Number(params.credits);
-    var side = params.side === "no" ? "no" : "yes";
-
-    if (!state || !state.SURVEYS_BY_ID) return { ok: false, reason: "NO_STATE" };
-    if (!pubkey) return { ok: false, reason: "NO_PUBKEY" };
-    if (!state.JOINED.has(pubkey)) return { ok: false, reason: "NOT_JOINED" };
-    var survey = state.SURVEYS_BY_ID.get(surveyId);
-    if (!survey) return { ok: false, reason: "NO_SURVEY" };
-    if (survey.archived) return { ok: false, reason: "ARCHIVED" };
-    if (!survey.options.some(function (o) { return o.key === optionKey; })) return { ok: false, reason: "NO_OPTION" };
-    if (!Number.isFinite(credits) || credits < 1) return { ok: false, reason: "BAD_CREDITS" };
-
-    var bal = userBalance(state, pubkey);
-    if (bal < credits) return { ok: false, reason: "INSUFFICIENT_BALANCE", balance: bal, needed: credits };
-
-    var mkt = state.MARKETS.get(surveyId);
-    if (!mkt) return { ok: false, reason: "NO_MARKET" };
-    var totalPool = cpmmTotalLiquidity(mkt);
-    var maxBet = Math.floor(totalPool * MAX_BET_POOL_RATIO);
-    if (credits > maxBet) return { ok: false, reason: "OVER_MAX_BET", maxBet: maxBet, attempted: credits };
-    if (side === "no" ? !CPMM.cpmmArbitrageNo : !CPMM.cpmmArbitrage) {
-      return { ok: false, reason: "CPMM_UNAVAILABLE" };
-    }
-    return { ok: true };
-  }
 
   /* ── Rejected-bet introspection (UX banner support) ───────────────── */
 
@@ -1535,7 +1316,6 @@
     computeFullState: computeFullState,
     userBalance: userBalance,
     userShareValue: userShareValue,
-    validatePlaceBet: validatePlaceBet,
     findRejectedSends: findRejectedSends,
   };
 

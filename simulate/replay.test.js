@@ -127,7 +127,12 @@ test("Phase 3: admin-gated surveys reject non-admin creators", async () => {
   assert(ids.includes("s2"), "admin survey kept");
 });
 
-test("Phase 6: place_bet exceeding balance is silently dropped", async () => {
+// Buy/sell trading was removed from the app: the state engine no longer
+// processes `place_bet` / `sell_shares` memos, so the former Phase-6 trade
+// tests (balance-cap rejection, MAX_BET_POOL_RATIO cap, validatePlaceBet
+// preflight) no longer apply and have been deleted.
+
+test("trading removed: place_bet / sell_shares memos are ignored by the engine", async () => {
   nextTxId = 1;
   const survey = {
     id: "s1", title: "T", question: "Q?",
@@ -138,10 +143,9 @@ test("Phase 6: place_bet exceeding balance is silently dropped", async () => {
     tx(ADMIN, "join", null, 0),
     tx(USER_A, "join", null, 1000),
     tx(ADMIN, "create_survey", { survey }, 2000),
-    // USER_A has 1000 credits; try to bet 2000.
-    tx(USER_A, "place_bet", { survey: "s1", option: "yes", credits: 2000, side: "yes" }, 3000),
-    // ... then a sane 100-credit bet.
-    tx(USER_A, "place_bet", { survey: "s1", option: "yes", credits: 100, side: "yes" }, 4000),
+    // These trade memos must be no-ops now — no shares, no balance change.
+    tx(USER_A, "place_bet", { survey: "s1", option: "yes", credits: 100, side: "yes" }, 3000),
+    tx(USER_A, "sell_shares", { survey: "s1", option: "yes", shares: 5, side: "yes" }, 4000),
   ];
   const state = await OMS.computeFullState({
     rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
@@ -150,72 +154,17 @@ test("Phase 6: place_bet exceeding balance is silently dropped", async () => {
   });
   const flow = state.CREDIT_FLOWS.get(USER_A);
   assert(flow, "USER_A has a flow entry");
-  assert.strictEqual(flow.grossBets, 100, "only the 100-credit bet was accepted");
-  const rejected = OMS.findRejectedSends(state, {
-    pubkey: USER_A, appPubkey: APP_PUBKEY, decryptedTxs: txs,
-  });
-  assert.strictEqual(rejected.length, 1, "one bet rejected");
-  assert.strictEqual(rejected[0].reason, "INSUFFICIENT_BALANCE");
-  assert.strictEqual(rejected[0].credits, 2000);
-});
-
-test("Phase 6: bets over MAX_BET_POOL_RATIO are dropped", async () => {
-  nextTxId = 1;
-  const survey = {
-    id: "s1", title: "T", question: "Q?",
-    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
-    active_duration_ms: 600000,
-  };
-  // For 2 options, cpmmInitPools(500, 2) returns two pools of {yes:250, no:250}
-  // each → total liquidity 1000. 30% cap = 300. A 400-credit bet should
-  // be dropped; a 200-credit one should pass.
-  const txs = [
-    tx(ADMIN, "join", null, 0),
-    tx(USER_A, "join", null, 1000),
-    tx(ADMIN, "create_survey", { survey }, 2000),
-    tx(USER_A, "place_bet", { survey: "s1", option: "yes", credits: 400, side: "yes" }, 3000),
-  ];
-  const state = await OMS.computeFullState({
-    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
-    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
-    now: 1700000010000,
-  });
-  const flow = state.CREDIT_FLOWS.get(USER_A);
-  assert.strictEqual(flow.grossBets, 0, "400-credit bet over the 30% pool cap was dropped");
-});
-
-test("validatePlaceBet rejects with the same rules as Phase 6", async () => {
-  nextTxId = 1;
-  const survey = {
-    id: "s1", title: "T", question: "Q?",
-    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
-    active_duration_ms: 600000,
-  };
-  const txs = [
-    tx(ADMIN, "join", null, 0),
-    tx(USER_A, "join", null, 1000),
-    tx(ADMIN, "create_survey", { survey }, 2000),
-  ];
-  const state = await OMS.computeFullState({
-    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
-    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
-    now: 1700000010000,
-  });
-  const okSmall = OMS.validatePlaceBet(state, {
-    pubkey: USER_A, surveyId: "s1", optionKey: "yes", credits: 50, side: "yes",
-  });
-  assert.strictEqual(okSmall.ok, true);
-  // Pool total is 1000; 30% cap is 300. A 400-credit bet should hit OVER_MAX_BET.
-  const tooBig = OMS.validatePlaceBet(state, {
-    pubkey: USER_A, surveyId: "s1", optionKey: "yes", credits: 400, side: "yes",
-  });
-  assert.strictEqual(tooBig.ok, false);
-  assert.strictEqual(tooBig.reason, "OVER_MAX_BET");
-  const broke = OMS.validatePlaceBet(state, {
-    pubkey: USER_A, surveyId: "s1", optionKey: "yes", credits: 2000, side: "yes",
-  });
-  assert.strictEqual(broke.ok, false);
-  assert.strictEqual(broke.reason, "INSUFFICIENT_BALANCE");
+  assert.strictEqual(flow.grossBets, 0, "no bets are processed");
+  assert.strictEqual(flow.netSells, 0, "no sells are processed");
+  // Balance untouched by the ignored trade memos.
+  assert.strictEqual(OMS.userBalance(state, USER_A), OMS.INITIAL_CREDITS, "balance unchanged by ignored trades");
+  // No shares accrued anywhere.
+  const mkt = state.MARKETS.get("s1");
+  assert(mkt, "market still seeded for the survey");
+  assert.strictEqual(Object.keys(mkt.userShares).length, 0, "no YES share holders");
+  assert.strictEqual(Object.keys(mkt.userNoShares).length, 0, "no NO share holders");
+  // validatePlaceBet was removed alongside the trade flow.
+  assert.strictEqual(typeof OMS.validatePlaceBet, "undefined", "validatePlaceBet export removed");
 });
 
 test("genesis gating: non-genesis joiners are dropped", async () => {
@@ -249,8 +198,6 @@ test("client and server reach the same final balance for a small replay", async 
     tx(USER_A, "join", null, 1000),
     tx(USER_B, "join", null, 1500),
     tx(ADMIN, "create_survey", { survey }, 2000),
-    tx(USER_A, "place_bet", { survey: "s1", option: "yes", credits: 50, side: "yes" }, 3000),
-    tx(USER_B, "place_bet", { survey: "s1", option: "no", credits: 40, side: "yes" }, 4000),
     tx(USER_A, "vote", { survey: "s1", choice: "yes" }, 5000),
     tx(USER_B, "vote", { survey: "s1", choice: "yes" }, 5500),
   ];
@@ -275,109 +222,11 @@ test("normalizeUsername handles edge cases", () => {
   assert.strictEqual(OMS.normalizeUsername("foo_abc123", "", addr), "foo_abc123");
 });
 
-test("BUG-INLINE-SETTLEMENT: payouts from settled surveys are spendable by later bets", async () => {
-  // The bug this guards against: prior to inline settlement, Phase 6
-  // walked all bets first and Phase 7 settled afterwards. So a user who
-  // bet on survey A, had A expire+settle with a payout, and then tried
-  // to bet on survey B using that payout — the bet on B was silently
-  // dropped because Phase 6's balance check didn't know about the
-  // payout (Phase 7 hadn't run yet in the chronological walk).
-  //
-  // Concrete repro: ADMIN creates two surveys A and B. USER_A votes on
-  // A and bets 800 on the "yes" option of A. A expires; A's "yes" wins;
-  // USER_A's payout comes to ~1500-ish credits (more than the initial
-  // 1000). USER_A then tries to bet 600 on B, which should pass because
-  // their post-A-settlement balance is well above 600 — they had 200
-  // left after the 800 bet, plus a ~1500 payout.
-  nextTxId = 1;
-  const TX_BASE = 1700000000000;
-  const surveyA = {
-    id: "sA", title: "A", question: "Q?",
-    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
-    active_duration_ms: 60000,
-  };
-  const surveyB = {
-    id: "sB", title: "B", question: "Q?",
-    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
-    active_duration_ms: 600000,
-  };
-  // USER_A spends 800 of their 1000 credits on A (4x 200; under the
-  // 30% pool cap which grows after each bet). Pre-A-settlement balance:
-  // 200. After A's "yes" wins (USER_A voted yes), USER_A's payout from
-  // their yes-shares brings balance well above 250. A 250-bet on B at
-  // ts 70000 then sits within B's 30%-of-1000-seed cap (300) but
-  // EXCEEDS USER_A's pre-payout balance (200) — exactly the scenario
-  // that was silently dropped pre-fix.
-  const txs = [
-    tx(ADMIN, "join", null, 0),
-    tx(USER_A, "join", null, 1000),
-    tx(ADMIN, "create_survey", { survey: surveyA }, 2000),
-    tx(USER_A, "place_bet", { survey: "sA", option: "yes", credits: 200, side: "yes" }, 3000),
-    tx(USER_A, "place_bet", { survey: "sA", option: "yes", credits: 200, side: "yes" }, 4000),
-    tx(USER_A, "place_bet", { survey: "sA", option: "yes", credits: 200, side: "yes" }, 5000),
-    tx(USER_A, "place_bet", { survey: "sA", option: "yes", credits: 200, side: "yes" }, 6000),
-    tx(USER_A, "vote", { survey: "sA", choice: "yes" }, 7000),
-    tx(ADMIN, "create_survey", { survey: surveyB }, 10000),
-    tx(USER_A, "place_bet", { survey: "sB", option: "yes", credits: 250, side: "yes" }, 70000),
-  ];
-  const state = await OMS.computeFullState({
-    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
-    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
-    now: TX_BASE + 80000,
-  });
-  const flow = state.CREDIT_FLOWS.get(USER_A);
-  assert(flow.payouts > 0, "USER_A received a payout from survey A (got " + flow.payouts + ")");
-  assert.strictEqual(flow.grossBets, 200 * 4 + 250, "all 5 bets accepted (got " + flow.grossBets + ")");
-  const myRejects = state.rejectedSends.filter(r => r.from === USER_A);
-  assert.strictEqual(myRejects.length, 0, "no silent rejections for USER_A (got " + myRejects.length + ")");
-});
-
-test("interleaved settlement: snapshot balance >= bet amount for every accepted bet", async () => {
-  // Stronger invariant: after the fix, a re-rebuild over the tx prefix
-  // ending just before an accepted bet must yield a userBalance >= the
-  // bet amount. If this fails, the inline-settlement bug is back —
-  // Phase 6 accepted a bet using a balance that the next rebuild won't
-  // reproduce, which is exactly the silently-rejected-bet scenario.
-  nextTxId = 1;
-  const TX_BASE = 1700000000000;
-  const surveyA = {
-    id: "sA", title: "A", question: "Q?",
-    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
-    active_duration_ms: 60000,
-  };
-  const surveyB = {
-    id: "sB", title: "B", question: "Q?",
-    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
-    active_duration_ms: 600000,
-  };
-  const txs = [
-    tx(ADMIN, "join", null, 0),
-    tx(USER_A, "join", null, 1000),
-    tx(ADMIN, "create_survey", { survey: surveyA }, 2000),
-    tx(USER_A, "place_bet", { survey: "sA", option: "yes", credits: 200, side: "yes" }, 3000),
-    tx(USER_A, "place_bet", { survey: "sA", option: "yes", credits: 200, side: "yes" }, 4000),
-    tx(USER_A, "place_bet", { survey: "sA", option: "yes", credits: 200, side: "yes" }, 5000),
-    tx(USER_A, "place_bet", { survey: "sA", option: "yes", credits: 200, side: "yes" }, 6000),
-    tx(USER_A, "vote", { survey: "sA", choice: "yes" }, 7000),
-    tx(ADMIN, "create_survey", { survey: surveyB }, 10000),
-    tx(USER_A, "place_bet", { survey: "sB", option: "yes", credits: 250, side: "yes" }, 70000),
-  ];
-  const fullOpts = {
-    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
-    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
-    now: TX_BASE + 80000,
-  };
-  const fullState = await OMS.computeFullState(fullOpts);
-  const flowA = fullState.CREDIT_FLOWS.get(USER_A);
-  assert.strictEqual(flowA.grossBets, 200 * 4 + 250, "250-credit bet on B was accepted (grossBets=" + flowA.grossBets + ")");
-
-  const beforeBet = txs.filter(t => t.created_at < TX_BASE + 70000);
-  const snapState = await OMS.computeFullState(Object.assign({}, fullOpts, {
-    rawTxs: beforeBet, decryptedTxs: beforeBet, now: TX_BASE + 69999,
-  }));
-  const snapBal = OMS.userBalance(snapState, USER_A);
-  assert(snapBal >= 250, "snapshot balance " + snapBal + " at the moment of the 250 bet must be >= 250");
-});
+// The BUG-INLINE-SETTLEMENT and interleaved-settlement regression tests
+// exercised the interaction between trades and settlements (a bet placed
+// after an earlier survey settled). With buy/sell trading removed there are
+// no trades to interleave, so both tests were deleted along with the
+// trade-processing code path they guarded.
 
 /* ── Proposals (Phase 3a) ─────────────────────────────────────────── */
 
@@ -583,15 +432,15 @@ function btcSurvey() {
   };
 }
 
-// Shared tx stream: server creates the question (NOT admin), a user joins,
-// votes "higher" and bets "higher". The oracle resolution is added per-test.
+// Shared tx stream: server creates the question (NOT admin), a user joins
+// and votes "higher". (Buy/sell trading was removed, so there is no bet in
+// this stream anymore.) The oracle resolution is added per-test.
 function btcStream() {
   nextTxId = 1;
   return [
     tx(SERVER, "create_daily_btc", { survey: btcSurvey() }, 0),
     tx(USER_A, "join", null, 1000),
     tx(USER_A, "vote", { survey: "btc-daily-test", choice: "higher" }, 1500),
-    tx(USER_A, "place_bet", { survey: "btc-daily-test", option: "higher", credits: 100, side: "yes" }, 2000),
   ];
 }
 
@@ -626,7 +475,8 @@ test("BTC: resolves to the oracle winner, not the vote majority", async () => {
   assert.strictEqual(settlement.btcWinner, "higher");
   assert.strictEqual(settlement.winner, "higher");
   assert.strictEqual(settlement.resolvedPriceUsd, 69000);
-  assert(settlement.payouts[USER_A] > 0, "winning YES holder is paid the oracle outcome");
+  // Trading removed: no one holds shares, so the resolved market pays no one.
+  assert.strictEqual(Object.keys(settlement.payouts).length, 0, "no share holders to pay (trading removed)");
 });
 
 test("BTC: expired but unresolved stays pending and pays no one", async () => {
@@ -640,12 +490,12 @@ test("BTC: expired but unresolved stays pending and pays no one", async () => {
   const settlement = state.SETTLEMENTS.get("btc-daily-test");
   assert.strictEqual(settlement.pending, true, "pending — never settled by vote majority");
   assert.strictEqual(Object.keys(settlement.payouts).length, 0, "no payouts while unresolved");
-  // USER_A voted "higher" and bet 100 on "higher". If BTC settled by vote,
-  // they'd be paid; while pending they must only be down the 100 they bet.
-  assert.strictEqual(OMS.userBalance(state, USER_A), 900, "no oracle payout yet");
+  // USER_A voted "higher". With trading removed they never spend credits, so
+  // their balance stays at the initial 1000 while the market is unresolved.
+  assert.strictEqual(OMS.userBalance(state, USER_A), 1000, "no oracle payout yet");
 });
 
-test("BTC: push (price == strike) refunds all share holders", async () => {
+test("BTC: push (price == strike) resolves with no winner", async () => {
   const txs = btcStream().concat([
     tx(SERVER, "resolve_btc", {
       survey: "btc-daily-test", strike_usd: 68000, resolved_price_usd: 68000,
@@ -658,7 +508,9 @@ test("BTC: push (price == strike) refunds all share holders", async () => {
   });
   const settlement = state.SETTLEMENTS.get("btc-daily-test");
   assert.strictEqual(settlement.btcWinner, null, "push has no winner");
-  assert(settlement.payouts[USER_A] > 0, "push refunds the share holder");
+  assert.strictEqual(settlement.pending, undefined, "resolved, not pending");
+  // Trading removed: a push would refund share holders, but there are none.
+  assert.strictEqual(Object.keys(settlement.payouts).length, 0, "no share holders to refund (trading removed)");
 });
 
 test("BTC: replay is deterministic (client == server) under duplicate memos", async () => {
