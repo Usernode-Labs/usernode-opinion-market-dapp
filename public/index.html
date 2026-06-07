@@ -1572,6 +1572,14 @@
 
         const EXPLORER_BASE = window.location.origin + "/explorer-api";
         const TX_SEND_OPTS = { timeoutMs: 180_000, pollIntervalMs: 1500 };
+        // Hard cap on the per-survey pubkey lookup. The vote flow awaits
+        // this BEFORE it can even reach sendTransaction, so an unbounded
+        // fetch here wedges the whole vote on "Registering vote..." (and,
+        // once the progress bar crosses 120s, "Taking longer than
+        // expected") with no recovery. Bounding it lets the vote fall back
+        // to a plaintext `choice` memo — which the replay module already
+        // accepts — so votes always register promptly.
+        const PUBKEY_FETCH_TIMEOUT_MS = 6_000;
         const INITIAL_CREDITS = 1000;
         const FEE_RATE = 0.05;
         const LIQUIDITY_FEE_RATE = 0.02;
@@ -2663,11 +2671,20 @@
           showPending(pendingElId, "Registering vote...");
           const ki = getIntervalIndex(s, Date.now());
           const pubkey = await fetchPubkey(s.id, ki, s);
-          let memo;
+          let memo = null;
           if (pubkey) {
-            const ev = await encryptVote(pubkey, optionKey);
-            memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, ev, ki });
-          } else {
+            // Encrypt when we have a key, but never let an encryption
+            // hiccup wedge the vote — fall back to a plaintext `choice`
+            // memo (which the replay module accepts) so the vote still
+            // registers.
+            try {
+              const ev = await encryptVote(pubkey, optionKey);
+              memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, ev, ki });
+            } catch (_) {
+              memo = null;
+            }
+          }
+          if (!memo) {
             memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, choice: optionKey });
           }
           await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Opinion Market — Record your prediction on-chain." });
@@ -4671,15 +4688,26 @@
         async function fetchPubkey(surveyId, ki, survey) {
           const m = PUBKEY_MAP.get(surveyId);
           if (m && m.has(ki)) return m.get(ki);
+          // Bound the network lookup with an AbortController so a slow or
+          // unreachable /__om/pubkeys endpoint can never block the vote
+          // flow. On timeout/error we return null and the caller casts a
+          // plaintext vote instead — the vote still registers on-chain.
+          const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+          const timer = ctrl ? setTimeout(() => ctrl.abort(), PUBKEY_FETCH_TIMEOUT_MS) : null;
           try {
             const params = `createdAtMs=${survey.createdAtMs}&expiresAtMs=${survey.expiresAtMs}` +
               (survey.revealIntervalMs ? `&revealIntervalMs=${survey.revealIntervalMs}` : "");
-            const resp = await fetch(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`);
+            const resp = await fetch(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`,
+              ctrl ? { signal: ctrl.signal } : undefined);
             if (resp.ok) {
               const data = await resp.json();
               if (data.pubkeys && data.pubkeys[String(ki)]) return data.pubkeys[String(ki)];
             }
-          } catch (_) {}
+          } catch (_) {
+            // Aborted (timeout) or network failure — fall through to null.
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
           return null;
         }
 
