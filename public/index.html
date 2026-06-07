@@ -966,6 +966,38 @@
         content: "\2713";
         font-size: 12px;
       }
+
+      /* ── World Cup 2026 ─────────────────────────────────────────── */
+      .wc26-section { margin-top: 20px; }
+      .wc26-section:first-child { margin-top: 0; }
+      .wc26-section-title {
+        font-size: 12px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .06em; color: var(--muted); margin: 0 0 8px;
+      }
+      .wc26-card {
+        display: flex; flex-direction: column; gap: 4px;
+        padding: 10px 12px; background: var(--card);
+        border: 1px solid var(--border); border-radius: 10px;
+        cursor: pointer; transition: box-shadow .15s; margin-bottom: 8px;
+      }
+      .wc26-card:hover { box-shadow: 0 2px 8px color-mix(in oklab,var(--accent) 20%,transparent); }
+      .wc26-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+      .wc26-teams { font-size: 14px; font-weight: 600; flex: 1; }
+      .wc26-badge {
+        font-size: 11px; padding: 2px 7px; border-radius: 999px;
+        font-weight: 700; white-space: nowrap; flex-shrink: 0;
+      }
+      .wc26-badge.live  { background: var(--danger); color: #fff; }
+      .wc26-badge.done  { background: var(--border); color: var(--fg); }
+      .wc26-badge.upcoming {
+        background: color-mix(in oklab,var(--accent) 15%,var(--card));
+        color: var(--accent); border: 1px solid color-mix(in oklab,var(--accent) 40%,var(--border));
+      }
+      .wc26-card-meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+      .wc26-result-key { font-size: 13px; font-weight: 700; color: var(--accent); }
+      .wc26-empty { font-size: 13px; color: var(--muted); padding: 8px 0; }
+      .wc26-group-block { margin-bottom: 16px; }
+      .wc26-group-title { font-size: 13px; font-weight: 700; margin: 0 0 6px; }
     </style>
   </head>
   <body>
@@ -981,6 +1013,7 @@
           </button>
           <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
+          <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026">&#x26BD;</button>
           <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
           <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
           <button class="btn" id="backBtn" style="display: none;">Back</button>
@@ -1381,6 +1414,23 @@
               <h2 style="margin-bottom: 12px;">My History</h2>
               <div id="historyStats" class="statsGrid" style="margin-bottom: 16px;"></div>
               <div id="historyTimeline"></div>
+            </div>
+
+            <!-- World Cup 2026 — hub screen (live, today, coming up, results) -->
+            <div class="panel hide" id="screenWC26Hub">
+              <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h2 style="margin: 0;">&#x26BD; World Cup 2026</h2>
+                <button class="btn small" id="wcScheduleBtn" type="button">Schedule</button>
+              </div>
+              <div id="wc26HubContent"></div>
+            </div>
+
+            <!-- World Cup 2026 — full schedule by group -->
+            <div class="panel hide" id="screenWC26Schedule">
+              <div class="row" style="align-items: center; margin-bottom: 12px; gap: 8px;">
+                <h2 style="margin: 0; flex: 1;">&#x26BD; Group Stage Schedule</h2>
+              </div>
+              <div id="wc26ScheduleContent"></div>
             </div>
 
             <!-- How it works -->
@@ -2409,6 +2459,7 @@
           switch (r.reason) {
             case "INSUFFICIENT_BALANCE": return `not enough credits (had ${Math.floor(r.balance ?? 0)}, needed ${r.needed})`;
             case "OVER_MAX_BET":         return `over the ${Math.round(MAX_BET_POOL_RATIO * 100)}% pool cap (max ${r.maxBet})`;
+            case "MATCH_LOCKED":         return "match has already kicked off";
             case "EXPIRED":              return "question had already ended";
             case "NO_SURVEY":            return "the question no longer exists";
             case "NO_OPTION":            return "that option no longer exists";
@@ -2737,6 +2788,7 @@
               case "NOT_JOINED":          throw new Error("Join first to get credits");
               case "NO_SURVEY":           throw new Error("Question not found");
               case "ARCHIVED":            throw new Error("Question has ended");
+              case "MATCH_LOCKED":        throw new Error("Match has already kicked off — betting is closed");
               case "NO_OPTION":           throw new Error("That option no longer exists");
               case "BAD_CREDITS":         throw new Error("Minimum bet is 1 credit");
               case "INSUFFICIENT_BALANCE": throw new Error("Insufficient credits (you have " + Math.floor(v.balance) + ", tried to bet " + v.needed + ")");
@@ -2893,6 +2945,8 @@
           else if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) history.replaceState(null, "", "#history");
           else if ($("screenLeaderboard") && !$("screenLeaderboard").classList.contains("hide")) history.replaceState(null, "", "#leaderboard");
           else if ($("screenInfo") && !$("screenInfo").classList.contains("hide")) history.replaceState(null, "", "#info");
+          else if ($("screenWC26Hub") && !$("screenWC26Hub").classList.contains("hide")) history.replaceState(null, "", "#wc26");
+          else if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) history.replaceState(null, "", "#wc26/schedule");
           else if (location.hash) history.replaceState(null, "", location.pathname + location.search);
         }
 
@@ -2910,6 +2964,8 @@
           show($("screenHistory"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
+          show($("screenWC26Hub"), false);
+          show($("screenWC26Schedule"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "none";
           renderProposalList();
           updateCreditsDisplay();
@@ -2929,6 +2985,8 @@
           show($("screenHistory"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
+          show($("screenWC26Hub"), false);
+          show($("screenWC26Schedule"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           setText($("surveyTitle"), s.title);
           setText($("surveyQuestion"), s.question);
@@ -2936,6 +2994,20 @@
           setText($("surveyCreatedBy"), "Created by " + creatorName);
           const vc = countUniqueVoters(latestTxs, s.id);
           setText($("surveyVoterCount"), vc === 1 ? "1 vote" : `${vc} votes`);
+
+          // World Cup match meta: replace the (creator-less) "Created by" line
+          // with stage/group · venue · status so the detail reads as a match.
+          const wcLive = s.kind === "wc26_match" && s.wc26 && typeof s.wc26.kickoffMs === "number" && !s.archived && Date.now() >= s.wc26.kickoffMs;
+          if (s.kind === "wc26_match" && s.wc26) {
+            const w = s.wc26;
+            const stageLabel = w.stage === "group" ? ("Group " + (w.group || "")) : String(w.stage || "").toUpperCase();
+            let statusLabel;
+            if (s.archived) statusLabel = "Final";
+            else if (wcLive) statusLabel = "🔴 Live — predictions locked";
+            else statusLabel = w.kickoffMs ? ("Kickoff " + new Date(w.kickoffMs).toLocaleString()) : "Upcoming";
+            const metaParts = [stageLabel, w.venue, statusLabel].filter(Boolean);
+            setText($("surveyCreatedBy"), metaParts.join(" · "));
+          }
 
           // Reveal info
           const revealEl = $("surveyRevealInfo");
@@ -2974,7 +3046,8 @@
           // Hidden on archived (read-only) questions and while signed-out.
           const voteBtn = $("voteSurveyBtn");
           if (voteBtn) {
-            const showVote = !s.archived && !!me;
+            // WC26 matches lock predictions at kickoff (wcLive), same as betting.
+            const showVote = !s.archived && !!me && !wcLive;
             show(voteBtn, showVote);
             if (showVote) {
               const prev = getMyPreviousVote(id);
@@ -3012,6 +3085,8 @@
           show($("screenHistory"), false);
           show($("screenLeaderboard"), true);
           show($("screenInfo"), false);
+          show($("screenWC26Hub"), false);
+          show($("screenWC26Schedule"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderLeaderboard();
           syncHash();
@@ -3027,6 +3102,8 @@
           show($("screenHistory"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), true);
+          show($("screenWC26Hub"), false);
+          show($("screenWC26Schedule"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           syncHash();
         }
@@ -3042,9 +3119,223 @@
           show($("screenHistory"), true);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
+          show($("screenWC26Hub"), false);
+          show($("screenWC26Schedule"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderHistoryPanel();
           syncHash();
+        }
+
+        // When navigating from WC26 hub into a match detail, we want the back
+        // button to return to the WC26 hub instead of the main list.
+        let _wc26NavBack = false;
+
+        function navigateToWC26Hub() {
+          _wc26NavBack = false;
+          currentSurveyId = null;
+          show($("myStatsPanel"), false);
+          show($("screenActiveList"), false);
+          show($("screenProposals"), false);
+          show($("screenArchivedList"), false);
+          show($("screenSurvey"), false);
+          show($("screenHistory"), false);
+          show($("screenLeaderboard"), false);
+          show($("screenInfo"), false);
+          show($("screenWC26Hub"), true);
+          show($("screenWC26Schedule"), false);
+          const bb = $("backBtn"); if (bb) bb.style.display = "";
+          renderWC26Hub();
+          syncHash();
+        }
+
+        function navigateToWC26Schedule() {
+          currentSurveyId = null;
+          show($("myStatsPanel"), false);
+          show($("screenActiveList"), false);
+          show($("screenProposals"), false);
+          show($("screenArchivedList"), false);
+          show($("screenSurvey"), false);
+          show($("screenHistory"), false);
+          show($("screenLeaderboard"), false);
+          show($("screenInfo"), false);
+          show($("screenWC26Hub"), false);
+          show($("screenWC26Schedule"), true);
+          const bb = $("backBtn"); if (bb) bb.style.display = "";
+          renderWC26Schedule();
+          syncHash();
+        }
+
+        function wc26Kickoff(s) { return s.wc26 && s.wc26.kickoffMs; }
+
+        function wc26KickoffLabel(kickoffMs) {
+          if (!kickoffMs) return "";
+          const d = new Date(kickoffMs);
+          const now = Date.now();
+          const diff = kickoffMs - now;
+          if (diff > 0 && diff < 86400000) return "Today " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          if (diff >= 86400000 && diff < 172800000) return "Tomorrow " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        }
+
+        function wc26WinnerLabel(survey) {
+          const settlement = SETTLEMENTS.get(survey.id);
+          if (!settlement || settlement.pending) return null;
+          const key = settlement.wcWinner || settlement.winner;
+          if (!key || key === "void") return "Void (refunded)";
+          const opt = survey.options.find(o => o.key === key);
+          return opt ? opt.label : key;
+        }
+
+        function buildWC26Card(survey, clickFn) {
+          const now = Date.now();
+          const kickoffMs = wc26Kickoff(survey);
+          const isLive = !survey.archived && kickoffMs && kickoffMs <= now;
+          const settlement = SETTLEMENTS.get(survey.id);
+          const isDone = survey.archived && settlement && !settlement.pending;
+          const stage = survey.wc26 && survey.wc26.stage === "group"
+            ? "Group " + (survey.wc26.group || "")
+            : (survey.wc26 && survey.wc26.stage ? survey.wc26.stage.toUpperCase() : "");
+
+          const card = document.createElement("div");
+          card.className = "wc26-card";
+
+          const header = document.createElement("div");
+          header.className = "wc26-card-header";
+
+          const teams = document.createElement("div");
+          teams.className = "wc26-teams";
+          teams.textContent = survey.title || survey.id;
+
+          const badge = document.createElement("span");
+          badge.className = "wc26-badge " + (isLive ? "live" : isDone ? "done" : "upcoming");
+          badge.textContent = isLive ? "Live" : isDone ? "FT" : kickoffMs ? wc26KickoffLabel(kickoffMs) : "TBD";
+
+          header.appendChild(teams);
+          header.appendChild(badge);
+          card.appendChild(header);
+
+          const meta = document.createElement("div");
+          meta.className = "wc26-card-meta";
+          if (stage) { const sg = document.createElement("span"); sg.textContent = stage; meta.appendChild(sg); }
+          if (isDone) {
+            const wl = wc26WinnerLabel(survey);
+            if (wl) {
+              const wr = document.createElement("span");
+              wr.className = "wc26-result-key";
+              wr.textContent = "Result: " + wl;
+              meta.appendChild(wr);
+            }
+          }
+          if (meta.children.length) card.appendChild(meta);
+
+          // Odds bars for markets with liquidity (skip live/settled)
+          if (!isDone && !isLive) {
+            const mkt = MARKETS.get(survey.id);
+            if (mkt && cpmmTotalLiquidity(mkt) > 0 && survey.options && CPMM && CPMM.cpmmProb) {
+              const oddsRow = document.createElement("div");
+              oddsRow.style.cssText = "display:flex;gap:3px;margin-top:6px;";
+              survey.options.forEach(opt => {
+                const pool = mkt.pools[opt.key];
+                const bar = document.createElement("div");
+                bar.style.cssText = "flex:1;text-align:center;font-size:11px;padding:2px 3px;border-radius:5px;background:rgba(110,168,254,0.1);color:var(--accent);";
+                bar.textContent = opt.label + " " + formatPct(pool ? CPMM.cpmmProb(pool) : 0);
+                oddsRow.appendChild(bar);
+              });
+              card.appendChild(oddsRow);
+            }
+          }
+
+          card.addEventListener("click", clickFn);
+          return card;
+        }
+
+        function renderWC26Hub() {
+          const content = $("wc26HubContent");
+          if (!content) return;
+          content.innerHTML = "";
+          const now = Date.now();
+          const surveys = SURVEYS.filter(s => s.kind === "wc26_match" && s.wc26);
+          surveys.sort((a, b) => (wc26Kickoff(a) || 0) - (wc26Kickoff(b) || 0));
+
+          if (!surveys.length) {
+            const p = document.createElement("p");
+            p.className = "wc26-empty";
+            p.textContent = "World Cup 2026 match markets are loading…";
+            content.appendChild(p);
+            return;
+          }
+
+          const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+          const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
+
+          const liveNow     = surveys.filter(s => !s.archived && wc26Kickoff(s) && wc26Kickoff(s) <= now);
+          const todayLeft   = surveys.filter(s => !s.archived && wc26Kickoff(s) > now && wc26Kickoff(s) >= todayStart.getTime() && wc26Kickoff(s) <= todayEnd.getTime());
+          const comingUp    = surveys.filter(s => !s.archived && wc26Kickoff(s) > todayEnd.getTime()).slice(0, 5);
+          const results     = surveys.filter(s => {
+            const st = SETTLEMENTS.get(s.id); return s.archived && st && !st.pending;
+          }).reverse().slice(0, 5);
+
+          function addSection(title, items) {
+            if (!items.length) return;
+            const sec = document.createElement("div");
+            sec.className = "wc26-section";
+            const h = document.createElement("p");
+            h.className = "wc26-section-title";
+            h.textContent = title;
+            sec.appendChild(h);
+            items.forEach(s => {
+              sec.appendChild(buildWC26Card(s, () => { _wc26NavBack = true; navigateToSurvey(s.id); refreshLoopOnce(); }));
+            });
+            content.appendChild(sec);
+          }
+
+          addSection("Live Now", liveNow);
+          addSection("Today's Matches", todayLeft);
+          addSection("Coming Up", comingUp);
+          addSection("Recent Results", results);
+
+          if (!liveNow.length && !todayLeft.length && !comingUp.length && !results.length) {
+            const p = document.createElement("p");
+            p.className = "wc26-empty";
+            p.textContent = "No matches yet — markets will appear here before each kickoff.";
+            content.appendChild(p);
+          }
+        }
+
+        function renderWC26Schedule() {
+          const content = $("wc26ScheduleContent");
+          if (!content) return;
+          content.innerHTML = "";
+          const surveys = SURVEYS.filter(s => s.kind === "wc26_match" && s.wc26 && s.wc26.stage === "group");
+          surveys.sort((a, b) => (wc26Kickoff(a) || 0) - (wc26Kickoff(b) || 0));
+
+          if (!surveys.length) {
+            const p = document.createElement("p");
+            p.className = "wc26-empty";
+            p.textContent = "Group stage schedule loading…";
+            content.appendChild(p);
+            return;
+          }
+
+          const byGroup = new Map();
+          surveys.forEach(s => {
+            const g = s.wc26.group || "?";
+            if (!byGroup.has(g)) byGroup.set(g, []);
+            byGroup.get(g).push(s);
+          });
+          const groups = Array.from(byGroup.keys()).sort();
+          groups.forEach(g => {
+            const block = document.createElement("div");
+            block.className = "wc26-group-block";
+            const title = document.createElement("p");
+            title.className = "wc26-group-title";
+            title.textContent = "Group " + g;
+            block.appendChild(title);
+            byGroup.get(g).forEach(s => {
+              block.appendChild(buildWC26Card(s, () => { _wc26NavBack = true; navigateToSurvey(s.id); refreshLoopOnce(); }));
+            });
+            content.appendChild(block);
+          });
         }
 
         function updateSurveyCountdown(s) {
@@ -3350,6 +3641,10 @@
             show($("historyBtn"), false);
           }
           show($("leaderboardBtn"), true);
+          // World Cup tab appears only once at least one wc26 match market
+          // exists in state (i.e. the tournament markets have been seeded).
+          const hasWc26 = Array.isArray(SURVEYS) && SURVEYS.some(s => s.kind === "wc26_match");
+          show($("wcBtn"), hasWc26);
         }
 
         /* ================================================================
@@ -3362,16 +3657,19 @@
           activeEl.textContent = "";
           archivedEl.textContent = "";
 
-          const active = SURVEYS.filter(s => !s.archived);
+          // WC26 matches are shown in their own hub screen — exclude from the main list.
+          const active = SURVEYS.filter(s => !s.archived && s.kind !== "wc26_match");
           // Pin the daily-BTC question to the top (stable sort preserves the
           // existing newest-first order among the rest).
           active.sort((a, b) => ((b.kind === "btc_daily") ? 1 : 0) - ((a.kind === "btc_daily") ? 1 : 0));
-          const archived = SURVEYS.filter(s => s.archived);
+          const archived = SURVEYS.filter(s => s.archived && s.kind !== "wc26_match");
           const _joined = me && JOINED.has(me);
           const onList = !currentSurveyId
             && (!$("screenHistory") || $("screenHistory").classList.contains("hide"))
             && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
-            && (!$("screenInfo") || $("screenInfo").classList.contains("hide"));
+            && (!$("screenInfo") || $("screenInfo").classList.contains("hide"))
+            && (!$("screenWC26Hub") || $("screenWC26Hub").classList.contains("hide"))
+            && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"));
           if (onList) show($("screenArchivedList"), _joined && archived.length > 0);
 
           if (!active.length) {
@@ -4784,7 +5082,9 @@
             const onList = !currentSurveyId
               && (!$("screenHistory") || $("screenHistory").classList.contains("hide"))
               && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
-              && (!$("screenInfo") || $("screenInfo").classList.contains("hide"));
+              && (!$("screenInfo") || $("screenInfo").classList.contains("hide"))
+              && (!$("screenWC26Hub") || $("screenWC26Hub").classList.contains("hide"))
+              && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"));
             if (onList) {
               show($("screenActiveList"), joined);
               show($("screenProposals"), joined);
@@ -4795,6 +5095,8 @@
             renderProposalList();
             renderRejectedBanner();
             if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) renderHistoryPanel();
+            if ($("screenWC26Hub") && !$("screenWC26Hub").classList.contains("hide")) renderWC26Hub();
+            if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) renderWC26Schedule();
 
             mySurveyCreationTimes = getMySurveyCreationsInWindow(txs, me);
             updateSurveyCooldownUi();
@@ -4879,6 +5181,8 @@
             if (h === "#history") { navigateToHistory(); return; }
             if (h === "#leaderboard") { navigateToLeaderboard(); return; }
             if (h === "#info") { navigateToInfo(); return; }
+            if (h === "#wc26") { navigateToWC26Hub(); return; }
+            if (h === "#wc26/schedule") { navigateToWC26Schedule(); return; }
             const m = h.match(/^#survey\/(.+)$/);
             if (m) {
               const id = decodeURIComponent(m[1]);
@@ -4888,7 +5192,10 @@
           }
           window.addEventListener("hashchange", () => navigateFromHash());
 
-          $("backBtn").addEventListener("click", navigateToList);
+          $("backBtn").addEventListener("click", () => {
+            if (_wc26NavBack) { _wc26NavBack = false; navigateToWC26Hub(); }
+            else navigateToList();
+          });
           $("allMarketsBtn").addEventListener("click", navigateToList);
 
           $("headerUsernameBtn").addEventListener("click", () => {
@@ -4923,6 +5230,8 @@
           $("historyBtn").addEventListener("click", navigateToHistory);
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
+          $("wcBtn").addEventListener("click", navigateToWC26Hub);
+          $("wcScheduleBtn").addEventListener("click", navigateToWC26Schedule);
 
           // --- Light/dark theme toggle ---------------------------------
           // The theme is driven by the data-theme attribute on <html> (set
