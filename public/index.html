@@ -1334,6 +1334,7 @@
               </div>
               <p style="margin-top: 0;" id="surveyQuestion"></p>
               <div id="surveyBtcInfo" class="btcInfo hide"></div>
+              <div id="surveyWC26Info" class="btcInfo hide" style="padding:8px 10px;border-radius:8px;background:var(--card);border:1px solid var(--border);margin:4px 0;"></div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0;">
                 <div id="surveyCreatedBy" class="muted" style="font-size: 11px;"></div>
                 <div id="surveyVoterCount" class="muted" style="font-size: 11px;"></div>
@@ -4490,6 +4491,70 @@
               show(btcEl, true);
             } else {
               show(btcEl, false);
+            }
+          }
+
+          // --- World Cup 2026 info panel ---
+          const wc26InfoEl = $("surveyWC26Info");
+          if (wc26InfoEl) {
+            if (s.kind === "wc26_match" && s.wc26) {
+              wc26InfoEl.textContent = "";
+              const w = s.wc26;
+              const now = Date.now();
+              const isKickedOff = w.kickoffMs && now >= w.kickoffMs;
+
+              const head = document.createElement("div");
+              head.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;";
+
+              const badge = document.createElement("span");
+              badge.className = "btcBadge";
+              badge.textContent = "⚽ WC 2026";
+              head.appendChild(badge);
+
+              const stageTxt = document.createElement("span");
+              const stageLabel = w.stage === "group" ? "Group " + (w.group || "") :
+                w.stage === "r32" ? "Round of 32" : w.stage === "r16" ? "Round of 16" :
+                w.stage === "qf" ? "Quarter-final" : w.stage === "sf" ? "Semi-final" :
+                w.stage === "third_place" ? "3rd Place" : w.stage === "final" ? "Final" :
+                (w.stage || "");
+              stageTxt.className = "muted";
+              stageTxt.style.fontSize = "12px";
+              stageTxt.textContent = stageLabel;
+              head.appendChild(stageTxt);
+
+              if (w.kickoffMs) {
+                const koLabel = document.createElement("span");
+                koLabel.className = "muted";
+                koLabel.style.fontSize = "12px";
+                koLabel.textContent = "Kickoff: " + wc26KickoffLabel(w.kickoffMs);
+                head.appendChild(koLabel);
+              }
+              wc26InfoEl.appendChild(head);
+
+              if (isKickedOff && !s.archived) {
+                const notice = document.createElement("div");
+                notice.style.cssText = "margin-top:6px;font-size:12px;font-weight:600;color:var(--warn);";
+                notice.textContent = "⏹ Match in progress — betting is closed";
+                wc26InfoEl.appendChild(notice);
+              } else if (s.archived && settlement) {
+                const line = document.createElement("div");
+                line.style.marginTop = "6px";
+                line.style.fontSize = "13px";
+                if (settlement.pending) {
+                  line.className = "muted";
+                  line.textContent = "Awaiting match result…";
+                } else if (settlement.wcWinner === "void" || settlement.wcWinner == null) {
+                  line.innerHTML = "Result: <strong>Void — refunded</strong>";
+                } else {
+                  const winOpt = s.options.find(o => o.key === settlement.wcWinner);
+                  const winLabel = winOpt ? (winOpt.label || winOpt.key) : settlement.wcWinner;
+                  line.innerHTML = "Result: <strong>" + winLabel + "</strong>";
+                }
+                wc26InfoEl.appendChild(line);
+              }
+              show(wc26InfoEl, true);
+            } else {
+              show(wc26InfoEl, false);
             }
           }
 
