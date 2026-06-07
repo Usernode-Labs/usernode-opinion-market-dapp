@@ -57,6 +57,16 @@ const POST_MIDNIGHT_OFFSET_MS = 60 * 1000;
 // price-source or send failure without waiting until the next UTC day.
 const SAFETY_TICK_MS = 45 * 60 * 1000;
 
+// Staging-only: a staging preview container often cannot reach external price
+// APIs and/or has no working on-chain signer (the wallet secret is `private`
+// and not propagated into staging). Rather than leave the preview with an
+// empty Daily BTC market, we SEED today's question directly into the in-memory
+// raw-tx feed (see seedStaging()). The seed is re-applied on a short cadence so
+// it survives a chain-reset that clears the cache. This price is the fallback
+// strike used when no live price source is reachable from staging.
+const STAGING_FALLBACK_STRIKE_USD = 100000;
+const STAGING_SEED_INTERVAL_MS = 2 * 60 * 1000;
+
 // Per-request HTTP timeout for a single price source.
 const PRICE_HTTP_TIMEOUT_MS = 15000;
 // Bounded retry across the whole source list: this many rounds, with the
@@ -218,13 +228,41 @@ function parseExisting(getRawTransactions, appPubkey) {
   return { created, resolved };
 }
 
+// Build the canonical `create_daily_btc` memo for a given day id + strike.
+// Shared by the live tick (step 2) and the staging seed so both produce a
+// byte-identical survey definition.
+function buildCreateMemo(id, price, now) {
+  return {
+    app: APP_ID, type: "create_daily_btc",
+    survey: {
+      id,
+      title: "Daily BTC",
+      question: `Will BTC be higher or lower than $${fmtUsd(price)} by tomorrow?`,
+      options: [{ key: "higher", label: "Higher" }, { key: "lower", label: "Lower" }],
+      active_duration_ms: DAY_MS,
+      reveal_interval_ms: null,
+      allow_custom_options: false,
+      kind: "btc_daily",
+      strike_usd: price,
+      priced_at: now,
+    },
+  };
+}
+
 function createDailyBtc(opts) {
   const appPubkey = opts.appPubkey;
   const getRawTransactions = opts.getRawTransactions;
   const sendMemo = opts.sendMemo;
   const nowFn = opts.now || Date.now;
+  // Staging-only: inject a raw tx straight into the cache's raw-tx feed
+  // (bypassing the chain) so the preview renders a question even when external
+  // price APIs or the on-chain signer are unreachable. Null/undefined in
+  // production — the production path must stay fully on-chain and auditable.
+  const seedTransaction = typeof opts.seedTransaction === "function" ? opts.seedTransaction : null;
+  const senderPubkey = opts.senderPubkey || appPubkey;
   let midnightTimer = null;
   let safetyTimer = null;
+  let stagingSeedTimer = null;
   let stopped = false;
 
   // In-memory observability. Surfaced via getStatus() on /health and the
@@ -290,21 +328,7 @@ function createDailyBtc(opts) {
     // 2) Create today's question if it doesn't already exist on-chain.
     const id = "btc-daily-" + utcDayId(now);
     if (!created.has(id)) {
-      const memo = {
-        app: APP_ID, type: "create_daily_btc",
-        survey: {
-          id,
-          title: "Daily BTC",
-          question: `Will BTC be higher or lower than $${fmtUsd(price)} by tomorrow?`,
-          options: [{ key: "higher", label: "Higher" }, { key: "lower", label: "Lower" }],
-          active_duration_ms: DAY_MS,
-          reveal_interval_ms: null,
-          allow_custom_options: false,
-          kind: "btc_daily",
-          strike_usd: price,
-          priced_at: now,
-        },
-      };
+      const memo = buildCreateMemo(id, price, now);
       try {
         const ok = await sendMemo(memo);
         if (ok) {
@@ -328,6 +352,68 @@ function createDailyBtc(opts) {
   function safeTick() {
     return tick().catch((e) => {
       console.error(`[daily-btc] tick error: ${e.message}`);
+      return getStatus();
+    });
+  }
+
+  // Staging-only seed. Injects today's `create_daily_btc` memo directly into
+  // the cache's raw-tx feed via `seedTransaction` so the Daily BTC market
+  // renders on the preview even when staging can't reach a price API or post
+  // on-chain. Idempotent: a deterministic per-day tx id lets the cache dedup
+  // re-injections, and the strike of the first injection wins (replay is
+  // earliest-memo-wins too). Re-running on a short cadence makes the question
+  // reappear within one interval if a chain-reset clears the cache.
+  async function seedStaging() {
+    if (!seedTransaction) return getStatus();
+    const now = nowFn();
+    const id = "btc-daily-" + utcDayId(now);
+
+    // Already present (seeded earlier, or a real memo arrived)? No-op.
+    try {
+      const { created } = parseExisting(getRawTransactions, appPubkey);
+      if (created.has(id)) return getStatus();
+    } catch (_) { /* fall through and seed */ }
+
+    // Best-effort live price; fall back to a sensible constant strike so the
+    // preview always has a question to render.
+    let price;
+    try {
+      price = await fetchBtcPrice();
+      status.lastPriceUsd = price;
+      status.lastPriceError = null;
+    } catch (e) {
+      price = STAGING_FALLBACK_STRIKE_USD;
+      status.lastPriceError = e.message;
+      console.warn(`[daily-btc] staging seed: price unreachable, using fallback strike $${price} (${e.message})`);
+    }
+
+    const memo = buildCreateMemo(id, price, now);
+    const seedTxId = "staging-seed-" + id;
+    const tx = {
+      tx_id: seedTxId,
+      id: seedTxId,
+      from_pubkey: senderPubkey,
+      destination_pubkey: appPubkey,
+      amount: 1,
+      memo: JSON.stringify(memo),
+      created_at: new Date(now).toISOString(),
+    };
+    try {
+      seedTransaction(tx);
+      status.lastCreateAt = now;
+      status.lastCreateId = id;
+      status.lastSendError = null;
+      console.log(`[daily-btc] staging-seeded ${id} @ strike $${price}`);
+    } catch (e) {
+      status.lastSendError = `staging seed ${id}: ${e.message}`;
+      console.error(`[daily-btc] staging seed error (${id}): ${e.message}`);
+    }
+    return getStatus();
+  }
+
+  function safeSeedStaging() {
+    return seedStaging().catch((e) => {
+      console.error(`[daily-btc] staging seed error: ${e.message}`);
       return getStatus();
     });
   }
@@ -381,18 +467,32 @@ function createDailyBtc(opts) {
     safetyTimer = setInterval(() => safeTick(), SAFETY_TICK_MS);
     if (safetyTimer.unref) safetyTimer.unref();
     console.log("[daily-btc] scheduler started (UTC-daily + safety tick every " + Math.round(SAFETY_TICK_MS / 60000) + "m)");
+
+    // Staging only: seed today's question straight into the cache so the
+    // preview is never empty, then keep re-seeding so it survives a cache
+    // reset. seedTransaction is null in production, so this whole branch is
+    // a no-op there.
+    if (seedTransaction) {
+      const seedWarmup = setTimeout(() => safeSeedStaging(), 3000);
+      if (seedWarmup.unref) seedWarmup.unref();
+      stagingSeedTimer = setInterval(() => safeSeedStaging(), STAGING_SEED_INTERVAL_MS);
+      if (stagingSeedTimer.unref) stagingSeedTimer.unref();
+      console.log("[daily-btc] staging seed enabled (re-seed every " + Math.round(STAGING_SEED_INTERVAL_MS / 60000) + "m)");
+    }
   }
 
   function stop() {
     stopped = true;
     if (midnightTimer) clearTimeout(midnightTimer);
     if (safetyTimer) clearInterval(safetyTimer);
+    if (stagingSeedTimer) clearInterval(stagingSeedTimer);
   }
 
   return {
     start,
     stop,
     tick: safeTick,
+    seedStaging: safeSeedStaging,
     getStatus,
     _parseExisting: () => parseExisting(getRawTransactions, appPubkey),
   };
