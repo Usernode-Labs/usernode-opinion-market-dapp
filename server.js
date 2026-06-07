@@ -118,8 +118,15 @@ const app = express();
 // One hop (Caddy) in front of us.
 app.set("trust proxy", 1);
 
-// Health check — used by Docker healthcheck and platform polling.
-app.get("/health", (_req, res) => res.json({ status: "ok" }));
+// Health check — used by Docker healthcheck and platform polling. Includes a
+// daily-BTC status block so "no question posted today" is observable without
+// log-diving (dailyBtc is constructed below; guard for boot ordering).
+app.get("/health", (_req, res) => {
+  let dailyBtcStatus = null;
+  try { dailyBtcStatus = typeof dailyBtc !== "undefined" && dailyBtc ? dailyBtc.getStatus() : null; }
+  catch (_) { /* best-effort */ }
+  res.json({ status: "ok", dailyBtc: dailyBtcStatus });
+});
 
 // ── Mock API (only --local-dev) ──────────────────────────────────────────────
 const mockApi = createMockApi({ localDev: LOCAL_DEV });
@@ -176,6 +183,22 @@ const dailyBtc = createDailyBtc({
   sendMemo: voteEncryption.sendMemo,
 });
 dailyBtc.start();
+
+// Internal manual trigger: force a daily-BTC tick now (idempotent) and return
+// the resulting status. Lets an operator post today's question immediately
+// after a deploy instead of waiting for the next boundary. OM is public (see
+// CLAUDE.md "Auth model"); this only invokes the same server-authored,
+// signer-gated send path the scheduler already uses — it cannot create a
+// question without a valid SENDER_APP_SECRET_KEY.
+app.post("/__om/daily-btc/tick", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const out = await dailyBtc.tick();
+    res.json({ ok: true, status: out });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 app.use((req, res, next) => {
   if (omCache.handleRequest(req, res, req.path)) return;
