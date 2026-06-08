@@ -1061,52 +1061,63 @@
       .wc26-group-block { margin-bottom: 16px; }
       .wc26-group-title { font-size: 13px; font-weight: 700; margin: 0 0 6px; }
 
-      /* ── Live price ticker ────────────────────────────────────────────── */
-      .tickerBar {
-        flex: 0 0 auto;
-        height: 32px;
-        overflow: hidden;
+      /* ── Crypto prices modal ─────────────────────────────────────────── */
+      .cryptoModal-backdrop {
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.45);
+        z-index: 100;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+        display: flex; align-items: center; justify-content: center;
+        padding: 16px;
+      }
+      .cryptoModal-backdrop.open { opacity: 1; pointer-events: auto; }
+      .cryptoModal {
         background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        width: min(380px, 100%);
+        max-height: calc(100vh - 80px);
+        display: flex; flex-direction: column;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        transform: scale(0.95); opacity: 0;
+        transition: transform 0.2s cubic-bezier(0.32,0.72,0,1), opacity 0.2s ease;
+      }
+      .cryptoModal-backdrop.open .cryptoModal { transform: scale(1); opacity: 1; }
+      .cryptoModal-header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 14px 16px 12px;
         border-bottom: 1px solid var(--border);
-        position: relative;
-        z-index: 2;
+        flex-shrink: 0;
       }
-      @keyframes ticker-scroll {
-        from { transform: translateX(0); }
-        to   { transform: translateX(-50%); }
+      .cryptoModal-title { font-weight: 700; font-size: 15px; flex: 1; }
+      .cryptoModal-close {
+        background: none; border: none; cursor: pointer;
+        color: var(--muted); font-size: 20px; line-height: 1;
+        padding: 2px 6px; border-radius: 4px;
       }
-      .tickerTrack {
-        display: inline-flex;
+      .cryptoModal-close:hover { color: var(--fg); }
+      .cryptoModal-body { overflow-y: auto; flex: 1; }
+      .cryptoCoin-row {
+        display: grid;
+        grid-template-columns: 20px 1fr auto auto;
         align-items: center;
-        white-space: nowrap;
-        height: 100%;
-        animation: ticker-scroll 40s linear infinite;
-      }
-      .tickerItem {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 0 16px;
-        font-size: 12px;
+        gap: 10px;
+        padding: 9px 16px;
         font-variant-numeric: tabular-nums;
-        border-right: 1px solid var(--border);
-        height: 100%;
+        border-bottom: 1px solid var(--border);
       }
-      .tickerItem-logo   { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
-      .tickerItem-symbol { font-weight: 700; color: var(--fg); }
-      .tickerItem-price  { color: var(--fg); }
-      .tickerItem-change { font-size: 11px; }
-      .tickerItem-change.pos { color: var(--ok); }
-      .tickerItem-change.neg { color: var(--danger); }
-      @keyframes ticker-highlight {
-        0%   { box-shadow: inset 0 0 0 2px var(--accent); }
-        100% { box-shadow: inset 0 0 0 0 transparent; }
-      }
-      .tickerBar.highlighted { animation: ticker-highlight 1s ease-out forwards; }
-      @media (prefers-reduced-motion: reduce) {
-        .tickerBar  { height: auto; max-height: 32px; overflow-x: auto; overflow-y: hidden; }
-        .tickerTrack { animation: none; }
-      }
+      .cryptoCoin-row:last-child { border-bottom: none; }
+      .cryptoCoin-logo { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; }
+      .cryptoCoin-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+      .cryptoCoin-symbol { font-weight: 700; color: var(--fg); font-size: 13px; }
+      .cryptoCoin-fullname { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .cryptoCoin-price { font-weight: 600; color: var(--fg); font-size: 13px; text-align: right; white-space: nowrap; }
+      .cryptoCoin-change { font-size: 11px; text-align: right; white-space: nowrap; min-width: 52px; }
+      .cryptoCoin-change.pos { color: var(--ok); }
+      .cryptoCoin-change.neg { color: var(--danger); }
+      .cryptoModal-status { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13px; }
     </style>
   </head>
   <body>
@@ -1131,9 +1142,17 @@
       </div>
     </header>
 
-    <!-- Live crypto price ticker. Visible immediately with a placeholder; replaced by real prices on load. -->
-    <div id="tickerBar" class="tickerBar">
-      <div class="tickerTrack" id="tickerTrack"><div class="tickerItem tickerItem-loading"><span class="tickerItem-symbol" style="color:var(--muted);font-weight:400;">Loading prices&hellip;</span></div></div>
+    <!-- Crypto prices modal -->
+    <div class="cryptoModal-backdrop" id="cryptoModalBackdrop">
+      <div class="cryptoModal" id="cryptoModal" role="dialog" aria-labelledby="cryptoModalTitle">
+        <div class="cryptoModal-header">
+          <span class="cryptoModal-title" id="cryptoModalTitle">&#x1F4C8; Live Prices</span>
+          <button class="cryptoModal-close" id="cryptoModalClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="cryptoModal-body" id="cryptoModalBody">
+          <div class="cryptoModal-status">Fetching prices&hellip;</div>
+        </div>
+      </div>
     </div>
 
     <div id="inlineToast" class="inline-toast hide"></div>
@@ -1640,17 +1659,13 @@
                 <em>"Awaiting BTC resolution"</em>. Any live price shown on an open question is indicative only and never decides the outcome.
               </p>
 
-              <h3 style="margin: 16px 0 6px; font-size: 15px;"><span class="cryptoBadge" id="cryptoPricesBadge">&#x1F4C8; Crypto Prices</span> &nbsp;Live price ticker</h3>
+              <h3 style="margin: 16px 0 6px; font-size: 15px;"><span class="cryptoBadge" id="cryptoPricesBadge">&#x1F4C8; Crypto Prices</span> &nbsp;Live prices</h3>
               <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
-                A live scrolling ticker at the top of the page shows real-time prices for the top 10
-                cryptocurrencies by market cap &mdash; BTC, ETH, SOL, XRP, and more &mdash; updated
-                every minute from CoinGecko. Each chip shows the coin logo, symbol, current price,
-                and 24-hour percentage change.
-              </p>
-              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
-                Click <strong>&#x1F4C8;</strong> in the toolbar (or the badge above) to flash the
-                ticker into view. Prices are cosmetic only &mdash; they don&rsquo;t affect any
-                market outcomes except the daily BTC question.
+                Click <strong>&#x1F4C8;</strong> in the toolbar (or the badge above) to open a live
+                price panel showing the top 10 cryptocurrencies by market cap &mdash; BTC, ETH, SOL,
+                XRP, and more. Each row shows the coin logo, symbol, USD price, and 24-hour change.
+                Prices are fetched every minute from CoinGecko and are cosmetic only &mdash; they
+                don&rsquo;t affect any market outcomes except the daily BTC question.
               </p>
 
               <h3 style="margin: 16px 0 6px; font-size: 15px;">Probabilities</h3>
@@ -2421,7 +2436,7 @@
         let _btcLivePrice = null;
         let _btcLiveFetchedAt = 0;
 
-        // ── Live crypto price ticker ──────────────────────────────────────
+        // ── Live crypto prices modal ──────────────────────────────────────
         // Fetches from the server-side proxy (/__om/crypto-prices) so every
         // browser client shares one CoinGecko request per 60 s. Purely
         // cosmetic — failures are silently ignored.
@@ -2429,78 +2444,81 @@
         let _cryptoPricesFetchedAt = 0;
         const STABLECOIN_SYMBOLS = new Set(["USDT", "USDC"]);
 
-        function fmtTickerPrice(priceUsd, symbol) {
-          if (STABLECOIN_SYMBOLS.has(symbol)) {
-            return "$" + priceUsd.toFixed(4);
-          }
-          if (priceUsd >= 1000) {
-            return "$" + priceUsd.toLocaleString("en-US", { maximumFractionDigits: 0 });
-          }
-          if (priceUsd >= 1) {
-            return "$" + priceUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-          }
-          // Small-cap: 4 significant decimals
+        function fmtCoinPrice(priceUsd, symbol) {
+          if (STABLECOIN_SYMBOLS.has(symbol)) return "$" + priceUsd.toFixed(4);
+          if (priceUsd >= 1000) return "$" + priceUsd.toLocaleString("en-US", { maximumFractionDigits: 0 });
+          if (priceUsd >= 1) return "$" + priceUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           return "$" + priceUsd.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
         }
 
-        function buildTickerItem(coin) {
-          const item = document.createElement("div");
-          item.className = "tickerItem";
-
-          if (coin.image) {
-            const logo = document.createElement("img");
-            logo.className = "tickerItem-logo";
-            logo.src = coin.image;
-            logo.alt = coin.symbol;
-            logo.loading = "lazy";
-            logo.width = 16;
-            logo.height = 16;
-            item.appendChild(logo);
-          }
-
-          const sym = document.createElement("span");
-          sym.className = "tickerItem-symbol";
-          sym.textContent = coin.symbol;
-          item.appendChild(sym);
-
-          const price = document.createElement("span");
-          price.className = "tickerItem-price";
-          price.textContent = fmtTickerPrice(coin.priceUsd, coin.symbol);
-          item.appendChild(price);
-
-          if (coin.change24h != null) {
-            const chg = document.createElement("span");
-            const pos = coin.change24h >= 0;
-            chg.className = "tickerItem-change " + (pos ? "pos" : "neg");
-            chg.textContent = (pos ? "▲+" : "▼") + coin.change24h.toFixed(2) + "%";
-            item.appendChild(chg);
-          }
-
-          return item;
-        }
-
-        function renderTicker(prices) {
-          const track = document.getElementById("tickerTrack");
-          if (!track) return;
-          track.innerHTML = "";
-          if (!prices || prices.length === 0) {
-            const ph = document.createElement("div");
-            ph.className = "tickerItem tickerItem-loading";
-            const lbl = document.createElement("span");
-            lbl.className = "tickerItem-symbol";
-            lbl.style.color = "var(--muted)";
-            lbl.style.fontWeight = "400";
-            lbl.textContent = "Prices unavailable";
-            ph.appendChild(lbl);
-            track.appendChild(ph);
+        function renderCryptoModal() {
+          const body = document.getElementById("cryptoModalBody");
+          if (!body) return;
+          if (_cryptoPrices.length === 0) {
+            body.innerHTML = '<div class="cryptoModal-status">Prices unavailable</div>';
             return;
           }
-          // Duplicate items so the CSS -50% translate creates a seamless loop.
-          for (let pass = 0; pass < 2; pass++) {
-            for (const coin of prices) {
-              track.appendChild(buildTickerItem(coin));
+          body.innerHTML = "";
+          for (const coin of _cryptoPrices) {
+            const row = document.createElement("div");
+            row.className = "cryptoCoin-row";
+
+            if (coin.image) {
+              const logo = document.createElement("img");
+              logo.className = "cryptoCoin-logo";
+              logo.src = coin.image;
+              logo.alt = coin.symbol;
+              logo.loading = "lazy";
+              logo.width = 20; logo.height = 20;
+              row.appendChild(logo);
+            } else {
+              row.appendChild(document.createElement("div")); // placeholder cell
             }
+
+            const nameCol = document.createElement("div");
+            nameCol.className = "cryptoCoin-name";
+            const sym = document.createElement("span");
+            sym.className = "cryptoCoin-symbol";
+            sym.textContent = coin.symbol;
+            const full = document.createElement("span");
+            full.className = "cryptoCoin-fullname";
+            full.textContent = coin.name;
+            nameCol.appendChild(sym);
+            nameCol.appendChild(full);
+            row.appendChild(nameCol);
+
+            const priceEl = document.createElement("span");
+            priceEl.className = "cryptoCoin-price";
+            priceEl.textContent = fmtCoinPrice(coin.priceUsd, coin.symbol);
+            row.appendChild(priceEl);
+
+            const chgEl = document.createElement("span");
+            const pos = coin.change24h != null && coin.change24h >= 0;
+            chgEl.className = "cryptoCoin-change " + (coin.change24h == null ? "" : pos ? "pos" : "neg");
+            chgEl.textContent = coin.change24h == null ? "—"
+              : (pos ? "▲+" : "▼") + coin.change24h.toFixed(2) + "%";
+            row.appendChild(chgEl);
+
+            body.appendChild(row);
           }
+        }
+
+        function openCryptoModal() {
+          const backdrop = document.getElementById("cryptoModalBackdrop");
+          const body = document.getElementById("cryptoModalBody");
+          if (!backdrop) return;
+          if (_cryptoPrices.length === 0) {
+            if (body) body.innerHTML = '<div class="cryptoModal-status">Fetching prices&hellip;</div>';
+            fetchCryptoPrices();
+          } else {
+            renderCryptoModal();
+          }
+          backdrop.classList.add("open");
+        }
+
+        function closeCryptoModal() {
+          const backdrop = document.getElementById("cryptoModalBackdrop");
+          if (backdrop) backdrop.classList.remove("open");
         }
 
         async function fetchCryptoPrices() {
@@ -2512,13 +2530,14 @@
             const j = await r.json();
             if (j && Array.isArray(j.prices) && j.prices.length > 0) {
               _cryptoPrices = j.prices;
-              renderTicker(_cryptoPrices);
             } else {
-              renderTicker([]);
+              _cryptoPrices = [];
             }
           } catch (_) {
-            renderTicker([]); // cosmetic only — show unavailable chip on failure
+            _cryptoPrices = []; // cosmetic only — ignore failures
           }
+          const backdrop = document.getElementById("cryptoModalBackdrop");
+          if (backdrop && backdrop.classList.contains("open")) renderCryptoModal();
         }
         async function ensureBtcLivePrice() {
           const now = Date.now();
@@ -5579,22 +5598,13 @@
           $("historyBtn").addEventListener("click", navigateToHistory);
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
-          function flashTickerBar() {
-            const bar = document.getElementById("tickerBar");
-            if (!bar) return;
-            bar.scrollIntoView({ behavior: "smooth", block: "nearest" });
-            if (_cryptoPrices.length === 0) {
-              fetchCryptoPrices();
-              showInlineError("Loading live prices…");
-              return;
-            }
-            bar.classList.remove("highlighted");
-            void bar.offsetWidth; // force reflow so animation re-triggers
-            bar.classList.add("highlighted");
-          }
-          $("tickerBtn").addEventListener("click", flashTickerBar);
+          $("tickerBtn").addEventListener("click", openCryptoModal);
           const _cryptoPricesBadge = document.getElementById("cryptoPricesBadge");
-          if (_cryptoPricesBadge) _cryptoPricesBadge.addEventListener("click", flashTickerBar);
+          if (_cryptoPricesBadge) _cryptoPricesBadge.addEventListener("click", openCryptoModal);
+          $("cryptoModalClose").addEventListener("click", closeCryptoModal);
+          $("cryptoModalBackdrop").addEventListener("click", (e) => {
+            if (e.target === e.currentTarget) closeCryptoModal();
+          });
           $("wcBtn").addEventListener("click", navigateToWC26Hub);
           $("wcScheduleBtn").addEventListener("click", navigateToWC26Schedule);
 
