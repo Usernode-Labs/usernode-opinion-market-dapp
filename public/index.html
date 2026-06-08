@@ -158,6 +158,80 @@
       .pillButton:hover { border-color: var(--accent); }
       .pillButton[disabled] { opacity: 0.55; cursor: not-allowed; }
 
+      /* User chip — composite identity component in the header */
+      .userChip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 10px 5px 5px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: transparent;
+        cursor: pointer;
+        appearance: none;
+        color: var(--fg);
+        font-size: 14px;
+        font-family: inherit;
+      }
+      .userChip:hover { border-color: var(--accent); }
+      .userChip:active { background: color-mix(in oklab, var(--accent) 8%, transparent); }
+
+      .userChip-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 600;
+        color: #fff;
+        flex-shrink: 0;
+        line-height: 1;
+      }
+
+      .userChip-name {
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+        color: var(--fg);
+      }
+
+      .userChip-name[data-loading] {
+        display: inline-block;
+        width: 64px;
+        height: 12px;
+        border-radius: 6px;
+        background: var(--border);
+        animation: headerUserShimmer 1.6s ease-in-out infinite;
+        vertical-align: middle;
+        color: transparent;
+      }
+
+      .userChip-credits {
+        font-size: 13px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      @keyframes headerUserShimmer {
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 0.8; }
+      }
+
+      /* Icon-only header buttons — square, tighter radius */
+      .btn.icon {
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+      }
+
       .btn {
         appearance: none;
         border: 1px solid var(--border);
@@ -1051,17 +1125,16 @@
       <div class="topBar-inner row" style="justify-content: space-between; align-items: flex-start;">
         <h1 style="margin: 0;">Opinion Market</h1>
         <div class="row">
-          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
-            &#x1FA99; <code id="creditsAmount">0</code>
+          <button class="userChip" id="headerUsernameBtn" type="button" aria-label="Your account">
+            <span class="userChip-avatar" id="headerAvatar" style="background:#6366f1;">?</span>
+            <span class="userChip-name" id="headerUsername" data-loading="">&nbsp;</span>
+            <span class="userChip-credits hide" id="creditsDisplay">&middot; <span id="creditsAmount">0</span></span>
           </button>
-          <button class="pill pillButton" id="headerUsernameBtn" type="button">
-            User: <code id="headerUsername">(loading...)</code>
-          </button>
-          <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
-          <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
-          <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026">&#x26BD;</button>
-          <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
-          <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
+          <button class="btn small icon hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
+          <button class="btn small icon hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
+          <button class="btn small icon hide" id="wcBtn" type="button" title="World Cup 2026">&#x26BD;</button>
+          <button class="btn small icon" id="infoBtn" type="button" title="How it works">&#x2753;</button>
+          <button class="btn small icon" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
           <button class="btn" id="backBtn" style="display: none;">Back</button>
         </div>
       </div>
@@ -1871,6 +1944,41 @@
         }
 
         function deriveDefaultUsername(address) { return `user${usernameSuffix(address)}`; }
+
+        const AVATAR_PALETTE = [
+          "#6366f1", /* indigo  */
+          "#0d9488", /* teal    */
+          "#d97706", /* amber   */
+          "#e11d48", /* rose    */
+          "#7c3aed", /* violet  */
+          "#059669", /* emerald */
+          "#0284c7", /* sky     */
+          "#ea580c", /* orange  */
+        ];
+
+        function avatarColor(name) {
+          var s = String(name || "?");
+          var sum = 0;
+          for (var i = 0; i < s.length; i++) sum += s.charCodeAt(i);
+          return AVATAR_PALETTE[sum % AVATAR_PALETTE.length];
+        }
+
+        function updateHeaderUser(name) {
+          var displayName = name || "?";
+          var avatarEl = $("headerAvatar");
+          var nameEl = $("headerUsername");
+          var letter = displayName.charAt(0).toUpperCase() || "?";
+          if (avatarEl) {
+            avatarEl.textContent = letter;
+            avatarEl.style.background = avatarColor(displayName);
+          }
+          if (nameEl) {
+            nameEl.removeAttribute("data-loading");
+            nameEl.textContent = displayName;
+          }
+          var btn = $("headerUsernameBtn");
+          if (btn) btn.setAttribute("aria-label", "Your account: " + displayName);
+        }
 
         /* ================================================================
          *  LOCAL VOTE MEMORY (encrypted votes aren't visible until reveal)
@@ -2846,7 +2954,7 @@
           showPending("setUsernamePending", "Setting username...");
           const value = await UsernodeUsernames.setUsername(raw);
           myUsername = value;
-          setText($("headerUsername"), myUsername);
+          updateHeaderUser(myUsername);
           await postActionRefresh();
         }
 
@@ -3705,14 +3813,14 @@
         }
 
         function updateCreditsDisplay() {
-          const el = $("creditsDisplay");
+          const creditsSegment = $("creditsDisplay");
           const amt = $("creditsAmount");
           if (me && JOINED.has(me)) {
-            show(el, true);
+            show(creditsSegment, true);
             show($("historyBtn"), true);
             setText(amt, formatCredits(myCredits()));
           } else {
-            show(el, false);
+            show(creditsSegment, false);
             show($("historyBtn"), false);
           }
           show($("leaderboardBtn"), true);
@@ -5203,7 +5311,7 @@
             _lastRebuildTxCount = rawTxs.length;
 
             const latestUsername = getMyLatestUsername(txs, me);
-            if (latestUsername) { myUsername = latestUsername; setText($("headerUsername"), myUsername); }
+            if (latestUsername) { myUsername = latestUsername; updateHeaderUser(myUsername); }
 
             await rebuildState(txs);
             if (_explicitAdminPubkey) {
@@ -5278,7 +5386,7 @@
 
           try { me = await getNodeAddress(); } catch (_) {}
           myUsername = deriveDefaultUsername(me);
-          setText($("headerUsername"), myUsername);
+          updateHeaderUser(myUsername);
 
           const mockEnabled = window.usernode && typeof window.usernode.isMockEnabled === "function"
             ? await window.usernode.isMockEnabled() : false;
@@ -5296,7 +5404,7 @@
               const globalName = UsernodeUsernames.getUsernameSync(me);
               if (globalName && globalName !== deriveDefaultUsername(me)) {
                 myUsername = globalName;
-                setText($("headerUsername"), myUsername);
+                updateHeaderUser(myUsername);
               }
             } catch (_) {}
           }
@@ -5563,7 +5671,10 @@
           $("voteSheetSubmit").addEventListener("click", submitVoteSheet);
 
           // --- Credits info popup listeners ---
-          $("creditsDisplay").addEventListener("click", openCreditsInfoSheet);
+          $("creditsDisplay").addEventListener("click", function(e) {
+            e.stopPropagation();
+            openCreditsInfoSheet();
+          });
           $("creditsInfoBackdrop").addEventListener("click", closeCreditsInfoSheet);
           $("creditsInfoClose").addEventListener("click", closeCreditsInfoSheet);
 
