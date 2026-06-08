@@ -466,6 +466,22 @@
         white-space: nowrap;
         vertical-align: middle;
       }
+      .cryptoBadge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: 999px;
+        padding: 1px 7px;
+        white-space: nowrap;
+        vertical-align: middle;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .cryptoBadge:hover { opacity: 0.8; }
       .btcInfo {
         border: 1px solid #f7931a55;
         background: #f7931a14;
@@ -1622,6 +1638,19 @@
                 <strong>real Bitcoin price</strong> a day later. If the price is above the strike, <strong>Higher</strong> wins; below, <strong>Lower</strong> wins;
                 exactly equal is a push and all bets are refunded. While the next day's price hasn't been recorded yet, the question shows
                 <em>"Awaiting BTC resolution"</em>. Any live price shown on an open question is indicative only and never decides the outcome.
+              </p>
+
+              <h3 style="margin: 16px 0 6px; font-size: 15px;"><span class="cryptoBadge" id="cryptoPricesBadge">&#x1F4C8; Crypto Prices</span> &nbsp;Live price ticker</h3>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                A live scrolling ticker at the top of the page shows real-time prices for the top 10
+                cryptocurrencies by market cap &mdash; BTC, ETH, SOL, XRP, and more &mdash; updated
+                every minute from CoinGecko. Each chip shows the coin logo, symbol, current price,
+                and 24-hour percentage change.
+              </p>
+              <p style="font-size: 13px; line-height: 1.5; margin: 0 0 12px;">
+                Click <strong>&#x1F4C8;</strong> in the toolbar (or the badge above) to flash the
+                ticker into view. Prices are cosmetic only &mdash; they don&rsquo;t affect any
+                market outcomes except the daily BTC question.
               </p>
 
               <h3 style="margin: 16px 0 6px; font-size: 15px;">Probabilities</h3>
@@ -5542,13 +5571,17 @@
           $("historyBtn").addEventListener("click", navigateToHistory);
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
-          $("tickerBtn").addEventListener("click", () => {
+          function flashTickerBar() {
             const bar = document.getElementById("tickerBar");
-            if (!bar) return;
+            if (!bar || bar.classList.contains("hide")) return;
+            bar.scrollIntoView({ behavior: "smooth", block: "nearest" });
             bar.classList.remove("highlighted");
             void bar.offsetWidth; // force reflow so animation re-triggers
             bar.classList.add("highlighted");
-          });
+          }
+          $("tickerBtn").addEventListener("click", flashTickerBar);
+          const _cryptoPricesBadge = document.getElementById("cryptoPricesBadge");
+          if (_cryptoPricesBadge) _cryptoPricesBadge.addEventListener("click", flashTickerBar);
           $("wcBtn").addEventListener("click", navigateToWC26Hub);
           $("wcScheduleBtn").addEventListener("click", navigateToWC26Schedule);
 
