@@ -1009,6 +1009,51 @@
       <ul id="rejectedBannerList" class="rejected-banner-list"></ul>
     </div>
 
+    <!-- Bottom sheet buy/sell modal -->
+    <div class="bottomSheet-backdrop" id="bsBackdrop"></div>
+    <div class="bottomSheet" id="bsModal">
+      <div class="bottomSheet-handle"></div>
+      <div class="bottomSheet-header">
+        <span class="optDot" id="bsOptDot"></span>
+        <span class="bottomSheet-optName" id="bsOptName"></span>
+        <span class="bottomSheet-odds" id="bsOptOdds"></span>
+      </div>
+      <div class="bottomSheet-tabs" id="bsTabs">
+        <button class="bottomSheet-tab active" id="bsTabBuy" type="button">Buy</button>
+        <button class="bottomSheet-tab" id="bsTabSell" type="button">Sell</button>
+      </div>
+      <div class="bottomSheet-sideToggle" id="bsSideToggle">
+        <button class="sideToggle-btn active" id="bsSideYes" type="button" data-side="yes">Bet wins</button>
+        <button class="sideToggle-btn" id="bsSideNo" type="button" data-side="no">Bet loses</button>
+      </div>
+      <div id="bsBuyPanel">
+        <div class="bottomSheet-inputRow">
+          <input type="number" id="bsBuyInput" placeholder="Credits" min="1" />
+          <span class="maxBtn" id="bsBuyMaxBtn" style="font-size:13px;padding:4px 8px;">Max</span>
+        </div>
+        <div class="bottomSheet-preview" id="bsBuyPreview"></div>
+        <button class="bottomSheet-action" id="bsBuyAction" type="button">Buy</button>
+        <div class="bottomSheet-error" id="bsBuyError"></div>
+        <div id="bsBuyProgress" class="tx-progress hide" style="margin-top:8px;">
+          <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+          <div class="tx-progress-label">Placing bet...</div>
+        </div>
+      </div>
+      <div id="bsSellPanel" class="hide">
+        <div class="bottomSheet-inputRow">
+          <input type="number" id="bsSellInput" placeholder="Shares" min="1" />
+          <span class="maxBtn" id="bsSellMaxBtn" style="font-size:13px;padding:4px 8px;">Max</span>
+        </div>
+        <div class="bottomSheet-preview" id="bsSellPreview"></div>
+        <button class="bottomSheet-action" id="bsSellAction" type="button" style="background:var(--danger);">Sell</button>
+        <div class="bottomSheet-error" id="bsSellError"></div>
+        <div id="bsSellProgress" class="tx-progress hide" style="margin-top:8px;">
+          <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+          <div class="tx-progress-label">Selling shares...</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Bottom sheet username editor -->
     <div class="bottomSheet-backdrop" id="usernameBackdrop"></div>
     <div class="bottomSheet" id="usernameSheet">
@@ -2271,7 +2316,7 @@
          * ================================================================ */
         const TX_PROGRESS_EXPECTED_S = 60, TX_PROGRESS_WARN_S = 120, TX_PROGRESS_ERR_S = 180;
         let _txProgressRaf = null, _txProgressStart = 0;
-        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending"].map($).filter(el => el && !el.classList.contains("hide"));
+        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].map($).filter(el => el && !el.classList.contains("hide"));
 
         function txProgressPercent(s) {
           if (s <= TX_PROGRESS_EXPECTED_S) { const t = s / TX_PROGRESS_EXPECTED_S; return 95 * (1 - Math.pow(1 - t, 3)); }
@@ -2416,7 +2461,7 @@
           else if (txSucceeded) completeTxProgress();
           else {
             stopTxProgress();
-            ["setUsernamePending", "addSurveyPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending"].forEach(id => {
+            ["setUsernamePending", "addSurveyPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].forEach(id => {
               const el = $(id);
               if (el) { el.classList.add("hide"); resetProgressBar(el); }
             });
@@ -2671,6 +2716,52 @@
           const value = await UsernodeUsernames.setUsername(raw);
           myUsername = value;
           setText($("headerUsername"), myUsername);
+          await postActionRefresh();
+        }
+
+        async function placeBetFlow(surveyId, optionKey, credits, side) {
+          // Single source of truth: ask the shared replay module whether
+          // this bet would survive Phase 6. Any mismatch between this and
+          // Phase 6 would silently drop the bet on the next rebuild and
+          // burn 1 token in tx fees (see maragung/scraido May 2026).
+          const v = window.OpinionMarketState.validatePlaceBet(_stateSnapshot(), {
+            pubkey: me, surveyId, optionKey, credits, side,
+          });
+          if (!v.ok) {
+            switch (v.reason) {
+              case "NOT_JOINED":          throw new Error("Join first to get credits");
+              case "NO_SURVEY":           throw new Error("Question not found");
+              case "BTC_NO_TRADING":      throw new Error("The daily BTC market is vote-only — no trading");
+              case "ARCHIVED":            throw new Error("Question has ended");
+              case "NO_OPTION":           throw new Error("That option no longer exists");
+              case "BAD_CREDITS":         throw new Error("Minimum bet is 1 credit");
+              case "INSUFFICIENT_BALANCE": throw new Error("Insufficient credits (you have " + Math.floor(v.balance) + ", tried to bet " + v.needed + ")");
+              case "NO_MARKET":           throw new Error("This question doesn't have a market yet");
+              case "OVER_MAX_BET":        throw new Error("Max bet is " + v.maxBet + " credits (30% of pool)");
+              case "CPMM_UNAVAILABLE":    throw new Error("Market calculator not loaded \u2014 reload the page");
+              default:                    throw new Error("Bet rejected: " + v.reason);
+            }
+          }
+          setSending(true);
+          showPending("bsBuyProgress", "Placing bet...");
+          const memoObj = { app: "opinion-market", type: "place_bet", survey: surveyId, option: optionKey, credits };
+          if (side === "no") memoObj.side = "no";
+          const memo = makeMemo(memoObj);
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Place your bet", confirmSubtitle: "Opinion Market — This bet is recorded on-chain and cannot be undone." });
+          await postActionRefresh();
+        }
+
+        async function sellSharesFlow(surveyId, optionKey, shares, side) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          if (!s) throw new Error("Question not found");
+          if (s.archived) throw new Error("Question has ended");
+          if (shares <= 0) throw new Error("Must sell at least 1 share");
+          setSending(true);
+          showPending("bsSellProgress", "Selling shares...");
+          const memoObj = { app: "opinion-market", type: "sell_shares", survey: surveyId, option: optionKey, shares };
+          if (side === "no") memoObj.side = "no";
+          const memo = makeMemo(memoObj);
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Sell shares", confirmSubtitle: "Opinion Market — This sale is recorded on-chain and cannot be undone." });
           await postActionRefresh();
         }
 
@@ -3683,6 +3774,103 @@
           container.appendChild(wrapper);
         }
 
+        /* ================================================================
+         *  BOTTOM SHEET CONTROLLER
+         * ================================================================ */
+        let _bsSurveyId = null, _bsOptKey = null, _bsMode = "buy", _bsSide = "yes";
+
+        function openBottomSheet(surveyId, optKey, optIdx, side) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          // Trading is disabled for the daily-BTC oracle market — never open
+          // the buy/sell sheet for it, even from a stale/programmatic call.
+          if (s && s.kind === "btc_daily") return;
+          _bsSurveyId = surveyId;
+          _bsOptKey = optKey;
+          _bsMode = "buy";
+          _bsSide = side === "no" ? "no" : "yes";
+          const mkt = MARKETS.get(surveyId);
+          const opt = s ? s.options.find(o => o.key === optKey) : null;
+          if (!opt || !mkt) return;
+          const pool = mkt.pools[optKey];
+          const prob = pool && CPMM.cpmmProb ? CPMM.cpmmProb(pool) : 0;
+          const parsed = parseOptionLabel(opt.label);
+          const myYesShares = (mkt.userShares[me] && mkt.userShares[me][optKey]) || 0;
+          const myNoShrs = (mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][optKey]) || 0;
+
+          $("bsOptDot").style.background = optionColor(optIdx, opt.label);
+          setText($("bsOptName"), parsed.text || opt.key);
+          setText($("bsOptOdds"), formatPct(prob));
+
+          $("bsBuyInput").value = "";
+          setText($("bsBuyPreview"), "");
+          setText($("bsBuyError"), "");
+          $("bsSellInput").value = "";
+          setText($("bsSellPreview"), "");
+          setText($("bsSellError"), "");
+
+          const poolTotal = Object.values(mkt.pools).reduce((a, p) => a + p.yes + p.no, 0);
+          const betCap = Math.floor(poolTotal * MAX_BET_POOL_RATIO);
+          const buyMax = Math.min(Math.floor(myCredits()), betCap || Infinity);
+          $("bsBuyInput").max = String(buyMax);
+          $("bsBuyInput").placeholder = "Credits (max " + buyMax + ")";
+
+          updateBsSideToggle();
+          updateSellLimits();
+
+          const hasSellable = (_bsSide === "no" ? myNoShrs : myYesShares) > 0;
+          $("bsTabSell").disabled = !hasSellable;
+          switchBsTab("buy");
+
+          $("bsBackdrop").classList.add("open");
+          $("bsModal").classList.add("open");
+          document.body.style.overflow = "hidden";
+        }
+
+        function updateBsSideToggle() {
+          $("bsSideYes").classList.toggle("active", _bsSide === "yes");
+          $("bsSideNo").classList.toggle("active", _bsSide === "no");
+          const buyAction = $("bsBuyAction");
+          if (buyAction) buyAction.textContent = _bsSide === "no" ? "Place bet (loses)" : "Place bet (wins)";
+          if (_bsSide === "no") {
+            buyAction.style.background = "var(--danger)";
+          } else {
+            buyAction.style.background = "";
+          }
+        }
+
+        function updateSellLimits() {
+          const mkt = MARKETS.get(_bsSurveyId);
+          if (!mkt || !_bsOptKey) return;
+          const myYes = (mkt.userShares[me] && mkt.userShares[me][_bsOptKey]) || 0;
+          const myNo = (mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][_bsOptKey]) || 0;
+          const sellable = _bsSide === "no" ? myNo : myYes;
+          $("bsSellInput").max = String(sellable);
+          $("bsSellInput").placeholder = "Shares (max " + sellable + ")";
+          $("bsTabSell").disabled = !(sellable > 0);
+        }
+
+        function switchBsSide(side) {
+          _bsSide = side;
+          updateBsSideToggle();
+          updateSellLimits();
+          $("bsBuyInput").value = "";
+          $("bsSellInput").value = "";
+          setText($("bsBuyPreview"), "");
+          setText($("bsSellPreview"), "");
+          setText($("bsBuyError"), "");
+          setText($("bsSellError"), "");
+          if (_bsMode === "buy") updateBuyPreview();
+          else updateSellPreview();
+        }
+
+        function closeBottomSheet() {
+          $("bsBackdrop").classList.remove("open");
+          $("bsModal").classList.remove("open");
+          document.body.style.overflow = "";
+          _bsSurveyId = null;
+          _bsOptKey = null;
+        }
+
         function openUsernameSheet() {
           if (sending) return;
           clearUsernameForm();
@@ -3858,6 +4046,75 @@
           }
         }
 
+        function switchBsTab(mode) {
+          _bsMode = mode;
+          $("bsTabBuy").classList.toggle("active", mode === "buy");
+          $("bsTabSell").classList.toggle("active", mode === "sell");
+          show($("bsBuyPanel"), mode === "buy");
+          show($("bsSellPanel"), mode === "sell");
+        }
+
+        function updateBuyPreview() {
+          const mkt = MARKETS.get(_bsSurveyId);
+          if (!mkt || !_bsOptKey) return;
+          const pool = mkt.pools[_bsOptKey];
+          const c = parseInt($("bsBuyInput").value, 10);
+          const preview = $("bsBuyPreview");
+          if (!c || c < 1 || !pool) { setText(preview, ""); return; }
+          const fee = c * FEE_RATE;
+          const net = c - fee;
+          const s = SURVEYS_BY_ID.get(_bsSurveyId);
+          let simShares;
+          if (_bsSide === "no") {
+            simShares = (s && s.options.length >= 2 && CPMM.cpmmArbitrageNo)
+              ? CPMM.cpmmArbitrageNo(mkt.pools, _bsOptKey, net).sharesReceived
+              : (CPMM.cpmmBuyNo ? CPMM.cpmmBuyNo(pool, net) : 0);
+          } else {
+            simShares = (s && s.options.length >= 2 && CPMM.cpmmArbitrage)
+              ? CPMM.cpmmArbitrage(mkt.pools, _bsOptKey, net).sharesReceived
+              : (CPMM.cpmmBuyYes ? CPMM.cpmmBuyYes(pool, net) : 0);
+          }
+          if (simShares <= 0) { setText(preview, ""); return; }
+          const mult = simShares / c;
+          const pricePerShare = (c / simShares).toFixed(2);
+          preview.innerHTML = "";
+          const sp = document.createElement("span");
+          sp.className = _bsSide === "no" ? "err" : "ok";
+          sp.textContent = `~${simShares.toFixed(1)} ${_bsSide} shares`;
+          preview.appendChild(sp);
+          preview.appendChild(document.createTextNode(` @ ${pricePerShare}c/share (${mult.toFixed(2)}x) \u00B7 Fee: ${formatCredits(fee)} (${(FEE_RATE * 100).toFixed(0)}%) \u2014 goes to voter rewards + question creator`));
+        }
+
+        function updateSellPreview() {
+          const mkt = MARKETS.get(_bsSurveyId);
+          if (!mkt || !_bsOptKey) return;
+          const pool = mkt.pools[_bsOptKey];
+          const sh = parseFloat($("bsSellInput").value);
+          const preview = $("bsSellPreview");
+          const myShares = _bsSide === "no"
+            ? ((mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][_bsOptKey]) || 0)
+            : ((mkt.userShares[me] && mkt.userShares[me][_bsOptKey]) || 0);
+          if (!sh || sh <= 0 || sh > myShares || !pool) { setText(preview, ""); return; }
+          let gross = 0;
+          if (_bsSide === "no") {
+            if (CPMM.cpmmSellArbitrageNo && Object.keys(mkt.pools).length > 1) {
+              gross = CPMM.cpmmSellArbitrageNo(mkt.pools, _bsOptKey, sh).creditsReceived;
+            } else if (CPMM.cpmmSellNo) {
+              gross = CPMM.cpmmSellNo(pool, sh);
+            }
+          } else {
+            if (CPMM.cpmmSellArbitrage && Object.keys(mkt.pools).length > 1) {
+              gross = CPMM.cpmmSellArbitrage(mkt.pools, _bsOptKey, sh).creditsReceived;
+            } else if (CPMM.cpmmSellYes) {
+              gross = CPMM.cpmmSellYes(pool, sh);
+            }
+          }
+          const fee = gross * FEE_RATE;
+          const net = gross - fee;
+          const pricePerShare = (net / sh).toFixed(2);
+          setText(preview, `You receive: ${formatCredits(net)} (${pricePerShare}c/share) \u00B7 Fee: ${formatCredits(fee)} (${(FEE_RATE * 100).toFixed(0)}%) \u2014 goes to voter rewards + question creator`);
+        }
+
         /* ================================================================
          *  RENDERING — Survey Detail (votes + results + market + settled)
          * ================================================================ */
@@ -3924,7 +4181,9 @@
 
           const vc = countUniqueVoters(latestTxs, s.id);
           const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
-          const canBet = !s.archived && JOINED.has(me);
+          // Trading is disabled for the daily-BTC oracle market: hide every
+          // buy/sell entry point (bet buttons + onboarding hint) for it.
+          const canBet = !s.archived && JOINED.has(me) && s.kind !== "btc_daily";
           const meVoteKey = res.meEntry && res.meEntry.voteKey;
           const meHasVoted = res.meEntry && res.meEntry.hasVoted;
           const myPreviousVote = meVoteKey || ((meHasVoted || _pendingVotes.has(s.id)) ? getStoredVote(s.id) : null);
@@ -4000,6 +4259,17 @@
               //   - a per-option "You voted for this option" badge under
               //     the option the user previously chose (rendered below).
 
+              // Section hint: betting
+              if (hasMarket && canBet) {
+                if (!localStorage.getItem("om:bettingHintSeen")) {
+                  const hint = document.createElement("div");
+                  hint.style.cssText = "font-size:12px;color:var(--muted);padding:6px 10px;border-radius:8px;background:var(--border);margin:6px 0;cursor:pointer;";
+                  hint.textContent = "Shares cost between 0c and 100c. If your outcome wins, each share pays 100c. Buy low, win big. (tap to dismiss)";
+                  hint.addEventListener("click", () => { hint.remove(); localStorage.setItem("om:bettingHintSeen", "1"); });
+                  voteList.appendChild(hint);
+                }
+              }
+
               // Option cards
               for (let oi = 0; oi < s.options.length; oi++) {
                 const opt = s.options[oi];
@@ -4069,6 +4339,30 @@
                   votedTag.className = "optionCard-votedTag";
                   votedTag.textContent = "You voted for this option";
                   card.appendChild(votedTag);
+                }
+
+                // Bet row
+                if (canBet && hasMarket && pool) {
+                  const betRow = document.createElement("div");
+                  betRow.className = "optionCard-betRow";
+                  const costPerShare = CPMM.cpmmAmountForShares ? CPMM.cpmmAmountForShares(pool, 1, "YES") : 0;
+                  const buyBtn = document.createElement("button");
+                  buyBtn.className = "optionCard-buyBtn";
+                  buyBtn.disabled = sending;
+                  buyBtn.textContent = "Bet wins " + formatCredits(costPerShare) + "c/share";
+                  buyBtn.title = "Cost per share. Pays 1.00c if this option wins.";
+                  buyBtn.addEventListener("click", () => openBottomSheet(s.id, opt.key, oi, "yes"));
+                  betRow.appendChild(buyBtn);
+
+                  const noCostPerShare = CPMM.cpmmAmountForShares ? CPMM.cpmmAmountForShares(pool, 1, "NO") : 0;
+                  const buyNoBtn = document.createElement("button");
+                  buyNoBtn.className = "optionCard-buyBtn optionCard-buyNoBtn";
+                  buyNoBtn.disabled = sending;
+                  buyNoBtn.textContent = "Bet loses " + formatCredits(noCostPerShare) + "c/share";
+                  buyNoBtn.title = "Cost per share. Pays 1.00c if this option loses.";
+                  buyNoBtn.addEventListener("click", () => openBottomSheet(s.id, opt.key, oi, "no"));
+                  betRow.appendChild(buyNoBtn);
+                  card.appendChild(betRow);
                 }
 
                 voteList.appendChild(card);
@@ -4791,6 +5085,62 @@
           $("creditsDisplay").addEventListener("click", openCreditsInfoSheet);
           $("creditsInfoBackdrop").addEventListener("click", closeCreditsInfoSheet);
           $("creditsInfoClose").addEventListener("click", closeCreditsInfoSheet);
+
+          // --- Bottom sheet event listeners ---
+          $("bsBackdrop").addEventListener("click", closeBottomSheet);
+          $("bsTabBuy").addEventListener("click", () => switchBsTab("buy"));
+          $("bsTabSell").addEventListener("click", () => { if (!$("bsTabSell").disabled) switchBsTab("sell"); });
+          $("bsSideYes").addEventListener("click", () => switchBsSide("yes"));
+          $("bsSideNo").addEventListener("click", () => switchBsSide("no"));
+          $("bsBuyInput").addEventListener("input", updateBuyPreview);
+          $("bsSellInput").addEventListener("input", updateSellPreview);
+          $("bsBuyMaxBtn").addEventListener("click", () => {
+            $("bsBuyInput").value = $("bsBuyInput").max;
+            updateBuyPreview();
+          });
+          $("bsSellMaxBtn").addEventListener("click", () => {
+            $("bsSellInput").value = $("bsSellInput").max;
+            updateSellPreview();
+          });
+          $("bsBuyAction").addEventListener("click", async () => {
+            if (!_bsSurveyId || !_bsOptKey) return;
+            const c = parseInt($("bsBuyInput").value, 10);
+            setText($("bsBuyError"), "");
+            if (!c || c < 1) { setText($("bsBuyError"), "Enter credits to bet"); return; }
+            const poolTotal = (() => { const m = MARKETS.get(_bsSurveyId); return m ? Object.values(m.pools).reduce((a, p) => a + p.yes + p.no, 0) : 0; })();
+            const betCap = Math.floor(poolTotal * MAX_BET_POOL_RATIO);
+            const maxBuy = Math.min(Math.floor(myCredits()), betCap || Infinity);
+            if (c > maxBuy) { setText($("bsBuyError"), "Max is " + maxBuy + " credits"); return; }
+            try {
+              await placeBetFlow(_bsSurveyId, _bsOptKey, c, _bsSide);
+              localStorage.setItem("om:bettingHintSeen", "1");
+              setSending(false, true);
+              closeBottomSheet();
+            } catch (e) {
+              setSending(false, false);
+              setText($("bsBuyError"), e.message || String(e));
+            }
+          });
+          $("bsSellAction").addEventListener("click", async () => {
+            if (!_bsSurveyId || !_bsOptKey) return;
+            const sh = parseFloat($("bsSellInput").value);
+            setText($("bsSellError"), "");
+            const mkt = MARKETS.get(_bsSurveyId);
+            const myShares = _bsSide === "no"
+              ? ((mkt && mkt.userNoShares && mkt.userNoShares[me] && mkt.userNoShares[me][_bsOptKey]) || 0)
+              : ((mkt && mkt.userShares[me] && mkt.userShares[me][_bsOptKey]) || 0);
+            if (!sh || sh <= 0) { setText($("bsSellError"), "Enter shares to sell"); return; }
+            if (sh > myShares * 1.001) { setText($("bsSellError"), "Max: " + myShares + " shares"); return; }
+            const actualShares = Math.min(sh, myShares);
+            try {
+              await sellSharesFlow(_bsSurveyId, _bsOptKey, actualShares, _bsSide);
+              setSending(false, true);
+              closeBottomSheet();
+            } catch (e) {
+              setSending(false, false);
+              setText($("bsSellError"), e.message || String(e));
+            }
+          });
 
           await refreshLoopOnce();
           if (initialHash) navigateFromHash(initialHash);
