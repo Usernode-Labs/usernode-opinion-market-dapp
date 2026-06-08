@@ -169,6 +169,19 @@ function createVoteEncryption(opts) {
   async function configureSigner() {
     if (!senderSecretKey) return false;
     try {
+      // Register the sender as a tracked owner so the sidecar builds its
+      // UTXO view for this address even in partial-ledger mode
+      // (HAS_FULL_UTXO_DB = false). Without this, /wallet/send fails with
+      // "no UTXO for owner" because the node only tracks UTXOs for
+      // explicitly registered addresses in partial mode.
+      try {
+        await httpJson("POST", `${nodeRpcUrl}/wallet/tracked_owner/add`, { owner: senderPubkey });
+        console.log("[vote-enc] sender registered as tracked owner");
+      } catch (te) {
+        // Non-fatal: the sidecar may not expose this endpoint yet, or the
+        // node may be in full-ledger mode where all UTXOs are already known.
+        console.warn("[vote-enc] tracked_owner/add for sender failed (non-fatal):", te.message);
+      }
       const resp = await httpJson("POST", `${nodeRpcUrl}/wallet/signer`, { secret_key: senderSecretKey });
       if (resp && resp.ok) { console.log("[vote-enc] signer configured"); return true; }
       console.error("[vote-enc] signer config failed:", resp);
@@ -215,9 +228,17 @@ function createVoteEncryption(opts) {
       });
       if (resp && resp.queued) return true;
       console.error("[vote-enc] send failed:", resp);
+      // Reset so the next attempt re-registers the tracked owner and
+      // re-configures the signer (handles sidecar restarts that don't
+      // trigger a chain reset).
+      signerConfigured = false;
       return false;
     } catch (e) {
       console.error("[vote-enc] send error:", e.message);
+      // Same reset: a network error might mean the sidecar restarted and
+      // lost its configuration. Re-registering on the next attempt is safe
+      // (tracked_owner/add and /wallet/signer are idempotent).
+      signerConfigured = false;
       return false;
     }
   }
