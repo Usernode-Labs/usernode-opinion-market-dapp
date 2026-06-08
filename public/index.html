@@ -1122,7 +1122,7 @@
           </button>
           <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
-          <button class="btn small hide" id="tickerBtn" type="button" title="Live Crypto Prices">&#x1F4C8;</button>
+          <button class="btn small" id="tickerBtn" type="button" title="Live Crypto Prices">&#x1F4C8;</button>
           <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026">&#x26BD;</button>
           <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
           <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
@@ -1131,9 +1131,9 @@
       </div>
     </header>
 
-    <!-- Live crypto price ticker. Hidden until the first successful price fetch. -->
-    <div id="tickerBar" class="tickerBar hide">
-      <div class="tickerTrack" id="tickerTrack"></div>
+    <!-- Live crypto price ticker. Visible immediately with a placeholder; replaced by real prices on load. -->
+    <div id="tickerBar" class="tickerBar">
+      <div class="tickerTrack" id="tickerTrack"><div class="tickerItem tickerItem-loading"><span class="tickerItem-symbol" style="color:var(--muted);font-weight:400;">Loading prices&hellip;</span></div></div>
     </div>
 
     <div id="inlineToast" class="inline-toast hide"></div>
@@ -2480,23 +2480,27 @@
         }
 
         function renderTicker(prices) {
-          const bar = document.getElementById("tickerBar");
           const track = document.getElementById("tickerTrack");
-          if (!bar || !track) return;
+          if (!track) return;
+          track.innerHTML = "";
           if (!prices || prices.length === 0) {
-            bar.classList.add("hide");
+            const ph = document.createElement("div");
+            ph.className = "tickerItem tickerItem-loading";
+            const lbl = document.createElement("span");
+            lbl.className = "tickerItem-symbol";
+            lbl.style.color = "var(--muted)";
+            lbl.style.fontWeight = "400";
+            lbl.textContent = "Prices unavailable";
+            ph.appendChild(lbl);
+            track.appendChild(ph);
             return;
           }
-          track.innerHTML = "";
           // Duplicate items so the CSS -50% translate creates a seamless loop.
           for (let pass = 0; pass < 2; pass++) {
             for (const coin of prices) {
               track.appendChild(buildTickerItem(coin));
             }
           }
-          bar.classList.remove("hide");
-          const btn = document.getElementById("tickerBtn");
-          if (btn) btn.classList.remove("hide");
         }
 
         async function fetchCryptoPrices() {
@@ -2509,8 +2513,12 @@
             if (j && Array.isArray(j.prices) && j.prices.length > 0) {
               _cryptoPrices = j.prices;
               renderTicker(_cryptoPrices);
+            } else {
+              renderTicker([]);
             }
-          } catch (_) { /* cosmetic only — ignore failures */ }
+          } catch (_) {
+            renderTicker([]); // cosmetic only — show unavailable chip on failure
+          }
         }
         async function ensureBtcLivePrice() {
           const now = Date.now();
@@ -5573,8 +5581,13 @@
           $("infoBtn").addEventListener("click", navigateToInfo);
           function flashTickerBar() {
             const bar = document.getElementById("tickerBar");
-            if (!bar || bar.classList.contains("hide")) return;
+            if (!bar) return;
             bar.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            if (_cryptoPrices.length === 0) {
+              fetchCryptoPrices();
+              showInlineError("Loading live prices…");
+              return;
+            }
             bar.classList.remove("highlighted");
             void bar.offsetWidth; // force reflow so animation re-triggers
             bar.classList.add("highlighted");
