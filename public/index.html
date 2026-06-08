@@ -2133,11 +2133,25 @@
         /* ================================================================
          *  EXPLORER / DATA FETCH
          * ================================================================ */
+        // fetch() with a hard timeout via AbortController. A socket that
+        // connects but never responds is NOT an error to plain fetch — it
+        // just hangs forever, which (in voteFlow and friends) leaves the
+        // global setSending() lock engaged and the progress bar stuck. Every
+        // network read in this file routes through here so no single stalled
+        // request can freeze the UI. On timeout the returned promise rejects
+        // with an AbortError, which callers already handle as a normal failure.
+        function fetchWithTimeout(url, opts, timeoutMs) {
+          const controller = new AbortController();
+          const t = setTimeout(() => controller.abort(), timeoutMs);
+          const merged = Object.assign({}, opts, { signal: controller.signal });
+          return fetch(url, merged).finally(() => clearTimeout(t));
+        }
+
         // explorerFetch + discoverChainId are only used at init() to wire
         // window.usernode.transactionsBaseUrl for sendTransaction. App-state
         // reads go through the host server's cache below.
         async function explorerFetch(path, opts) {
-          const resp = await fetch(`${EXPLORER_BASE}${path}`, opts);
+          const resp = await fetchWithTimeout(`${EXPLORER_BASE}${path}`, opts, 15000);
           if (!resp.ok) throw new Error(`Explorer API ${resp.status}`);
           return await resp.json();
         }
@@ -2154,7 +2168,7 @@
         // drains mockApi.transactions on a 1s timer). No client-side
         // explorer pagination — see AGENTS.md Section 7.
         async function getAppTransactions(_limit) {
-          const r = await fetch("/opinion-market/api/transactions");
+          const r = await fetchWithTimeout("/opinion-market/api/transactions", undefined, 15000);
           if (!r.ok) throw new Error(`Server cache: HTTP ${r.status}`);
           return normalizeTransactionsResponse(await r.json());
         }
@@ -2466,7 +2480,10 @@
               if (el) { el.classList.add("hide"); resetProgressBar(el); }
             });
           }
-          document.querySelectorAll("button, input, select").forEach(el => { if (!el.closest("#screenLeaderboard") && el.id !== "addSurveyBtn") el.disabled = !!v; });
+          // #voteSheetCancel stays enabled while sending so the vote sheet
+          // always has a usable escape hatch (see cancelVoteSheet) even if a
+          // tx is mid-flight — same exemption pattern as #addSurveyBtn.
+          document.querySelectorAll("button, input, select").forEach(el => { if (!el.closest("#screenLeaderboard") && el.id !== "addSurveyBtn" && el.id !== "voteSheetCancel") el.disabled = !!v; });
           if (!isAdmin) { const btn = $("addSurveyBtn"); if (btn) { btn.style.opacity = "0.45"; btn.style.cursor = "not-allowed"; btn.title = "Only admins can create questions for now"; } }
           if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) {
             const joinBtn = $("joinBtn"); if (joinBtn) joinBtn.disabled = true;
@@ -2688,8 +2705,13 @@
             memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, choice: optionKey });
           }
           await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Opinion Market — Record your prediction on-chain." });
+          // The vote is committed the moment sendTransaction resolves. The
+          // refresh below is cosmetic (it repaints counts) — run it
+          // best-effort so a stalled/failed /opinion-market/api/transactions
+          // read can never strand the "Registering vote..." spinner on an
+          // already-successful vote.
           storeMyVote(s.id, optionKey);
-          await postActionRefresh();
+          postActionRefresh().catch(() => {});
         }
 
         async function addOptionFlow(labelRaw) {
@@ -4011,6 +4033,16 @@
           if (errEl) { errEl.textContent = ""; errEl.style.display = "none"; }
         }
 
+        // User-initiated dismissal (Cancel button / backdrop). If a vote is
+        // mid-flight we release the global setSending lock as a backstop so
+        // the user is never frozen behind a stuck spinner — the underlying
+        // tx may still land, but the UI is usable again either way. A later
+        // submitVoteSheet finally re-releasing the lock is harmless.
+        function cancelVoteSheet() {
+          if (sending) setSending(false, false);
+          closeVoteSheet();
+        }
+
         /* ================================================================
          *  CREDITS INFO POPUP
          *
@@ -4033,16 +4065,21 @@
           if (!_voteSheetSurveyId || !_voteSheetSelected) return;
           const errEl = $("voteSheetError");
           if (errEl) { errEl.textContent = ""; errEl.style.display = "none"; }
+          // Track success in the try and release the lock unconditionally in
+          // the finally so the spinner/disabled-control lock can never leak —
+          // even on an unexpected throw or a future unbounded await.
+          let ok = false;
           try {
             await voteFlow(_voteSheetSelected, { pendingElId: "voteSheetPending" });
-            setSending(false, true);
-            closeVoteSheet();
+            ok = true;
           } catch (e) {
-            setSending(false, false);
             if (errEl) {
               errEl.textContent = (e && e.message) || String(e);
               errEl.style.display = "block";
             }
+          } finally {
+            setSending(false, ok);
+            if (ok) closeVoteSheet();
           }
         }
 
@@ -4703,8 +4740,9 @@
           try {
             const params = `createdAtMs=${survey.createdAtMs}&expiresAtMs=${survey.expiresAtMs}` +
               (survey.revealIntervalMs ? `&revealIntervalMs=${survey.revealIntervalMs}` : "");
-            const resp = await fetch(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`,
-              ctrl ? { signal: ctrl.signal } : undefined);
+            // 8s timeout: if the pubkey endpoint stalls we fall through to
+            // `return null` and vote in plaintext rather than hang the flow.
+            const resp = await fetchWithTimeout(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`, undefined, 8000);
             if (resp.ok) {
               const data = await resp.json();
               if (data.pubkeys && data.pubkeys[String(ki)]) return data.pubkeys[String(ki)];
@@ -5077,8 +5115,8 @@
             const s = currentSurvey();
             if (s) openVoteSheet(s.id);
           });
-          $("voteBackdrop").addEventListener("click", closeVoteSheet);
-          $("voteSheetCancel").addEventListener("click", closeVoteSheet);
+          $("voteBackdrop").addEventListener("click", cancelVoteSheet);
+          $("voteSheetCancel").addEventListener("click", cancelVoteSheet);
           $("voteSheetSubmit").addEventListener("click", submitVoteSheet);
 
           // --- Credits info popup listeners ---
