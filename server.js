@@ -53,6 +53,7 @@
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const https = require("https");
 const express = require("express");
 
 const {
@@ -390,6 +391,84 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   if (handleExplorerProxy(req, res, req.path)) return;
   next();
+});
+
+// ── Live crypto price ticker ──────────────────────────────────────────────────
+// Proxy to CoinGecko's simple/price endpoint so all browser clients share one
+// server-side fetch per 60 s instead of each hitting CoinGecko directly.
+// Purely cosmetic — no effect on any on-chain state.
+const TICKER_COINS = [
+  { id: "bitcoin",      symbol: "BTC",  name: "Bitcoin"  },
+  { id: "ethereum",     symbol: "ETH",  name: "Ethereum" },
+  { id: "tether",       symbol: "USDT", name: "Tether"   },
+  { id: "binance-coin", symbol: "BNB",  name: "BNB"      },
+  { id: "solana",       symbol: "SOL",  name: "Solana"   },
+  { id: "usd-coin",     symbol: "USDC", name: "USD Coin" },
+  { id: "xrp",          symbol: "XRP",  name: "XRP"      },
+  { id: "dogecoin",     symbol: "DOGE", name: "Dogecoin" },
+  { id: "cardano",      symbol: "ADA",  name: "Cardano"  },
+  { id: "tron",         symbol: "TRX",  name: "TRON"     },
+];
+const TICKER_COIN_IDS = TICKER_COINS.map((c) => c.id).join(",");
+const TICKER_CACHE_MS = 60_000;
+const TICKER_HTTP_TIMEOUT_MS = 10_000;
+
+let _tickerCache = { data: null, fetchedAt: 0 };
+
+function fetchCoinGeckoPrices() {
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${TICKER_COIN_IDS}&vs_currencies=usd&include_24hr_change=true`;
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { accept: "application/json" } }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`HTTP ${res.statusCode}`));
+        }
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString()));
+        } catch (e) {
+          reject(new Error(`JSON parse: ${e.message}`));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(TICKER_HTTP_TIMEOUT_MS, () => req.destroy(new Error("timeout")));
+  });
+}
+
+app.get("/__om/crypto-prices", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.set("Access-Control-Allow-Origin", "*");
+
+  const now = Date.now();
+  if (_tickerCache.data && now - _tickerCache.fetchedAt < TICKER_CACHE_MS) {
+    return res.json({ fetchedAt: _tickerCache.fetchedAt, prices: _tickerCache.data });
+  }
+
+  try {
+    const raw = await fetchCoinGeckoPrices();
+    const prices = TICKER_COINS.map(({ id, symbol, name }) => {
+      const entry = raw[id];
+      return {
+        id,
+        symbol,
+        name,
+        priceUsd: entry ? entry.usd : null,
+        change24h: entry ? entry.usd_24h_change : null,
+      };
+    }).filter((c) => c.priceUsd != null);
+    _tickerCache = { data: prices, fetchedAt: now };
+    res.json({ fetchedAt: now, prices });
+  } catch (e) {
+    console.warn(`[ticker] CoinGecko fetch failed: ${e.message}`);
+    // Serve stale cache if available so the ticker doesn't disappear on a
+    // transient failure; otherwise return an empty list (client hides the bar).
+    if (_tickerCache.data) {
+      return res.json({ fetchedAt: _tickerCache.fetchedAt, prices: _tickerCache.data });
+    }
+    res.json({ fetchedAt: null, prices: [] });
+  }
 });
 
 // ── Build version ────────────────────────────────────────────────────────────

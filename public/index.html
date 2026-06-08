@@ -1044,6 +1044,47 @@
       .wc26-empty { font-size: 13px; color: var(--muted); padding: 8px 0; }
       .wc26-group-block { margin-bottom: 16px; }
       .wc26-group-title { font-size: 13px; font-weight: 700; margin: 0 0 6px; }
+
+      /* ── Live price ticker ────────────────────────────────────────────── */
+      .tickerBar {
+        flex: 0 0 auto;
+        height: 32px;
+        overflow: hidden;
+        background: var(--card);
+        border-bottom: 1px solid var(--border);
+        position: relative;
+        z-index: 2;
+      }
+      @keyframes ticker-scroll {
+        from { transform: translateX(0); }
+        to   { transform: translateX(-50%); }
+      }
+      .tickerTrack {
+        display: inline-flex;
+        align-items: center;
+        white-space: nowrap;
+        height: 100%;
+        animation: ticker-scroll 40s linear infinite;
+      }
+      .tickerItem {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 16px;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        border-right: 1px solid var(--border);
+        height: 100%;
+      }
+      .tickerItem-symbol { font-weight: 700; color: var(--fg); }
+      .tickerItem-price  { color: var(--fg); }
+      .tickerItem-change { font-size: 11px; }
+      .tickerItem-change.pos { color: var(--ok); }
+      .tickerItem-change.neg { color: var(--danger); }
+      @media (prefers-reduced-motion: reduce) {
+        .tickerBar  { height: auto; max-height: 32px; overflow-x: auto; overflow-y: hidden; }
+        .tickerTrack { animation: none; }
+      }
     </style>
   </head>
   <body>
@@ -1066,6 +1107,11 @@
         </div>
       </div>
     </header>
+
+    <!-- Live crypto price ticker. Hidden until the first successful price fetch. -->
+    <div id="tickerBar" class="tickerBar hide">
+      <div class="tickerTrack" id="tickerTrack"></div>
+    </div>
 
     <div id="inlineToast" class="inline-toast hide"></div>
 
@@ -2338,6 +2384,85 @@
         // `resolve_btc` memo. Throttled to one request per minute.
         let _btcLivePrice = null;
         let _btcLiveFetchedAt = 0;
+
+        // ── Live crypto price ticker ──────────────────────────────────────
+        // Fetches from the server-side proxy (/__om/crypto-prices) so every
+        // browser client shares one CoinGecko request per 60 s. Purely
+        // cosmetic — failures are silently ignored.
+        let _cryptoPrices = [];
+        let _cryptoPricesFetchedAt = 0;
+        const STABLECOIN_SYMBOLS = new Set(["USDT", "USDC"]);
+
+        function fmtTickerPrice(priceUsd, symbol) {
+          if (STABLECOIN_SYMBOLS.has(symbol)) {
+            return "$" + priceUsd.toFixed(4);
+          }
+          if (priceUsd >= 1000) {
+            return "$" + priceUsd.toLocaleString("en-US", { maximumFractionDigits: 0 });
+          }
+          if (priceUsd >= 1) {
+            return "$" + priceUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+          // Small-cap: 4 significant decimals
+          return "$" + priceUsd.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+        }
+
+        function buildTickerItem(coin) {
+          const item = document.createElement("div");
+          item.className = "tickerItem";
+
+          const sym = document.createElement("span");
+          sym.className = "tickerItem-symbol";
+          sym.textContent = coin.symbol;
+          item.appendChild(sym);
+
+          const price = document.createElement("span");
+          price.className = "tickerItem-price";
+          price.textContent = fmtTickerPrice(coin.priceUsd, coin.symbol);
+          item.appendChild(price);
+
+          if (coin.change24h != null) {
+            const chg = document.createElement("span");
+            const pos = coin.change24h >= 0;
+            chg.className = "tickerItem-change " + (pos ? "pos" : "neg");
+            chg.textContent = (pos ? "▲+" : "▼") + coin.change24h.toFixed(2) + "%";
+            item.appendChild(chg);
+          }
+
+          return item;
+        }
+
+        function renderTicker(prices) {
+          const bar = document.getElementById("tickerBar");
+          const track = document.getElementById("tickerTrack");
+          if (!bar || !track) return;
+          if (!prices || prices.length === 0) {
+            bar.classList.add("hide");
+            return;
+          }
+          track.innerHTML = "";
+          // Duplicate items so the CSS -50% translate creates a seamless loop.
+          for (let pass = 0; pass < 2; pass++) {
+            for (const coin of prices) {
+              track.appendChild(buildTickerItem(coin));
+            }
+          }
+          bar.classList.remove("hide");
+        }
+
+        async function fetchCryptoPrices() {
+          const now = Date.now();
+          if (_cryptoPrices.length > 0 && now - _cryptoPricesFetchedAt < 60000) return;
+          _cryptoPricesFetchedAt = now; // set early to avoid concurrent requests
+          try {
+            const r = await fetch("/__om/crypto-prices");
+            const j = await r.json();
+            if (j && Array.isArray(j.prices) && j.prices.length > 0) {
+              _cryptoPrices = j.prices;
+              renderTicker(_cryptoPrices);
+            }
+          } catch (_) { /* cosmetic only — ignore failures */ }
+        }
         async function ensureBtcLivePrice() {
           const now = Date.now();
           if (_btcLivePrice != null && now - _btcLiveFetchedAt < 60000) return;
@@ -5622,6 +5747,9 @@
               setText($("bsSellError"), e.message || String(e));
             }
           });
+
+          fetchCryptoPrices();
+          setInterval(fetchCryptoPrices, 60000);
 
           await refreshLoopOnce();
           if (initialHash) navigateFromHash(initialHash);
