@@ -1082,6 +1082,11 @@
       .tickerItem-change { font-size: 11px; }
       .tickerItem-change.pos { color: var(--ok); }
       .tickerItem-change.neg { color: var(--danger); }
+      @keyframes ticker-highlight {
+        0%   { box-shadow: inset 0 0 0 2px var(--accent); }
+        100% { box-shadow: inset 0 0 0 0 transparent; }
+      }
+      .tickerBar.highlighted { animation: ticker-highlight 1s ease-out forwards; }
       @media (prefers-reduced-motion: reduce) {
         .tickerBar  { height: auto; max-height: 32px; overflow-x: auto; overflow-y: hidden; }
         .tickerTrack { animation: none; }
@@ -1101,6 +1106,7 @@
           </button>
           <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
+          <button class="btn small hide" id="tickerBtn" type="button" title="Live Crypto Prices">&#x1F4C8;</button>
           <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026">&#x26BD;</button>
           <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
           <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
@@ -2460,6 +2466,8 @@
             }
           }
           bar.classList.remove("hide");
+          const btn = document.getElementById("tickerBtn");
+          if (btn) btn.classList.remove("hide");
         }
 
         async function fetchCryptoPrices() {
@@ -5534,6 +5542,13 @@
           $("historyBtn").addEventListener("click", navigateToHistory);
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
+          $("tickerBtn").addEventListener("click", () => {
+            const bar = document.getElementById("tickerBar");
+            if (!bar) return;
+            bar.classList.remove("highlighted");
+            void bar.offsetWidth; // force reflow so animation re-triggers
+            bar.classList.add("highlighted");
+          });
           $("wcBtn").addEventListener("click", navigateToWC26Hub);
           $("wcScheduleBtn").addEventListener("click", navigateToWC26Schedule);
 
