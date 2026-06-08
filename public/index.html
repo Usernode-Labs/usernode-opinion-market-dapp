@@ -1118,6 +1118,14 @@
       .cryptoCoin-change.pos { color: var(--ok); }
       .cryptoCoin-change.neg { color: var(--danger); }
       .cryptoModal-status { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+      .cryptoModal-retryBtn {
+        display: inline-block; margin-top: 12px;
+        padding: 6px 18px; font-size: 13px; font-weight: 600;
+        border: 1px solid var(--accent); color: var(--accent);
+        background: transparent; border-radius: 6px; cursor: pointer;
+      }
+      .cryptoModal-retryBtn:hover { opacity: 0.8; }
+      .cryptoModal-retryBtn:disabled { opacity: 0.45; cursor: not-allowed; }
     </style>
   </head>
   <body>
@@ -2451,11 +2459,32 @@
           return "$" + priceUsd.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
         }
 
+        async function retryCryptoPrices() {
+          _cryptoPricesFetchedAt = 0; // force re-fetch regardless of cache age
+          const body = document.getElementById("cryptoModalBody");
+          const btn = body && body.querySelector(".cryptoModal-retryBtn");
+          if (btn) { btn.disabled = true; btn.textContent = "Retrying…"; }
+          else if (body) body.innerHTML = '<div class="cryptoModal-status">Fetching prices…</div>';
+          await fetchCryptoPrices();
+        }
+
         function renderCryptoModal() {
           const body = document.getElementById("cryptoModalBody");
           if (!body) return;
           if (_cryptoPrices.length === 0) {
-            body.innerHTML = '<div class="cryptoModal-status">Prices unavailable</div>';
+            body.innerHTML = "";
+            const status = document.createElement("div");
+            status.className = "cryptoModal-status";
+            const msg = document.createElement("div");
+            msg.textContent = "Couldn’t load prices. Check your connection and try again.";
+            const btn = document.createElement("button");
+            btn.className = "cryptoModal-retryBtn";
+            btn.type = "button";
+            btn.textContent = "Retry";
+            btn.addEventListener("click", retryCryptoPrices);
+            status.appendChild(msg);
+            status.appendChild(btn);
+            body.appendChild(status);
             return;
           }
           body.innerHTML = "";
