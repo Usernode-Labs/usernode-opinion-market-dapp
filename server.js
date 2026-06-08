@@ -398,18 +398,19 @@ app.use((req, res, next) => {
 // server-side fetch per 60 s instead of each hitting CoinGecko directly.
 // Purely cosmetic — no effect on any on-chain state.
 const TICKER_COINS = [
-  { id: "bitcoin",      symbol: "BTC",  name: "Bitcoin"  },
-  { id: "ethereum",     symbol: "ETH",  name: "Ethereum" },
-  { id: "tether",       symbol: "USDT", name: "Tether"   },
-  { id: "binancecoin",  symbol: "BNB",  name: "BNB"      },
-  { id: "solana",       symbol: "SOL",  name: "Solana"   },
-  { id: "usd-coin",     symbol: "USDC", name: "USD Coin" },
-  { id: "ripple",       symbol: "XRP",  name: "XRP"      },
-  { id: "dogecoin",     symbol: "DOGE", name: "Dogecoin" },
-  { id: "cardano",      symbol: "ADA",  name: "Cardano"  },
-  { id: "tron",         symbol: "TRX",  name: "TRON"     },
+  { id: "bitcoin",      coincapId: "bitcoin",      symbol: "BTC",  name: "Bitcoin"  },
+  { id: "ethereum",     coincapId: "ethereum",     symbol: "ETH",  name: "Ethereum" },
+  { id: "tether",       coincapId: "tether",       symbol: "USDT", name: "Tether"   },
+  { id: "binancecoin",  coincapId: "binance-coin", symbol: "BNB",  name: "BNB"      },
+  { id: "solana",       coincapId: "solana",       symbol: "SOL",  name: "Solana"   },
+  { id: "usd-coin",     coincapId: "usd-coin",     symbol: "USDC", name: "USD Coin" },
+  { id: "ripple",       coincapId: "xrp",          symbol: "XRP",  name: "XRP"      },
+  { id: "dogecoin",     coincapId: "dogecoin",     symbol: "DOGE", name: "Dogecoin" },
+  { id: "cardano",      coincapId: "cardano",      symbol: "ADA",  name: "Cardano"  },
+  { id: "tron",         coincapId: "tron",         symbol: "TRX",  name: "TRON"     },
 ];
 const TICKER_COIN_IDS = TICKER_COINS.map((c) => c.id).join(",");
+const TICKER_COINCAP_IDS = TICKER_COINS.map((c) => c.coincapId).join(",");
 const TICKER_CACHE_MS = 60_000;
 const TICKER_HTTP_TIMEOUT_MS = 10_000;
 
@@ -444,6 +445,29 @@ function fetchCoinGeckoPrices() {
   });
 }
 
+function fetchCoinCapPrices() {
+  const url = `https://api.coincap.io/v2/assets?ids=${TICKER_COINCAP_IDS}`;
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { accept: "application/json" } }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`HTTP ${res.statusCode}`));
+        }
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString());
+          resolve(Array.isArray(body.data) ? body.data : []);
+        } catch (e) {
+          reject(new Error(`JSON parse: ${e.message}`));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(TICKER_HTTP_TIMEOUT_MS, () => req.destroy(new Error("timeout")));
+  });
+}
+
 app.get("/__om/crypto-prices", async (_req, res) => {
   res.set("Cache-Control", "no-store");
   res.set("Access-Control-Allow-Origin", "*");
@@ -453,14 +477,16 @@ app.get("/__om/crypto-prices", async (_req, res) => {
     return res.json({ fetchedAt: _tickerCache.fetchedAt, prices: _tickerCache.data });
   }
 
+  // Try CoinGecko first; fall back to CoinCap if it fails.
+  let prices = null;
+
   try {
-    // /coins/markets returns an array; build a lookup map by id for O(1) access.
     const raw = await fetchCoinGeckoPrices();
     const byId = {};
     if (Array.isArray(raw)) {
       for (const entry of raw) { if (entry && entry.id) byId[entry.id] = entry; }
     }
-    const prices = TICKER_COINS.map(({ id, symbol, name }) => {
+    prices = TICKER_COINS.map(({ id, symbol, name }) => {
       const entry = byId[id];
       return {
         id,
@@ -471,17 +497,42 @@ app.get("/__om/crypto-prices", async (_req, res) => {
         image: entry ? (entry.image || null) : null,
       };
     }).filter((c) => c.priceUsd != null);
-    _tickerCache = { data: prices, fetchedAt: now };
-    res.json({ fetchedAt: now, prices });
   } catch (e) {
     console.warn(`[ticker] CoinGecko fetch failed: ${e.message}`);
-    // Serve stale cache if available so the ticker doesn't disappear on a
-    // transient failure; otherwise return an empty list (client hides the bar).
-    if (_tickerCache.data) {
-      return res.json({ fetchedAt: _tickerCache.fetchedAt, prices: _tickerCache.data });
+    try {
+      const raw = await fetchCoinCapPrices();
+      const byCoincapId = {};
+      for (const entry of raw) { if (entry && entry.id) byCoincapId[entry.id] = entry; }
+      prices = TICKER_COINS.map(({ id, coincapId, symbol, name }) => {
+        const entry = byCoincapId[coincapId];
+        const priceUsd = entry ? parseFloat(entry.priceUsd) : null;
+        const change24h = entry ? parseFloat(entry.changePercent24Hr) : null;
+        return {
+          id,
+          symbol,
+          name,
+          priceUsd: isFinite(priceUsd) ? priceUsd : null,
+          change24h: isFinite(change24h) ? change24h : null,
+          image: null,
+        };
+      }).filter((c) => c.priceUsd != null);
+      console.log("[ticker] prices loaded from CoinCap (CoinGecko failed)");
+    } catch (e2) {
+      console.warn(`[ticker] CoinCap fetch failed: ${e2.message}`);
+      console.warn("[ticker] all price sources failed");
     }
-    res.json({ fetchedAt: null, prices: [] });
   }
+
+  if (prices !== null) {
+    _tickerCache = { data: prices, fetchedAt: now };
+    return res.json({ fetchedAt: now, prices });
+  }
+
+  // Both sources failed — serve stale cache if available.
+  if (_tickerCache.data) {
+    return res.json({ fetchedAt: _tickerCache.fetchedAt, prices: _tickerCache.data });
+  }
+  res.json({ fetchedAt: null, prices: [] });
 });
 
 // ── Build version ────────────────────────────────────────────────────────────
