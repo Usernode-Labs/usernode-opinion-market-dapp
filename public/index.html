@@ -4731,26 +4731,24 @@
         async function fetchPubkey(surveyId, ki, survey) {
           const m = PUBKEY_MAP.get(surveyId);
           if (m && m.has(ki)) return m.get(ki);
-          // Bound the network lookup with an AbortController so a slow or
-          // unreachable /__om/pubkeys endpoint can never block the vote
-          // flow. On timeout/error we return null and the caller casts a
-          // plaintext vote instead — the vote still registers on-chain.
-          const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
-          const timer = ctrl ? setTimeout(() => ctrl.abort(), PUBKEY_FETCH_TIMEOUT_MS) : null;
+          // Bound the network lookup with an AbortController (~6s) via the
+          // shared fetchWithTimeout helper so a slow or unreachable
+          // /__om/pubkeys endpoint can never wedge the vote flow on
+          // "Registering vote...". On timeout/error we return null and the
+          // caller (voteFlow) casts a plaintext `choice` vote instead — the
+          // vote still reaches sendTransaction promptly and registers
+          // on-chain. (Encryption is best-effort; auditability is restored
+          // once the on-chain publish_pubkeys tx lands and PUBKEY_MAP hits.)
           try {
             const params = `createdAtMs=${survey.createdAtMs}&expiresAtMs=${survey.expiresAtMs}` +
               (survey.revealIntervalMs ? `&revealIntervalMs=${survey.revealIntervalMs}` : "");
-            // 8s timeout: if the pubkey endpoint stalls we fall through to
-            // `return null` and vote in plaintext rather than hang the flow.
-            const resp = await fetchWithTimeout(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`, undefined, 8000);
+            const resp = await fetchWithTimeout(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`, undefined, PUBKEY_FETCH_TIMEOUT_MS);
             if (resp.ok) {
               const data = await resp.json();
               if (data.pubkeys && data.pubkeys[String(ki)]) return data.pubkeys[String(ki)];
             }
           } catch (_) {
             // Aborted (timeout) or network failure — fall through to null.
-          } finally {
-            if (timer) clearTimeout(timer);
           }
           return null;
         }
