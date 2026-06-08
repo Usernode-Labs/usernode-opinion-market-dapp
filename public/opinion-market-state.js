@@ -622,6 +622,14 @@
       : new Set(Array.isArray(opts.genesisAccounts) ? opts.genesisAccounts : []);
     var globalUsernames = opts.globalUsernames || {};
     var now = typeof opts.now === "number" ? opts.now : Date.now();
+    // Pubkeys whose `settlement_payout` memos replay will trust. These memos
+    // are server-authored (the payout bot / key-publication sender); a
+    // `settlement_payout` from any other `from` is an attempted forgery of a
+    // "you were paid" record and is ignored. Empty set = trust none (the
+    // server always passes its sender + pool pubkeys here; see payout-bot.js).
+    var trustedSenders = opts.trustedSenders instanceof Set
+      ? opts.trustedSenders
+      : new Set(Array.isArray(opts.trustedSenders) ? opts.trustedSenders : []);
 
     var isGenesisGated = genesisAccounts.size > 0;
     function isGenesisAccount(addr) { return !isGenesisGated || genesisAccounts.has(addr); }
@@ -1038,32 +1046,60 @@
       }
     }
 
-    /* --- Phase 5b: Seed markets from creator ante --- */
-    for (var sb = 0; sb < SURVEYS.length; sb++) {
-      var sv7 = SURVEYS[sb];
-      if (!sv7.createdBy || !JOINED.has(sv7.createdBy)) continue;
-      if (localUserBalance(sv7.createdBy) < MARKET_ANTE) continue;
-      var numOpts = sv7.options.length;
-      if (numOpts < 2) continue;
+    /* Seed one market with platform liquidity. Shared by Phase 5b (eager,
+     * at survey-creation time) and the Phase 6 lazy-init fallback so the two
+     * paths can never drift on pool size, creator attribution, or the ante
+     * charge — the same lockstep discipline already required between
+     * `validatePlaceBet` and Phase 6.
+     *
+     * GUARANTEED LIQUIDITY (Part 1): every survey with >= 2 options gets a
+     * fully-seeded CPMM market, regardless of who created it or whether the
+     * creator can afford the ante. The platform always provides the full
+     * (MARKET_ANTE + PLATFORM_LIQUIDITY) of pool liquidity so a brand-new,
+     * zero-vote, zero-volume market — including server-authored oracle
+     * markets (daily BTC, World Cup) whose creator never "joined" — is
+     * instantly priced at 1/N per option and instantly bettable.
+     *
+     * The creator ante is charged ONLY when the creator is a joined account
+     * that can afford it; otherwise the platform subsidises the ante and the
+     * market is flagged `seededWithoutAnte`. The seed TOTAL is identical in
+     * both cases (== what the historical Phase 6 lazy-init used), so this
+     * change is purely additive — it never alters the pools of a market that
+     * already existed under the old creator-ante-gated rule. */
+    function seedMarketFor(sv) {
+      if (MARKETS.has(sv.id)) return MARKETS.get(sv.id);
+      var numOpts = sv.options.length;
+      if (numOpts < 2) return null;
       var initPools = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, numOpts) : [];
-      if (initPools.length === 0) continue;
+      if (initPools.length !== numOpts) return null;
+      var canCharge = !!sv.createdBy && JOINED.has(sv.createdBy) && localUserBalance(sv.createdBy) >= MARKET_ANTE;
       var mkt = {
         pools: {}, userShares: {}, userNoShares: {}, feePool: 0,
         grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0,
-        creator: sv7.createdBy, history: [], optionVolume: {},
+        creator: sv.createdBy || null,
+        // True when the platform covered the ante because the creator was
+        // absent/broke. Surfaced to the UI so a subsidised market is honest.
+        seededWithoutAnte: !canCharge,
+        history: [], optionVolume: {},
       };
-      var seedPerOption = (MARKET_ANTE + PLATFORM_LIQUIDITY) / sv7.options.length;
-      for (var oi = 0; oi < sv7.options.length; oi++) {
-        mkt.pools[sv7.options[oi].key] = Object.assign({}, initPools[oi]);
-        mkt.optionVolume[sv7.options[oi].key] = seedPerOption;
+      var seedPerOption = (MARKET_ANTE + PLATFORM_LIQUIDITY) / numOpts;
+      for (var oi = 0; oi < numOpts; oi++) {
+        mkt.pools[sv.options[oi].key] = Object.assign({}, initPools[oi]);
+        mkt.optionVolume[sv.options[oi].key] = seedPerOption;
       }
       var initProbs = {};
-      for (var op = 0; op < sv7.options.length; op++) {
-        initProbs[sv7.options[op].key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[sv7.options[op].key]) : 0;
+      for (var op = 0; op < numOpts; op++) {
+        initProbs[sv.options[op].key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[sv.options[op].key]) : 0;
       }
-      mkt.history.push({ ts: sv7.createdAtMs, probs: initProbs });
-      MARKETS.set(sv7.id, mkt);
-      getCreditFlow(sv7.createdBy).antes += MARKET_ANTE;
+      mkt.history.push({ ts: sv.createdAtMs, probs: initProbs });
+      MARKETS.set(sv.id, mkt);
+      if (canCharge) getCreditFlow(sv.createdBy).antes += MARKET_ANTE;
+      return mkt;
+    }
+
+    /* --- Phase 5b: Seed every market with guaranteed platform liquidity --- */
+    for (var sb = 0; sb < SURVEYS.length; sb++) {
+      seedMarketFor(SURVEYS[sb]);
     }
 
     /* Settlement logic, extracted so it can fire inline at expiresAtMs.
@@ -1377,29 +1413,11 @@
       }
       if (!JOINED.has(Pm.tx.from)) { recordReject(Pm, "NOT_JOINED"); continue; }
 
-      var mkt2 = MARKETS.get(svM);
-      if (!mkt2) {
-        var n2 = surveyM.options.length;
-        var initPools2 = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, n2) : [];
-        mkt2 = {
-          pools: {}, userShares: {}, userNoShares: {}, feePool: 0,
-          grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0,
-          creator: surveyM.createdBy || null, history: [], optionVolume: {},
-        };
-        if (initPools2.length === n2) {
-          var spo = (MARKET_ANTE + PLATFORM_LIQUIDITY) / n2;
-          for (var ii2 = 0; ii2 < n2; ii2++) {
-            mkt2.pools[surveyM.options[ii2].key] = Object.assign({}, initPools2[ii2]);
-            mkt2.optionVolume[surveyM.options[ii2].key] = spo;
-          }
-          var ip = {};
-          for (var oo = 0; oo < surveyM.options.length; oo++) {
-            ip[surveyM.options[oo].key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt2.pools[surveyM.options[oo].key]) : 0;
-          }
-          mkt2.history.push({ ts: surveyM.createdAtMs, probs: ip });
-        }
-        MARKETS.set(svM, mkt2);
-      }
+      // Markets are eagerly seeded in Phase 5b, so this is normally a hit.
+      // The lazy fallback uses the SAME seeding helper (no drift) for any
+      // edge case where a bettable survey reached Phase 6 unseeded.
+      var mkt2 = seedMarketFor(surveyM);
+      if (!mkt2) { recordReject(Pm, "NO_POOL"); continue; }
 
       if (Pm.memo.type === "place_bet") {
         var credits = typeof Pm.memo.credits === "number" ? Pm.memo.credits : Number(Pm.memo.credits);
@@ -1522,6 +1540,67 @@
       }
     }
 
+    /* --- Phase 7b: Payout reconciliation (real on-chain settlement) ---
+     *
+     * The CPMM/credit accounting above is VIRTUAL. The payout bot
+     * (payout-bot.js) realises a settled market's winnings as real
+     * base-currency transfers and records each one with a server-authored
+     * `settlement_payout` memo sent back to APP_PUBKEY. This phase indexes
+     * those memos so:
+     *   - the bot knows which (survey, winner) pairs are already paid
+     *     (idempotency — never pay twice);
+     *   - the UI can show "paid N to your wallet ✓" with the on-chain tx;
+     *   - every replay consumer agrees on the realised settlement.
+     *
+     * Forgery guard: a `settlement_payout` is only honoured if its `from`
+     * is a trusted server sender (see `trustedSenders`). When the trusted
+     * set is empty (e.g. a standalone replay with no server identity), all
+     * are accepted — the server path always supplies the set. Determinism:
+     * earliest memo wins per (survey, winner), matching Phase 3b/3c. */
+    var PAYOUTS = new Map(); // surveyId -> Map<winnerPubkey, {credits, amount, rate, outcome, txId, ts}>
+    for (var ipo = 0; ipo < parsed.length; ipo++) {
+      var Ppo = parsed[ipo];
+      if (Ppo.memo.type !== "settlement_payout") continue;
+      if (trustedSenders.size > 0 && !trustedSenders.has(Ppo.tx.from)) continue;
+      var poSurvey = Ppo.memo.survey == null ? null : String(Ppo.memo.survey);
+      var poWinner = Ppo.memo.winner == null ? null : String(Ppo.memo.winner);
+      if (!poSurvey || !poWinner) continue;
+      var poInner = PAYOUTS.get(poSurvey);
+      if (!poInner) { poInner = new Map(); PAYOUTS.set(poSurvey, poInner); }
+      var poPrev = poInner.get(poWinner);
+      var poRec = {
+        credits: pickNumber(Ppo.memo.credits, null),
+        amount: pickNumber(Ppo.memo.amount, null),
+        rate: pickNumber(Ppo.memo.rate, null),
+        outcome: Ppo.memo.outcome == null ? null : String(Ppo.memo.outcome),
+        payoutTxId: Ppo.memo.payout_tx_id == null ? null : String(Ppo.memo.payout_tx_id),
+        txId: Ppo.tx.id,
+        ts: Ppo.tx.ts,
+      };
+      if (!poPrev || Ppo.tx.ts < poPrev.ts || (Ppo.tx.ts === poPrev.ts && String(Ppo.tx.id) < String(poPrev.txId))) {
+        poInner.set(poWinner, poRec);
+      }
+    }
+    // Annotate each settlement with paid/unpaid + paidAmount for the UI.
+    SETTLEMENTS.forEach(function (settlement, surveyId) {
+      var owed = settlement.payouts || {};
+      var owedKeys = Object.keys(owed).filter(function (k) { return owed[k] > 0; });
+      var paidMap = PAYOUTS.get(surveyId) || new Map();
+      var paidAmount = 0;
+      var paidCount = 0;
+      paidMap.forEach(function (rec) {
+        if (typeof rec.amount === "number") paidAmount += rec.amount;
+        paidCount++;
+      });
+      settlement.payoutRecords = paidMap;
+      settlement.paidAmount = paidAmount;
+      // "paid" = every owed winner has an on-chain payout record. A settled
+      // market with no winners (e.g. a no-bet expiry) is trivially paid.
+      settlement.paid = owedKeys.every(function (k) { return paidMap.has(k); });
+      settlement.payoutPending = !settlement.pending && !settlement.paid && owedKeys.length > 0;
+      settlement.unpaidWinnerCount = owedKeys.filter(function (k) { return !paidMap.has(k); }).length;
+    });
+
     /* --- Phase 8: Earnings (Bet P&L) per archived market --- */
     var earningsMap = new Map();
     for (var ei = 0; ei < SURVEYS.length; ei++) {
@@ -1583,6 +1662,7 @@
       GLOBAL_USERNAMES: GLOBAL_USERNAMES,
       CREDIT_FLOWS: CREDIT_FLOWS,
       SETTLEMENTS: SETTLEMENTS,
+      payouts: PAYOUTS,
       voteMap: voteMap,
       firstJoiner: firstJoiner,
       earningsMap: earningsMap,
@@ -1654,6 +1734,44 @@
    * user 1 token per attempt with zero feedback, which is how scraido and
    * maragung lost tens of tokens before anyone noticed.
    */
+  /**
+   * Derive the list of (survey, winner) payouts that are OWED by a settled
+   * market but have NOT yet been realised on-chain (no `settlement_payout`
+   * memo). This is the work queue the payout bot drains every tick — keeping
+   * the "what is owed" derivation inside the pure replay module so the bot
+   * can never drift from settlement semantics.
+   *
+   * Returns [{ surveyId, winner, credits, outcome, kind }]. `credits` is the
+   * virtual winnings owed; the bot converts it to a real amount via
+   * PAYOUT_RATE. Markets still `pending` (oracle unresolved) are skipped.
+   */
+  function findPendingPayouts(state) {
+    var out = [];
+    if (!state || !state.SETTLEMENTS) return out;
+    var paid = state.payouts || new Map();
+    state.SETTLEMENTS.forEach(function (settlement, surveyId) {
+      if (settlement.pending) return; // oracle not resolved yet — nothing owed
+      var payouts = settlement.payouts || {};
+      var paidForSurvey = paid.get(surveyId) || new Map();
+      var outcome = settlement.winner != null
+        ? settlement.winner
+        : (settlement.btcWinner != null ? settlement.btcWinner : "push");
+      Object.keys(payouts).forEach(function (winner) {
+        var credits = payouts[winner];
+        if (!(credits > 0)) return;
+        if (paidForSurvey.has(winner)) return;
+        out.push({
+          surveyId: surveyId,
+          winner: winner,
+          credits: credits,
+          outcome: outcome,
+          kind: settlement.kind || null,
+        });
+      });
+    });
+    return out;
+  }
+
   function findRejectedSends(state, opts) {
     var pubkey = opts.pubkey;
     var rejected = state.rejectedSends || [];
@@ -1713,6 +1831,7 @@
     userShareValue: userShareValue,
     validatePlaceBet: validatePlaceBet,
     findRejectedSends: findRejectedSends,
+    findPendingPayouts: findPendingPayouts,
   };
 
   if (typeof module !== "undefined" && module.exports) {

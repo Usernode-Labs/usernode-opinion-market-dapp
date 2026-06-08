@@ -1980,6 +1980,9 @@
         let sending = false;
         let isAdmin = false;
         let _explicitAdminPubkey = null;
+        // Trusted authors of `settlement_payout` memos (pool wallet + key-pub
+        // sender), from /__config/opinion-market. Empty until config loads.
+        let _payoutSenders = [];
         let _firstJoiner = null;
         let GENESIS_ACCOUNTS = new Set();
         let currentSurveyId = null;
@@ -2074,6 +2077,10 @@
             adminPubkey: adminPubkey,
             genesisAccounts: GENESIS_ACCOUNTS,
             globalUsernames: globalNames,
+            // Trusted authors of `settlement_payout` memos (pool + key-pub
+            // sender). Empty until /__config loads → forged payout badges are
+            // never honoured once the config is in.
+            trustedSenders: _payoutSenders,
             now: Date.now(),
           });
 
@@ -3459,6 +3466,21 @@
           return opt ? opt.label : optionKey || "?";
         }
 
+        // One-line on-chain payout status for a settled market, from the
+        // current user's perspective. The payout bot transfers real winnings
+        // from the pool wallet to each winner and records a settlement_payout
+        // memo, surfaced here via settlement.payoutRecords / paid flags.
+        function payoutStatusFor(settlement) {
+          if (!settlement || settlement.pending) return null;
+          const owed = (settlement.payouts && me) ? (settlement.payouts[me] || 0) : 0;
+          const rec = (settlement.payoutRecords && me) ? settlement.payoutRecords.get(me) : null;
+          if (rec) return { text: "✅ Paid " + formatCredits(rec.amount) + " to your wallet", cls: "" };
+          if (owed > 0) return { text: "⏳ Payout queued to your wallet…", cls: "muted" };
+          if (settlement.paidAmount > 0) return { text: "Paid " + formatCredits(settlement.paidAmount) + " to winners' wallets", cls: "muted" };
+          if (settlement.payoutPending) return { text: "Payouts processing…", cls: "muted" };
+          return null;
+        }
+
         function getSurveyLabel(surveyId) {
           const s = SURVEYS_BY_ID.get(surveyId);
           return s ? (s.title || s.question || surveyId) : surveyId;
@@ -3600,6 +3622,10 @@
             if (div > 0) breakdown.push("dividend " + formatCredits(div));
             if (netSells > 0) breakdown.push("sells " + formatCredits(netSells));
             if (grossBet > 0) breakdown.push("wagered " + formatCredits(grossBet));
+            // On-chain payout realisation (pool wallet → your wallet).
+            const payRec = settlement.payoutRecords && settlement.payoutRecords.get(me);
+            if (payRec) breakdown.push("✅ paid " + formatCredits(payRec.amount) + " to wallet");
+            else if (payout > 0 && settlement.payoutPending) breakdown.push("⏳ payout queued");
 
             events.push({
               ts: expiresAt || 0,
@@ -4551,6 +4577,14 @@
                   line.textContent = "Awaiting BTC resolution…";
                 }
                 btcEl.appendChild(line);
+                const pl = payoutStatusFor(settlement);
+                if (pl) {
+                  const pe = document.createElement("div");
+                  pe.style.marginTop = "2px";
+                  if (pl.cls) pe.className = pl.cls;
+                  pe.textContent = pl.text;
+                  btcEl.appendChild(pe);
+                }
               } else {
                 const live = document.createElement("div");
                 live.className = "btcLive";
@@ -5308,6 +5342,9 @@
               if (Array.isArray(cfg.genesis_accounts) && cfg.genesis_accounts.length > 0) {
                 GENESIS_ACCOUNTS = new Set(cfg.genesis_accounts);
                 console.log(`[om] genesis accounts loaded: ${GENESIS_ACCOUNTS.size}`);
+              }
+              if (Array.isArray(cfg.payout_senders)) {
+                _payoutSenders = cfg.payout_senders.filter(Boolean);
               }
               if (cfg.admin_pubkey) {
                 _explicitAdminPubkey = cfg.admin_pubkey;

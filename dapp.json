@@ -32,6 +32,40 @@
       "sensitive": true
     },
     {
+      "key": "POOL_APP_PUBKEY",
+      "description": "Payout-pool wallet address. Holds REAL base-currency that backs automated market payouts; the payout bot sends winnings from here to each winner's wallet. Separate from APP_PUBKEY (recipient-only) and SENDER_APP_PUBKEY (key-publication gas). Leave unset to fall back to SENDER_APP_PUBKEY. Public address — non-private.",
+      "required": false,
+      "private": false
+    },
+    {
+      "key": "POOL_APP_SECRET_KEY",
+      "description": "Secret half of POOL_APP_PUBKEY. Used by /wallet/signer + /wallet/send to transfer real payout funds to winners. Holds real funds — never logged or returned via the API. Leave unset to disable real payouts (the bot then only observes / seeds demo payouts in staging).",
+      "required": false,
+      "private": true,
+      "staging_default": ""
+    },
+    {
+      "key": "PAYOUT_RATE",
+      "description": "Virtual-credit → base-currency conversion rate for payouts (onchain_amount = floor(credits * rate)). Bounds real outflow since bets are zero-value memos. Default 0.01. Non-private config.",
+      "required": false,
+      "private": false,
+      "default": "0.01"
+    },
+    {
+      "key": "POOL_MIN_BALANCE",
+      "description": "Floor the payout pool must not drop below. When the observed pool balance can't cover all owed payouts above this floor, the bot pays pro-rata. Default 0. Non-private config.",
+      "required": false,
+      "private": false,
+      "default": "0"
+    },
+    {
+      "key": "PAYOUT_LEADER",
+      "description": "Set to \"1\" on exactly ONE deploy to make it the payout leader. Only the leader moves real funds; co-deployed servers sharing APP_PUBKEY stay observe-only to avoid double-spend. Default off. Non-private flag.",
+      "required": false,
+      "private": false,
+      "default": ""
+    },
+    {
       "key": "NODE_RPC_URL",
       "description": "Sidecar usernode RPC endpoint. Defaults to the in-network node service.",
       "required": false,

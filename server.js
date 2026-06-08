@@ -68,6 +68,7 @@ const {
 const createVoteEncryption = require("./vote-encryption");
 const createDailyBtc = require("./daily-btc");
 const createWorldCup2026 = require("./world-cup-2026");
+const createPayoutBot = require("./payout-bot");
 const { buildLeaderboard } = require("./lib/leaderboard");
 
 loadEnvFile();
@@ -106,6 +107,28 @@ const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || "";
 
 const NODE_RPC_URL = process.env.NODE_RPC_URL || "http://usernode-node:3000";
 
+// ── Payout pool (automated on-chain settlement) ──────────────────────────────
+// The Pool wallet holds REAL base-currency that backs market payouts. It is
+// deliberately separate from APP_PUBKEY (recipient-only) and SENDER_APP_PUBKEY
+// (key-publication gas) so liquidity funds are isolated and independently
+// monitored. Leaving the secret unset (e.g. staging) disables real sends; the
+// bot then only observes / seeds demo payouts.
+const POOL_APP_PUBKEY = process.env.POOL_APP_PUBKEY || SENDER_APP_PUBKEY || "";
+const POOL_APP_SECRET_KEY = process.env.POOL_APP_SECRET_KEY || "";
+// Virtual-credit → base-currency conversion. The pool is a subsidy (bets are
+// zero-value memos), so this bounds real outflow per settled market.
+const PAYOUT_RATE = (() => {
+  const n = Number(process.env.PAYOUT_RATE);
+  return Number.isFinite(n) && n >= 0 ? n : 0.01;
+})();
+const POOL_MIN_BALANCE = (() => {
+  const n = Number(process.env.POOL_MIN_BALANCE);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+})();
+// Only the leader deploy moves real funds. Co-deployed servers sharing
+// APP_PUBKEY must NOT all pay — set PAYOUT_LEADER=1 on exactly one.
+const PAYOUT_LEADER = process.env.PAYOUT_LEADER === "1" || process.env.PAYOUT_LEADER === "true";
+
 // Genesis accounts (fetched once on startup; empty in local-dev). Surfaced
 // via /__config/opinion-market — the client uses it to label accounts in
 // the leaderboard / market views.
@@ -131,11 +154,14 @@ app.set("trust proxy", 1);
 app.get("/health", (_req, res) => {
   let dailyBtcStatus = null;
   let wc26Status = null;
+  let payoutBotStatus = null;
   try { dailyBtcStatus = typeof dailyBtc !== "undefined" && dailyBtc ? dailyBtc.getStatus() : null; }
   catch (_) { /* best-effort */ }
   try { wc26Status = typeof worldCup2026 !== "undefined" && worldCup2026 ? worldCup2026.getStatus() : null; }
   catch (_) { /* best-effort */ }
-  res.json({ status: "ok", staging: IS_STAGING, dailyBtc: dailyBtcStatus, worldCup2026: wc26Status });
+  try { payoutBotStatus = typeof payoutBot !== "undefined" && payoutBot ? payoutBot.getStatus() : null; }
+  catch (_) { /* best-effort */ }
+  res.json({ status: "ok", staging: IS_STAGING, dailyBtc: dailyBtcStatus, worldCup2026: wc26Status, payoutBot: payoutBotStatus });
 });
 
 // ── Mock API (only --local-dev) ──────────────────────────────────────────────
@@ -175,6 +201,8 @@ const omCache = createAppStateCache({
   onChainReset(newId, oldId) {
     console.log(`[om] chain reset ${oldId} -> ${newId}, resetting vote-encryption state`);
     voteEncryption.reset();
+    try { if (typeof payoutBot !== "undefined" && payoutBot) payoutBot.reset(); }
+    catch (_) { /* payout bot may not be constructed yet during boot */ }
   },
   localDev: LOCAL_DEV,
   mockTransactions: LOCAL_DEV ? mockApi.transactions : null,
@@ -266,6 +294,23 @@ app.post("/__om/daily-btc/tick", async (_req, res) => {
   }
 });
 
+// Internal manual trigger: force a payout-bot tick now. Pays any settled-but-
+// unpaid winners immediately instead of waiting for the next ~20s tick (e.g.
+// right after a resolve_btc lands). Same server-authored, leader-gated, signer-
+// gated send path the bot already uses — it cannot move funds without a valid
+// POOL_APP_SECRET_KEY and PAYOUT_LEADER. In staging it seeds fabricated payouts
+// so the paid-state UI renders without a signer.
+app.post("/__om/payout/tick", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    let out = await payoutBot.tick();
+    if (IS_STAGING) out = await payoutBot.seedStaging();
+    res.json({ ok: true, staging: IS_STAGING, status: out });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.use((req, res, next) => {
   if (omCache.handleRequest(req, res, req.path)) return;
   next();
@@ -293,6 +338,9 @@ app.get("/__config/opinion-market", (_req, res) => {
   res.json({
     admin_pubkey: ADMIN_PUBKEY || null,
     genesis_accounts: omGenesisAccounts,
+    // Trusted authors of `settlement_payout` memos so the client can reject
+    // forged "you were paid" records (public pubkeys — no secrets exposed).
+    payout_senders: [POOL_APP_PUBKEY, SENDER_APP_PUBKEY].filter(Boolean),
   });
 });
 
@@ -311,6 +359,7 @@ app.get("/leaderboard", async (req, res) => {
       adminPubkey: ADMIN_PUBKEY || null,
       genesisAccounts: omGenesisAccounts,
       globalUsernames: usernamesState.usernames || {},
+      trustedSenders: [POOL_APP_PUBKEY, SENDER_APP_PUBKEY].filter(Boolean),
       now: Date.now(),
     });
     if (req.query.only_credits === "1") {
@@ -371,6 +420,33 @@ app.use((req, res, next) => {
   if (usernamesCache.handleRequest(req, res, req.path)) return;
   next();
 });
+
+// ── Payout bot (automated on-chain settlement) ───────────────────────────────
+// Ticks every ~20s: rebuilds the pure OM state, finds settled-but-unpaid
+// winners, and transfers their prize from the Pool wallet to their own wallet,
+// then records a `settlement_payout` memo for idempotency + audit + UI. Created
+// after usernamesCache so it can pass global usernames into the rebuild. Real
+// sends are leader-gated; staging seeds fabricated payouts instead.
+const payoutBot = createPayoutBot({
+  appPubkey: APP_PUBKEY,
+  poolPubkey: POOL_APP_PUBKEY,
+  poolSecretKey: POOL_APP_SECRET_KEY,
+  senderPubkey: SENDER_APP_PUBKEY || APP_PUBKEY,
+  nodeRpcUrl: NODE_RPC_URL,
+  adminPubkey: ADMIN_PUBKEY || null,
+  getRawTransactions: () => omCache.getRawTransactions(),
+  getGenesisAccounts: () => omGenesisAccounts,
+  getGlobalUsernames: () => (usernamesCache.getStateResponse().usernames || {}),
+  // The reconciliation memo reuses vote-encryption's sender-signed path.
+  sendMemo: voteEncryption.sendMemo,
+  payoutRate: PAYOUT_RATE,
+  poolMinBalance: POOL_MIN_BALANCE,
+  // In staging there's no pool signer, so leader sends are no-ops anyway; treat
+  // staging as leader so the manual /__om/payout/tick seed path runs.
+  isLeader: PAYOUT_LEADER || IS_STAGING,
+  seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
+});
+payoutBot.start();
 
 // ── Sidecar /status probe (powers /status page node card) ────────────────────
 const nodeStatusProbe = createNodeStatusProbe({

@@ -832,4 +832,162 @@ test("WC26: replay deterministic under duplicate create+resolve memos", async ()
   assert.strictEqual(sa.payouts[USER_A], sb.payouts[USER_A], "deterministic payout");
 });
 
+/* ── Guaranteed always-on liquidity (Part 1) ──────────────────────── */
+
+test("LIQUIDITY-ALWAYS-SEEDED: 0-vote / 0-trade admin market is instantly bettable", async () => {
+  nextTxId = 1;
+  const survey = {
+    id: "s1", title: "T", question: "Q?",
+    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
+    active_duration_ms: 600000,
+  };
+  // ADMIN creates the survey but never joins → platform subsidises the ante.
+  const txs = [tx(ADMIN, "create_survey", { survey }, 2000), tx(USER_A, "join", null, 2500)];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: 1700000010000,
+  });
+  const mkt = state.MARKETS.get("s1");
+  assert(mkt, "market is seeded with zero votes and zero trades");
+  assert(OMS.cpmmTotalLiquidity(mkt) > 0, "pools are non-empty (1/N priced)");
+  assert.strictEqual(mkt.seededWithoutAnte, true, "platform-subsidised (creator never joined)");
+  // The first user to open the app can bet immediately.
+  const v = OMS.validatePlaceBet(state, {
+    pubkey: USER_A, surveyId: "s1", optionKey: "yes", credits: 10, side: "yes", now: 1700000010000,
+  });
+  assert.strictEqual(v.ok, true, "0-vote market accepts a bet (no NO_MARKET / NO_POOL)");
+});
+
+test("LIQUIDITY-ALWAYS-SEEDED: server oracle market seeds with no bets at all", async () => {
+  nextTxId = 1;
+  const txs = [tx(SERVER, "create_daily_btc", { survey: btcSurvey() }, 0)];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: BASE + 3000,
+  });
+  const mkt = state.MARKETS.get("btc-daily-test");
+  assert(mkt, "oracle market seeded despite no joined creator and no bets");
+  assert(OMS.cpmmTotalLiquidity(mkt) > 0, "non-empty pools");
+  assert.strictEqual(mkt.seededWithoutAnte, true);
+});
+
+test("LIQUIDITY: creator ante still charged when creator joined & solvent (no regression)", async () => {
+  nextTxId = 1;
+  const survey = {
+    id: "s1", title: "T", question: "Q?",
+    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
+    active_duration_ms: 600000,
+  };
+  const txs = [tx(ADMIN, "join", null, 1000), tx(ADMIN, "create_survey", { survey }, 2000)];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: 1700000010000,
+  });
+  const mkt = state.MARKETS.get("s1");
+  assert(mkt && mkt.seededWithoutAnte === false, "ante charged, not subsidised");
+  assert.strictEqual(state.CREDIT_FLOWS.get(ADMIN).antes, OMS.MARKET_ANTE, "creator paid the ante");
+  assert.strictEqual(OMS.userBalance(state, ADMIN), OMS.INITIAL_CREDITS - OMS.MARKET_ANTE);
+});
+
+/* ── Automated payout reconciliation (Part 2 / Phase 7b) ──────────── */
+
+function btcResolvedStream() {
+  return btcStream().concat([
+    // Real price 69000 > strike 68000 → higher wins; USER_A bet 100 on higher.
+    tx(SERVER, "resolve_btc", {
+      survey: "btc-daily-test", strike_usd: 68000, resolved_price_usd: 69000,
+      resolved_at: BASE + 90000000, winner: "higher",
+    }, 90000000),
+  ]);
+}
+
+const RECON_OPTS = (txs, now) => ({
+  rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+  adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
+  trustedSenders: [SERVER], now,
+});
+
+test("PAYOUT-RECONCILE: a resolved-but-unpaid winner appears in the payout queue", async () => {
+  const txs = btcResolvedStream();
+  const state = await OMS.computeFullState(RECON_OPTS(txs, BASE + 90000001));
+  const settlement = state.SETTLEMENTS.get("btc-daily-test");
+  const owed = settlement.payouts[USER_A];
+  assert(owed > 0, "USER_A is owed a payout from the oracle outcome");
+  const pending = OMS.findPendingPayouts(state);
+  const mine = pending.find((p) => p.surveyId === "btc-daily-test" && p.winner === USER_A);
+  assert(mine, "owed payout is in the bot's pending queue");
+  assert.strictEqual(mine.credits, owed, "pending credits == settlement payout");
+  assert.strictEqual(mine.outcome, "higher");
+  assert.strictEqual(settlement.paid, false, "not yet realised on-chain");
+  assert.strictEqual(settlement.payoutPending, true);
+});
+
+test("PAYOUT-RECONCILE: a trusted settlement_payout memo marks the winner paid (idempotent)", async () => {
+  const base = btcResolvedStream();
+  const owed = (await OMS.computeFullState(RECON_OPTS(base, BASE + 90000001)))
+    .SETTLEMENTS.get("btc-daily-test").payouts[USER_A];
+  const amount = Math.floor(owed * 0.01);
+  const txs = base.concat([
+    tx(SERVER, "settlement_payout", {
+      survey: "btc-daily-test", winner: USER_A, credits: owed, amount,
+      rate: 0.01, outcome: "higher", payout_tx_id: "px1",
+    }, 90001000),
+  ]);
+  const state = await OMS.computeFullState(RECON_OPTS(txs, BASE + 90002000));
+  const settlement = state.SETTLEMENTS.get("btc-daily-test");
+  assert.strictEqual(settlement.paid, true, "all owed winners now have payout records");
+  assert.strictEqual(settlement.paidAmount, amount, "paidAmount reflects the memo");
+  const rec = state.payouts.get("btc-daily-test").get(USER_A);
+  assert(rec && rec.payoutTxId === "px1", "payout record carries the on-chain tx id");
+  const pending = OMS.findPendingPayouts(state);
+  assert(
+    !pending.find((p) => p.surveyId === "btc-daily-test" && p.winner === USER_A),
+    "paid winner is no longer pending → bot won't double-pay"
+  );
+});
+
+test("PAYOUT-RECONCILE: a forged settlement_payout from an untrusted sender is ignored", async () => {
+  const base = btcResolvedStream();
+  const owed = (await OMS.computeFullState(RECON_OPTS(base, BASE + 90000001)))
+    .SETTLEMENTS.get("btc-daily-test").payouts[USER_A];
+  const txs = base.concat([
+    // USER_B forges a "you were paid" record for USER_A — must be rejected.
+    tx(USER_B, "settlement_payout", {
+      survey: "btc-daily-test", winner: USER_A, credits: owed, amount: 99999,
+      rate: 0.01, outcome: "higher", payout_tx_id: "forged",
+    }, 90001000),
+  ]);
+  const state = await OMS.computeFullState(RECON_OPTS(txs, BASE + 90002000));
+  const settlement = state.SETTLEMENTS.get("btc-daily-test");
+  assert.strictEqual(settlement.paid, false, "forged payout does not mark the market paid");
+  const inner = state.payouts.get("btc-daily-test");
+  assert(!inner || !inner.has(USER_A), "forged record is not indexed");
+  const pending = OMS.findPendingPayouts(state);
+  assert(pending.find((p) => p.winner === USER_A), "winner is still owed (forgery ignored)");
+});
+
+test("PAYOUT-BOT: planPayouts floors conversions and scales pro-rata on insolvency", () => {
+  const planPayouts = require("../payout-bot.js").planPayouts;
+  const pending = [
+    { surveyId: "a", winner: "w1", credits: 1000 },
+    { surveyId: "b", winner: "w2", credits: 1000 },
+  ];
+  // rate 0.01 → 10 each, total 20. Available 30 covers it → no scaling.
+  let r = planPayouts(pending, 0.01, 30, 0);
+  assert.strictEqual(r.scaled, false);
+  assert.strictEqual(r.plans[0].amount, 10);
+  assert.strictEqual(r.totalOwed, 20);
+  // Available 15 < owed 20 → pro-rata factor 0.75 → floor(10*0.75) = 7 each.
+  r = planPayouts(pending, 0.01, 15, 0);
+  assert.strictEqual(r.scaled, true, "insolvent pool scales pro-rata");
+  assert.strictEqual(r.plans[0].amount, 7);
+  assert.strictEqual(r.plans[1].amount, 7);
+  // Unknown balance (null) → never scale (operator-funded assumption).
+  r = planPayouts(pending, 0.01, null, 0);
+  assert.strictEqual(r.scaled, false);
+  // Sub-unit payout floors to 0 and is dropped (never overpay, never pay dust).
+  r = planPayouts([{ surveyId: "c", winner: "w3", credits: 99 }], 0.01, null, 0);
+  assert.strictEqual(r.plans.length, 0, "floor(99*0.01)=0 → dropped");
+});
+
 run();

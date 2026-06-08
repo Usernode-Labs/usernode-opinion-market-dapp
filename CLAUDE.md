@@ -32,6 +32,21 @@ conventions win.
   transactions back on-chain via the sidecar `/wallet/send`, and serves
   `/__om/pubkeys/:surveyId` as an HTTP fallback for clients that need
   pubkeys before the on-chain `publish_pubkeys` tx lands.
+- `payout-bot.js` — Automated on-chain settlement. Ticks ~every 20s,
+  rebuilds the pure OM state, finds settled-but-unpaid winners via
+  `OMS.findPendingPayouts`, and transfers each prize in REAL
+  base-currency from a dedicated, funded Pool wallet
+  (`POOL_APP_PUBKEY`/`POOL_APP_SECRET_KEY`) straight to the winner's
+  wallet using its own pool signer + `/wallet/send` (variable `amount`,
+  arbitrary recipient). It then posts a `settlement_payout` memo back to
+  `APP_PUBKEY` (via `voteEncryption.sendMemo`) for idempotency + audit +
+  UI. Virtual credits → base-currency via `PAYOUT_RATE`
+  (`amount = floor(credits * rate)`); insolvency is handled pro-rata
+  against `POOL_MIN_BALANCE`. Real sends are leader-gated
+  (`PAYOUT_LEADER=1` on exactly one deploy) so the `APP_PUBKEY`-sharing
+  topology can't double-spend. Staging seeds fabricated
+  `settlement_payout` memos instead of moving funds. All wallet I/O lives
+  here — `opinion-market-state.js` stays pure.
 - `lib/dapp-server.js` — Vendored helpers (mock API, chain poller,
   explorer proxy, env loader, status probe, status page). Copied from
   `usernode-dapp-starter`; do not edit in-place — re-vendor from upstream
@@ -138,6 +153,17 @@ Memos are JSON. OM only acts on these:
 - `client → OM (upvote)`:        `{"app":"opinion-market","type":"upvote_proposal","proposal":"<proposalId>"}`
 - `server → OM (pubkeys)`:       `{"app":"opinion-market","type":"publish_pubkeys","survey":"<id>","batch":<n>,"pubkeys":[…]}`
 - `server → OM (reveal)`:        `{"app":"opinion-market","type":"reveal_key","survey":"<id>","interval":<i>,"jwk":{…}}`
+- `server → OM (payout)`:         `{"app":"opinion-market","type":"settlement_payout","survey":"<id>","winner":"<pubkey>","credits":<virtual>,"amount":<onchain>,"rate":<r>,"outcome":"<optKey|push>","payout_tx_id":"<id>"}`
+
+The `settlement_payout` memo is authored by `payout-bot.js` after it has
+transferred the real prize from the Pool wallet to the winner. Replay
+reconciles it in `opinion-market-state.js` **Phase 7b** (indexed into
+`state.payouts`, keyed by `(survey, winner)`, earliest-memo-wins) and only
+honours one whose `from` is a trusted server sender (`trustedSenders` —
+the pool + key-publication pubkeys) so a `settlement_payout` cannot be
+forged. Each settlement exposes `paid` / `paidAmount` /
+`payoutPending` for the UI, and `OMS.findPendingPayouts(state)` returns
+the owed-but-unpaid queue the bot drains.
 
 The server is a no-op consumer for `vote`, `add_option`,
 `propose_question`, and `upvote_proposal` memos — it just keeps them in
