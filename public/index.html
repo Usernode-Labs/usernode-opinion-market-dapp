@@ -336,6 +336,52 @@
       .tx-progress .tx-progress-label.warn { color: var(--warn); }
       .tx-progress .tx-progress-label.err  { color: var(--danger); }
 
+      /* App-level first-load skeleton. Shown in the scroll area on first
+         paint (no `hide` class in markup) and removed once the first
+         refreshLoopOnce() render completes. Separate from the vendored
+         node-readiness overlay (usernode-loading.js): that overlay covers
+         sidecar boot/sync and self-skips in mock/desktop, whereas this
+         bridges the gap while the app fetches txs and rebuilds state. */
+      @keyframes unl-skeleton-shimmer {
+        0%   { background-position: -480px 0; }
+        100% { background-position: 480px 0; }
+      }
+      #appLoading { display: grid; gap: 10px; }
+      #appLoading .skelHead {
+        height: 14px; width: 40%; border-radius: 6px; margin-bottom: 6px;
+      }
+      #appLoading .skelCard {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card);
+        padding: 14px;
+        display: grid; gap: 10px;
+      }
+      #appLoading .skelRow { display: flex; justify-content: space-between; gap: 10px; }
+      .skelBar {
+        height: 12px; border-radius: 6px;
+        background: var(--border);
+        background-image: linear-gradient(
+          90deg,
+          rgba(110, 168, 254, 0) 0%,
+          rgba(110, 168, 254, 0.18) 50%,
+          rgba(110, 168, 254, 0) 100%
+        );
+        background-size: 480px 100%;
+        background-repeat: no-repeat;
+        animation: unl-skeleton-shimmer 1.2s ease-in-out infinite;
+      }
+      .skelBar.lg { height: 16px; }
+      .skelBar.pill { width: 64px; height: 22px; border-radius: 999px; flex: none; }
+      #appLoadingError {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card);
+        padding: 16px;
+        text-align: center;
+      }
+      #appLoadingError .muted { font-size: 13px; margin: 0 0 10px; }
+
       .muted { color: var(--muted); }
       .danger { color: var(--danger); }
       .ok { color: var(--ok); }
@@ -1159,6 +1205,33 @@
 
     <div class="scrollArea" id="scrollRoot">
       <div class="scrollArea-inner">
+            <!-- App-level first-load skeleton. Visible on first paint (no
+                 `hide` class); hidden once the first refreshLoopOnce()
+                 render completes. See the #appLoading CSS block above and
+                 the _firstRenderDone wiring in refreshLoopOnce(). -->
+            <div id="appLoading" role="status" aria-live="polite" aria-label="Loading questions">
+              <div class="skelHead skelBar"></div>
+              <div class="skelCard">
+                <div class="skelRow"><div class="skelBar lg" style="width:60%"></div><div class="skelBar pill"></div></div>
+                <div class="skelBar" style="width:85%"></div>
+                <div class="skelBar" style="width:35%"></div>
+              </div>
+              <div class="skelCard">
+                <div class="skelRow"><div class="skelBar lg" style="width:50%"></div><div class="skelBar pill"></div></div>
+                <div class="skelBar" style="width:90%"></div>
+                <div class="skelBar" style="width:30%"></div>
+              </div>
+              <div class="skelCard">
+                <div class="skelRow"><div class="skelBar lg" style="width:55%"></div><div class="skelBar pill"></div></div>
+                <div class="skelBar" style="width:75%"></div>
+                <div class="skelBar" style="width:40%"></div>
+              </div>
+            </div>
+            <div id="appLoadingError" class="hide">
+              <p class="muted">Couldn't load questions. Check your connection and try again.</p>
+              <button class="btn primary" id="appLoadingRetryBtn" type="button">Retry</button>
+            </div>
+
             <!-- Onboarding -->
             <div class="panel onboarding hide" id="onboardingPanel">
               <h2>Opinion Market</h2>
@@ -1917,6 +1990,7 @@
         let PRIVKEY_MAP = new Map();
         let SURVEYS_BY_ID = new Map();
         let _lastRebuildTxCount = -1;
+        let _firstRenderDone = false;
         const _decryptCache = new Map();
 
         function isGenesisGated() { return GENESIS_ACCOUNTS.size > 0; }
@@ -5176,7 +5250,24 @@
             }
 
             if ($("screenLeaderboard") && !$("screenLeaderboard").classList.contains("hide")) renderLeaderboard();
-          } catch (e) { console.error("Refresh error:", e); }
+
+            // First successful render — retire the first-load skeleton. Guarded
+            // so the periodic 4s refresh never re-shows it.
+            if (!_firstRenderDone) {
+              _firstRenderDone = true;
+              show($("appLoading"), false);
+              show($("appLoadingError"), false);
+            }
+          } catch (e) {
+            console.error("Refresh error:", e);
+            // If the very first load failed, swap the skeleton for an inline
+            // error + retry instead of spinning forever. Later interval ticks
+            // (or the Retry button) can still recover and render content.
+            if (!_firstRenderDone) {
+              show($("appLoading"), false);
+              show($("appLoadingError"), true);
+            }
+          }
         }
 
         /* ================================================================
@@ -5262,6 +5353,17 @@
             else navigateToList();
           });
           $("allMarketsBtn").addEventListener("click", navigateToList);
+
+          // First-load error → retry. Show the skeleton again while the
+          // re-fetch is in flight; refreshLoopOnce() resolves it either way.
+          const retryBtn = $("appLoadingRetryBtn");
+          if (retryBtn) retryBtn.addEventListener("click", () => {
+            if (_firstRenderDone) return;
+            show($("appLoadingError"), false);
+            show($("appLoading"), true);
+            _lastRebuildTxCount = -1;
+            refreshLoopOnce();
+          });
 
           $("headerUsernameBtn").addEventListener("click", () => {
             if (sending) return;
