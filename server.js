@@ -401,10 +401,10 @@ const TICKER_COINS = [
   { id: "bitcoin",      symbol: "BTC",  name: "Bitcoin"  },
   { id: "ethereum",     symbol: "ETH",  name: "Ethereum" },
   { id: "tether",       symbol: "USDT", name: "Tether"   },
-  { id: "binance-coin", symbol: "BNB",  name: "BNB"      },
+  { id: "binancecoin",  symbol: "BNB",  name: "BNB"      },
   { id: "solana",       symbol: "SOL",  name: "Solana"   },
   { id: "usd-coin",     symbol: "USDC", name: "USD Coin" },
-  { id: "xrp",          symbol: "XRP",  name: "XRP"      },
+  { id: "ripple",       symbol: "XRP",  name: "XRP"      },
   { id: "dogecoin",     symbol: "DOGE", name: "Dogecoin" },
   { id: "cardano",      symbol: "ADA",  name: "Cardano"  },
   { id: "tron",         symbol: "TRX",  name: "TRON"     },
@@ -413,15 +413,22 @@ const TICKER_COIN_IDS = TICKER_COINS.map((c) => c.id).join(",");
 const TICKER_CACHE_MS = 60_000;
 const TICKER_HTTP_TIMEOUT_MS = 10_000;
 
+const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY || "";
+
 let _tickerCache = { data: null, fetchedAt: 0 };
 
 function fetchCoinGeckoPrices() {
   const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${TICKER_COIN_IDS}&order=market_cap_desc&per_page=10&page=1&sparkline=false`;
+  const headers = { accept: "application/json" };
+  if (COINGECKO_API_KEY) headers["x-cg-demo-api-key"] = COINGECKO_API_KEY;
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { accept: "application/json" } }, (res) => {
+    const req = https.get(url, { headers }, (res) => {
       const chunks = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => {
+        if (res.statusCode === 429) {
+          return reject(new Error("[ticker] CoinGecko rate-limited (429) — set COINGECKO_API_KEY to increase the limit"));
+        }
         if (res.statusCode < 200 || res.statusCode >= 300) {
           return reject(new Error(`HTTP ${res.statusCode}`));
         }

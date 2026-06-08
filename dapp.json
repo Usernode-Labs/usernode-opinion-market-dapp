@@ -43,6 +43,12 @@
       "required": false,
       "private": true,
       "staging_default": ""
+    },
+    {
+      "key": "COINGECKO_API_KEY",
+      "description": "CoinGecko Demo API key (free at coingecko.com/api). Raises the rate limit from ~10 req/min (unauthenticated) to 30 req/min. Leave empty to run keyless (may hit rate limits on a shared host IP).",
+      "required": false,
+      "private": false
     }
   ]
 }
