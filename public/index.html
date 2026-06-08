@@ -1076,6 +1076,7 @@
         border-right: 1px solid var(--border);
         height: 100%;
       }
+      .tickerItem-logo   { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; }
       .tickerItem-symbol { font-weight: 700; color: var(--fg); }
       .tickerItem-price  { color: var(--fg); }
       .tickerItem-change { font-size: 11px; }
@@ -2410,6 +2411,17 @@
         function buildTickerItem(coin) {
           const item = document.createElement("div");
           item.className = "tickerItem";
+
+          if (coin.image) {
+            const logo = document.createElement("img");
+            logo.className = "tickerItem-logo";
+            logo.src = coin.image;
+            logo.alt = coin.symbol;
+            logo.loading = "lazy";
+            logo.width = 16;
+            logo.height = 16;
+            item.appendChild(logo);
+          }
 
           const sym = document.createElement("span");
           sym.className = "tickerItem-symbol";

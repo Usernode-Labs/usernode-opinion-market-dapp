@@ -394,7 +394,7 @@ app.use((req, res, next) => {
 });
 
 // ── Live crypto price ticker ──────────────────────────────────────────────────
-// Proxy to CoinGecko's simple/price endpoint so all browser clients share one
+// Proxy to CoinGecko's coins/markets endpoint so all browser clients share one
 // server-side fetch per 60 s instead of each hitting CoinGecko directly.
 // Purely cosmetic — no effect on any on-chain state.
 const TICKER_COINS = [
@@ -416,7 +416,7 @@ const TICKER_HTTP_TIMEOUT_MS = 10_000;
 let _tickerCache = { data: null, fetchedAt: 0 };
 
 function fetchCoinGeckoPrices() {
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${TICKER_COIN_IDS}&vs_currencies=usd&include_24hr_change=true`;
+  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${TICKER_COIN_IDS}&order=market_cap_desc&per_page=10&page=1&sparkline=false`;
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { accept: "application/json" } }, (res) => {
       const chunks = [];
@@ -447,15 +447,21 @@ app.get("/__om/crypto-prices", async (_req, res) => {
   }
 
   try {
+    // /coins/markets returns an array; build a lookup map by id for O(1) access.
     const raw = await fetchCoinGeckoPrices();
+    const byId = {};
+    if (Array.isArray(raw)) {
+      for (const entry of raw) { if (entry && entry.id) byId[entry.id] = entry; }
+    }
     const prices = TICKER_COINS.map(({ id, symbol, name }) => {
-      const entry = raw[id];
+      const entry = byId[id];
       return {
         id,
         symbol,
         name,
-        priceUsd: entry ? entry.usd : null,
-        change24h: entry ? entry.usd_24h_change : null,
+        priceUsd: entry ? entry.current_price : null,
+        change24h: entry ? entry.price_change_percentage_24h : null,
+        image: entry ? (entry.image || null) : null,
       };
     }).filter((c) => c.priceUsd != null);
     _tickerCache = { data: prices, fetchedAt: now };
