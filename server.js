@@ -398,19 +398,21 @@ app.use((req, res, next) => {
 // server-side fetch per 60 s instead of each hitting CoinGecko directly.
 // Purely cosmetic — no effect on any on-chain state.
 const TICKER_COINS = [
-  { id: "bitcoin",      coincapId: "bitcoin",      symbol: "BTC",  name: "Bitcoin"  },
-  { id: "ethereum",     coincapId: "ethereum",     symbol: "ETH",  name: "Ethereum" },
-  { id: "tether",       coincapId: "tether",       symbol: "USDT", name: "Tether"   },
-  { id: "binancecoin",  coincapId: "binance-coin", symbol: "BNB",  name: "BNB"      },
-  { id: "solana",       coincapId: "solana",       symbol: "SOL",  name: "Solana"   },
-  { id: "usd-coin",     coincapId: "usd-coin",     symbol: "USDC", name: "USD Coin" },
-  { id: "ripple",       coincapId: "xrp",          symbol: "XRP",  name: "XRP"      },
-  { id: "dogecoin",     coincapId: "dogecoin",     symbol: "DOGE", name: "Dogecoin" },
-  { id: "cardano",      coincapId: "cardano",      symbol: "ADA",  name: "Cardano"  },
-  { id: "tron",         coincapId: "tron",         symbol: "TRX",  name: "TRON"     },
+  { id: "bitcoin",      binancePair: "BTCUSDT",  symbol: "BTC",  name: "Bitcoin"  },
+  { id: "ethereum",     binancePair: "ETHUSDT",  symbol: "ETH",  name: "Ethereum" },
+  { id: "tether",       binancePair: null,       symbol: "USDT", name: "Tether"   },
+  { id: "binancecoin",  binancePair: "BNBUSDT",  symbol: "BNB",  name: "BNB"      },
+  { id: "solana",       binancePair: "SOLUSDT",  symbol: "SOL",  name: "Solana"   },
+  { id: "usd-coin",     binancePair: "USDCUSDT", symbol: "USDC", name: "USD Coin" },
+  { id: "ripple",       binancePair: "XRPUSDT",  symbol: "XRP",  name: "XRP"      },
+  { id: "dogecoin",     binancePair: "DOGEUSDT", symbol: "DOGE", name: "Dogecoin" },
+  { id: "cardano",      binancePair: "ADAUSDT",  symbol: "ADA",  name: "Cardano"  },
+  { id: "tron",         binancePair: "TRXUSDT",  symbol: "TRX",  name: "TRON"     },
 ];
 const TICKER_COIN_IDS = TICKER_COINS.map((c) => c.id).join(",");
-const TICKER_COINCAP_IDS = TICKER_COINS.map((c) => c.coincapId).join(",");
+const TICKER_BINANCE_SYMBOLS_PARAM = encodeURIComponent(
+  JSON.stringify(TICKER_COINS.filter((c) => c.binancePair).map((c) => c.binancePair))
+);
 const TICKER_CACHE_MS = 60_000;
 const TICKER_HTTP_TIMEOUT_MS = 10_000;
 
@@ -445,8 +447,8 @@ function fetchCoinGeckoPrices() {
   });
 }
 
-function fetchCoinCapPrices() {
-  const url = `https://api.coincap.io/v2/assets?ids=${TICKER_COINCAP_IDS}`;
+function fetchBinancePrices() {
+  const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${TICKER_BINANCE_SYMBOLS_PARAM}`;
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers: { accept: "application/json" } }, (res) => {
       const chunks = [];
@@ -457,7 +459,7 @@ function fetchCoinCapPrices() {
         }
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString());
-          resolve(Array.isArray(body.data) ? body.data : []);
+          resolve(Array.isArray(body) ? body : []);
         } catch (e) {
           reject(new Error(`JSON parse: ${e.message}`));
         }
@@ -500,13 +502,17 @@ app.get("/__om/crypto-prices", async (_req, res) => {
   } catch (e) {
     console.warn(`[ticker] CoinGecko fetch failed: ${e.message}`);
     try {
-      const raw = await fetchCoinCapPrices();
-      const byCoincapId = {};
-      for (const entry of raw) { if (entry && entry.id) byCoincapId[entry.id] = entry; }
-      prices = TICKER_COINS.map(({ id, coincapId, symbol, name }) => {
-        const entry = byCoincapId[coincapId];
-        const priceUsd = entry ? parseFloat(entry.priceUsd) : null;
-        const change24h = entry ? parseFloat(entry.changePercent24Hr) : null;
+      const raw = await fetchBinancePrices();
+      const byPair = {};
+      for (const entry of raw) { if (entry && entry.symbol) byPair[entry.symbol] = entry; }
+      prices = TICKER_COINS.map(({ id, binancePair, symbol, name }) => {
+        if (binancePair === null) {
+          // USDT is the quote currency on Binance — hardcode $1.00
+          return { id, symbol, name, priceUsd: 1.0, change24h: 0, image: null };
+        }
+        const entry = byPair[binancePair];
+        const priceUsd = entry ? parseFloat(entry.lastPrice) : null;
+        const change24h = entry ? parseFloat(entry.priceChangePercent) : null;
         return {
           id,
           symbol,
@@ -516,14 +522,14 @@ app.get("/__om/crypto-prices", async (_req, res) => {
           image: null,
         };
       }).filter((c) => c.priceUsd != null);
-      console.log("[ticker] prices loaded from CoinCap (CoinGecko failed)");
+      console.log("[ticker] prices loaded from Binance (CoinGecko failed)");
     } catch (e2) {
-      console.warn(`[ticker] CoinCap fetch failed: ${e2.message}`);
+      console.warn(`[ticker] Binance fetch failed: ${e2.message}`);
       console.warn("[ticker] all price sources failed");
     }
   }
 
-  if (prices !== null) {
+  if (prices !== null && prices.length > 0) {
     _tickerCache = { data: prices, fetchedAt: now };
     return res.json({ fetchedAt: now, prices });
   }

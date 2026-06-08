@@ -2571,17 +2571,15 @@
         async function ensureBtcLivePrice() {
           const now = Date.now();
           if (_btcLivePrice != null && now - _btcLiveFetchedAt < 60000) return;
-          _btcLiveFetchedAt = now;
-          try {
-            const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
-            const j = await r.json();
-            const p = j && j.bitcoin && j.bitcoin.usd;
-            if (typeof p === "number" && isFinite(p)) {
-              _btcLivePrice = p;
-              const el = $("btcLivePrice");
-              if (el) el.textContent = "Live BTC (indicative): $" + fmtUsdFull(p);
-            }
-          } catch (_) { /* cosmetic only — ignore failures */ }
+          // Use the server-side proxy instead of calling CoinGecko directly.
+          if (_cryptoPrices.length === 0) await fetchCryptoPrices();
+          const btc = _cryptoPrices.find((c) => c.symbol === "BTC");
+          if (btc && isFinite(btc.priceUsd)) {
+            _btcLivePrice = btc.priceUsd;
+            _btcLiveFetchedAt = now;
+            const el = $("btcLivePrice");
+            if (el) el.textContent = "Live BTC (indicative): $" + fmtUsdFull(btc.priceUsd);
+          }
         }
 
         const IMAGE_URL_RE = /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?\S*)?/i;
