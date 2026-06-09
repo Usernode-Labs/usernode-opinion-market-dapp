@@ -162,8 +162,8 @@
       .userAvatar {
         width: 26px; height: 26px;
         border-radius: 50%;
-        background: var(--accent);
-        color: #fff;
+        background: var(--border);
+        color: var(--muted);
         font-size: 13px; font-weight: 600; line-height: 26px;
         text-align: center; text-transform: uppercase;
         user-select: none;
@@ -1069,12 +1069,12 @@
       <div class="topBar-inner row" style="justify-content: space-between; align-items: center;">
         <h1 style="margin: 0;">Opinion Market</h1>
         <div class="row">
-          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
-            &#x1FA99; <code id="creditsAmount">0</code>
-          </button>
           <button class="pill pillButton userBadge" id="headerUsernameBtn" type="button">
             <span id="headerUserAvatar" class="userAvatar">?</span>
             <span id="headerUsername" class="userBadgeLabel">(loading...)</span>
+          </button>
+          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
+            &#x1FA99; <code id="creditsAmount">0</code>
           </button>
           <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
