@@ -290,6 +290,42 @@
       .history-profit.neg { color: var(--danger); }
       .history-empty { text-align: center; padding: 40px 16px; color: var(--muted); font-size: 14px; }
 
+      /* Wallet & Portfolio */
+      .portfolioTabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+      .portfolioTab {
+        background: transparent; border: none; border-bottom: 2px solid transparent;
+        padding: 8px 14px; font-size: 14px; font-weight: 600; color: var(--muted);
+        cursor: pointer; margin-bottom: -1px;
+      }
+      .portfolioTab.active { color: var(--accent); border-bottom-color: var(--accent); }
+      .portfolioGroup { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+      .portfolioGroup-head {
+        display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+        cursor: pointer;
+      }
+      .portfolioGroup-title { font-size: 14px; font-weight: 600; line-height: 1.3; min-width: 0; }
+      .portfolioGroup-pl { font-size: 13px; font-weight: 700; white-space: nowrap; }
+      .portfolioGroup-pl.pos { color: var(--ok); }
+      .portfolioGroup-pl.neg { color: var(--danger); }
+      .portfolioGroup-plLabel { font-size: 10px; color: var(--muted); font-weight: 500; }
+      .position-row {
+        display: flex; justify-content: space-between; align-items: center; gap: 10px;
+        padding: 8px 0; border-top: 1px solid var(--border); margin-top: 8px;
+      }
+      .position-body { min-width: 0; }
+      .position-name { font-size: 13px; line-height: 1.3; }
+      .position-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+      .position-val { font-size: 13px; font-weight: 600; white-space: nowrap; text-align: right; }
+      .position-side {
+        display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px;
+        border-radius: 999px; margin-right: 6px; vertical-align: middle;
+      }
+      .position-side.yes { background: color-mix(in oklab, var(--ok) 20%, transparent); color: var(--ok); }
+      .position-side.no { background: color-mix(in oklab, var(--danger) 20%, transparent); color: var(--danger); }
+      .portfolio-empty { text-align: center; padding: 32px 16px; color: var(--muted); font-size: 14px; }
+      .portfolio-breakdown { font-size: 12px; color: var(--muted); margin: 6px 0 18px; line-height: 1.5; }
+      .portfolio-sectionTitle { font-size: 15px; font-weight: 700; margin: 18px 0 10px; }
+
       .bar {
         height: 10px;
         border-radius: 999px;
@@ -1051,12 +1087,13 @@
       <div class="topBar-inner row" style="justify-content: space-between; align-items: flex-start;">
         <h1 style="margin: 0;">Opinion Market</h1>
         <div class="row">
-          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
+          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="Wallet &amp; Portfolio">
             &#x1FA99; <code id="creditsAmount">0</code>
           </button>
           <button class="pill pillButton" id="headerUsernameBtn" type="button">
             User: <code id="headerUsername">(loading...)</code>
           </button>
+          <button class="btn small hide" id="portfolioBtn" type="button" title="Wallet &amp; Portfolio">&#x1F45B;</button>
           <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
           <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026">&#x26BD;</button>
@@ -1483,11 +1520,21 @@
               <div id="leaderboardContent"></div>
             </div>
 
-            <!-- My History -->
-            <div class="panel hide" id="screenHistory">
-              <h2 style="margin-bottom: 12px;">My History</h2>
-              <div id="historyStats" class="statsGrid" style="margin-bottom: 16px;"></div>
-              <div id="historyTimeline"></div>
+            <!-- Wallet & Portfolio (Holdings + Activity). The Activity tab
+                 reuses the existing renderHistoryPanel trade-history timeline;
+                 the old standalone "My History" screen was folded in here and
+                 #history now aliases the Activity tab. -->
+            <div class="panel hide" id="screenPortfolio">
+              <h2 style="margin-bottom: 12px;">Wallet &amp; Portfolio</h2>
+              <div class="portfolioTabs">
+                <button class="portfolioTab active" id="portfolioTabHoldings" type="button">Holdings</button>
+                <button class="portfolioTab" id="portfolioTabActivity" type="button">Activity</button>
+              </div>
+              <div id="portfolioHoldings"></div>
+              <div id="portfolioActivity" class="hide">
+                <div id="historyStats" class="statsGrid" style="margin-bottom: 16px;"></div>
+                <div id="historyTimeline"></div>
+              </div>
             </div>
 
             <!-- World Cup 2026 — hub screen (live, today, coming up, results) -->
@@ -3017,7 +3064,7 @@
          * ================================================================ */
         function syncHash() {
           if (currentSurveyId) history.replaceState(null, "", "#survey/" + encodeURIComponent(currentSurveyId));
-          else if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) history.replaceState(null, "", "#history");
+          else if ($("screenPortfolio") && !$("screenPortfolio").classList.contains("hide")) history.replaceState(null, "", "#portfolio");
           else if ($("screenLeaderboard") && !$("screenLeaderboard").classList.contains("hide")) history.replaceState(null, "", "#leaderboard");
           else if ($("screenInfo") && !$("screenInfo").classList.contains("hide")) history.replaceState(null, "", "#info");
           else if ($("screenWC26Hub") && !$("screenWC26Hub").classList.contains("hide")) history.replaceState(null, "", "#wc26");
@@ -3036,7 +3083,7 @@
           show($("screenProposals"), joined);
           show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
           show($("screenSurvey"), false);
-          show($("screenHistory"), false);
+          show($("screenPortfolio"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
@@ -3057,7 +3104,7 @@
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), true);
-          show($("screenHistory"), false);
+          show($("screenPortfolio"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
@@ -3157,7 +3204,7 @@
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
-          show($("screenHistory"), false);
+          show($("screenPortfolio"), false);
           show($("screenLeaderboard"), true);
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
@@ -3174,7 +3221,7 @@
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
-          show($("screenHistory"), false);
+          show($("screenPortfolio"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), true);
           show($("screenWC26Hub"), false);
@@ -3183,7 +3230,9 @@
           syncHash();
         }
 
-        function navigateToHistory() {
+        // Wallet & Portfolio screen. `tab` is "holdings" (default) or
+        // "activity". The Activity tab hosts the trade-history timeline.
+        function navigateToPortfolio(tab) {
           if (!me || !JOINED.has(me)) { navigateToList(); return; }
           currentSurveyId = null;
           show($("myStatsPanel"), false);
@@ -3191,15 +3240,20 @@
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
-          show($("screenHistory"), true);
+          show($("screenPortfolio"), true);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
-          renderHistoryPanel();
+          setPortfolioTab(tab || _portfolioTab);
           syncHash();
         }
+
+        // Back-compat alias: the old "My History" entry point now opens the
+        // Portfolio screen on its Activity tab. Keeps #history deep links and
+        // the historyBtn working.
+        function navigateToHistory() { navigateToPortfolio("activity"); }
 
         // When navigating from WC26 hub into a match detail, we want the back
         // button to return to the WC26 hub instead of the main list.
@@ -3213,7 +3267,7 @@
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
-          show($("screenHistory"), false);
+          show($("screenPortfolio"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
           show($("screenWC26Hub"), true);
@@ -3230,7 +3284,7 @@
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), false);
-          show($("screenHistory"), false);
+          show($("screenPortfolio"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
@@ -3704,15 +3758,231 @@
           timeline.appendChild(frag);
         }
 
+        /* ================================================================
+         *  RENDERING — Wallet & Portfolio
+         *
+         *  All figures trace back to the same balance/value accessors the
+         *  header pill and leaderboard use (userBalance + userShareValue), so
+         *  the views agree by construction. Per-position values are the
+         *  liquidation proceeds of that one position alone; they are NOT
+         *  additive across positions in a multi-option market (each is priced
+         *  against the same starting pools) — any *total* uses userShareValue
+         *  / marketShareValue instead. See the spec's Data Model section.
+         * ================================================================ */
+
+        // Shares below this are treated as dust (CPMM arbitrage rounding).
+        const POSITION_DUST = 1e-6;
+        let _portfolioTab = "holdings";
+
+        // Liquidation value of one (market, option, side) position against the
+        // current pools. Mirrors userShareValue's per-position math.
+        function positionValue(mkt, optKey, side, shares) {
+          if (!mkt || !mkt.pools || shares <= 0) return 0;
+          const isMulti = Object.keys(mkt.pools).length > 1;
+          if (side === "no") {
+            if (isMulti && CPMM.cpmmSellArbitrageNo) return CPMM.cpmmSellArbitrageNo(mkt.pools, optKey, shares).creditsReceived;
+            return CPMM.cpmmSellNo ? CPMM.cpmmSellNo(mkt.pools[optKey], shares) : 0;
+          }
+          if (isMulti && CPMM.cpmmSellArbitrage) return CPMM.cpmmSellArbitrage(mkt.pools, optKey, shares).creditsReceived;
+          return CPMM.cpmmSellYes ? CPMM.cpmmSellYes(mkt.pools[optKey], shares) : 0;
+        }
+
+        // Total current value of all of `pubkey`'s positions in a single
+        // market (the additive, per-market figure used for subtotals/P&L).
+        function marketShareValue(mkt, pubkey) {
+          if (!mkt || !mkt.pools) return 0;
+          const keys = Object.keys(mkt.pools);
+          if (!keys.length) return 0;
+          const isMulti = keys.length > 1;
+          let total = 0;
+          const yesH = (mkt.userShares && mkt.userShares[pubkey]) || {};
+          for (const k of keys) {
+            const sh = yesH[k] || 0;
+            if (sh <= POSITION_DUST) continue;
+            total += isMulti && CPMM.cpmmSellArbitrage
+              ? CPMM.cpmmSellArbitrage(mkt.pools, k, sh).creditsReceived
+              : (CPMM.cpmmSellYes ? CPMM.cpmmSellYes(mkt.pools[k], sh) : 0);
+          }
+          const noH = (mkt.userNoShares && mkt.userNoShares[pubkey]) || {};
+          for (const k of keys) {
+            const sh = noH[k] || 0;
+            if (sh <= POSITION_DUST) continue;
+            total += isMulti && CPMM.cpmmSellArbitrageNo
+              ? CPMM.cpmmSellArbitrageNo(mkt.pools, k, sh).creditsReceived
+              : (CPMM.cpmmSellNo ? CPMM.cpmmSellNo(mkt.pools[k], sh) : 0);
+          }
+          return total;
+        }
+
+        function setPortfolioTab(tab) {
+          _portfolioTab = tab === "activity" ? "activity" : "holdings";
+          const hBtn = $("portfolioTabHoldings");
+          const aBtn = $("portfolioTabActivity");
+          if (hBtn) hBtn.classList.toggle("active", _portfolioTab === "holdings");
+          if (aBtn) aBtn.classList.toggle("active", _portfolioTab === "activity");
+          show($("portfolioHoldings"), _portfolioTab === "holdings");
+          show($("portfolioActivity"), _portfolioTab === "activity");
+          if (_portfolioTab === "activity") renderHistoryPanel();
+          else renderPortfolioHoldings();
+        }
+
+        // Re-render whichever tab is currently active (called from the refresh
+        // loop while the Portfolio screen is visible).
+        function renderPortfolio() {
+          if (!me || !JOINED.has(me)) return;
+          if (_portfolioTab === "activity") renderHistoryPanel();
+          else renderPortfolioHoldings();
+        }
+
+        function renderPortfolioHoldings() {
+          const container = $("portfolioHoldings");
+          if (!container) return;
+          if (!me || !JOINED.has(me)) { container.innerHTML = ""; return; }
+
+          const liquid = myCredits();
+          const portfolioVal = userShareValue(me);
+          const netWorth = liquid + portfolioVal;
+          const earn = EARNINGS_MAP.get(me) || { totalEarnings: 0 };
+
+          // --- Wallet summary cards ---
+          const cards = [
+            { label: "Liquid balance", value: formatCredits(liquid) + "c", detail: "available to bet" },
+            { label: "Portfolio value", value: formatCredits(portfolioVal) + "c", detail: "open positions, if sold now" },
+            { label: "Net worth", value: formatCredits(netWorth) + "c", detail: "liquid + positions" },
+            { label: "Realized P&L", value: (earn.totalEarnings >= 0 ? "+" : "") + formatCredits(earn.totalEarnings) + "c", detail: "from settled markets" },
+          ].map(c => `<div class="panel"><p class="statCard-label">${escapeHtml(c.label)}</p><div class="statCard-value">${escapeHtml(c.value)}</div><p class="statCard-detail">${escapeHtml(c.detail)}</p></div>`).join("");
+
+          // --- Balance breakdown (from CREDIT_FLOWS) ---
+          const flow = CREDIT_FLOWS.get(me);
+          let breakdown = "";
+          if (flow) {
+            const parts = [`start ${formatCredits(INITIAL_CREDITS)}`];
+            if (flow.antes) parts.push(`antes −${formatCredits(flow.antes)}`);
+            if (flow.grossBets) parts.push(`wagered −${formatCredits(flow.grossBets)}`);
+            if (flow.netSells) parts.push(`sold back +${formatCredits(flow.netSells)}`);
+            if (flow.payouts) parts.push(`payouts +${formatCredits(flow.payouts)}`);
+            if (flow.dividends) parts.push(`dividends +${formatCredits(flow.dividends)}`);
+            if (flow.creatorRewards) parts.push(`creator +${formatCredits(flow.creatorRewards)}`);
+            breakdown = `<div class="portfolio-breakdown">${escapeHtml(parts.join("  ·  "))}</div>`;
+          }
+
+          // --- Open positions, grouped by market ---
+          const groups = [];
+          for (const s of SURVEYS) {
+            if (s.archived) continue;
+            const mkt = MARKETS.get(s.id);
+            if (!mkt || !mkt.pools || cpmmTotalLiquidity(mkt) <= 0) continue;
+            const keys = Object.keys(mkt.pools);
+            const yesH = (mkt.userShares && mkt.userShares[me]) || {};
+            const noH = (mkt.userNoShares && mkt.userNoShares[me]) || {};
+            const rows = [];
+            for (const k of keys) {
+              for (const side of ["yes", "no"]) {
+                const shares = ((side === "yes" ? yesH[k] : noH[k]) || 0);
+                if (shares <= POSITION_DUST) continue;
+                const val = positionValue(mkt, k, side, shares);
+                if (val < 0.5) continue; // hide near-zero (dust) positions
+                const prob = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[k]) : 0;
+                rows.push({ optKey: k, side, shares, val, prob });
+              }
+            }
+            if (!rows.length) continue;
+            const value = marketShareValue(mkt, me);
+            const grossBet = (mkt.grossBetsByUser && mkt.grossBetsByUser[me]) || 0;
+            const netSells = (mkt.netSellsByUser && mkt.netSellsByUser[me]) || 0;
+            const unrealized = value + netSells - grossBet;
+            rows.sort((a, b) => b.val - a.val);
+            groups.push({ survey: s, rows, value, unrealized });
+          }
+          groups.sort((a, b) => b.value - a.value);
+
+          // Render summary + breakdown via innerHTML, then append position
+          // groups as DOM nodes so each row can carry a click handler.
+          container.innerHTML =
+            `<div class="statsGrid" style="margin-bottom: 4px;">${cards}</div>` +
+            breakdown +
+            `<div class="portfolio-sectionTitle">Open positions</div>`;
+
+          if (!groups.length) {
+            const empty = document.createElement("div");
+            empty.className = "portfolio-empty";
+            empty.textContent = "No open positions. Bet on a market to build your portfolio.";
+            container.appendChild(empty);
+            return;
+          }
+
+          for (const g of groups) {
+            const group = document.createElement("div");
+            group.className = "portfolioGroup";
+
+            const head = document.createElement("div");
+            head.className = "portfolioGroup-head";
+            head.addEventListener("click", () => { navigateToSurvey(g.survey.id); refreshLoopOnce(); });
+
+            const title = document.createElement("div");
+            title.className = "portfolioGroup-title";
+            title.textContent = getSurveyLabel(g.survey.id);
+            head.appendChild(title);
+
+            const plWrap = document.createElement("div");
+            plWrap.style.textAlign = "right";
+            const pl = document.createElement("div");
+            pl.className = "portfolioGroup-pl " + (g.unrealized >= 0 ? "pos" : "neg");
+            pl.textContent = (g.unrealized >= 0 ? "+" : "") + formatCredits(g.unrealized) + "c";
+            const plLabel = document.createElement("div");
+            plLabel.className = "portfolioGroup-plLabel";
+            plLabel.textContent = "unrealized P&L";
+            plWrap.appendChild(pl);
+            plWrap.appendChild(plLabel);
+            head.appendChild(plWrap);
+
+            group.appendChild(head);
+
+            for (const r of g.rows) {
+              const row = document.createElement("div");
+              row.className = "position-row";
+
+              const body = document.createElement("div");
+              body.className = "position-body";
+
+              const name = document.createElement("div");
+              name.className = "position-name";
+              const sideBadge = document.createElement("span");
+              sideBadge.className = "position-side " + r.side;
+              sideBadge.textContent = r.side === "yes" ? "WIN" : "LOSE";
+              name.appendChild(sideBadge);
+              name.appendChild(document.createTextNode(getOptionLabel(g.survey.id, r.optKey)));
+              body.appendChild(name);
+
+              const meta = document.createElement("div");
+              meta.className = "position-meta";
+              meta.textContent = `${formatCredits(r.shares)} shares · ${formatPct(r.prob)} odds`;
+              body.appendChild(meta);
+
+              const val = document.createElement("div");
+              val.className = "position-val";
+              val.textContent = formatCredits(r.val) + "c";
+
+              row.appendChild(body);
+              row.appendChild(val);
+              group.appendChild(row);
+            }
+
+            container.appendChild(group);
+          }
+        }
+
         function updateCreditsDisplay() {
           const el = $("creditsDisplay");
           const amt = $("creditsAmount");
           if (me && JOINED.has(me)) {
             show(el, true);
+            show($("portfolioBtn"), true);
             show($("historyBtn"), true);
             setText(amt, formatCredits(myCredits()));
           } else {
             show(el, false);
+            show($("portfolioBtn"), false);
             show($("historyBtn"), false);
           }
           show($("leaderboardBtn"), true);
@@ -3740,7 +4010,7 @@
           const archived = SURVEYS.filter(s => s.archived && s.kind !== "wc26_match");
           const _joined = me && JOINED.has(me);
           const onList = !currentSurveyId
-            && (!$("screenHistory") || $("screenHistory").classList.contains("hide"))
+            && (!$("screenPortfolio") || $("screenPortfolio").classList.contains("hide"))
             && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
             && (!$("screenInfo") || $("screenInfo").classList.contains("hide"))
             && (!$("screenWC26Hub") || $("screenWC26Hub").classList.contains("hide"))
@@ -5219,7 +5489,7 @@
             const joined = me && JOINED.has(me);
             show($("onboardingPanel"), me && !joined);
             const onList = !currentSurveyId
-              && (!$("screenHistory") || $("screenHistory").classList.contains("hide"))
+              && (!$("screenPortfolio") || $("screenPortfolio").classList.contains("hide"))
               && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
               && (!$("screenInfo") || $("screenInfo").classList.contains("hide"))
               && (!$("screenWC26Hub") || $("screenWC26Hub").classList.contains("hide"))
@@ -5233,7 +5503,7 @@
             renderSurveyList();
             renderProposalList();
             renderRejectedBanner();
-            if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) renderHistoryPanel();
+            if ($("screenPortfolio") && !$("screenPortfolio").classList.contains("hide")) renderPortfolio();
             if ($("screenWC26Hub") && !$("screenWC26Hub").classList.contains("hide")) renderWC26Hub();
             if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) renderWC26Schedule();
 
@@ -5334,6 +5604,7 @@
           // --- Event listeners ---
           function navigateFromHash(hash) {
             const h = typeof hash === "string" ? hash : (location.hash || "");
+            if (h === "#portfolio") { navigateToPortfolio("holdings"); return; }
             if (h === "#history") { navigateToHistory(); return; }
             if (h === "#leaderboard") { navigateToLeaderboard(); return; }
             if (h === "#info") { navigateToInfo(); return; }
@@ -5394,6 +5665,9 @@
             catch (e) { setSending(false, false); showInlineError(e.message || e); }
           });
 
+          $("portfolioBtn").addEventListener("click", () => navigateToPortfolio("holdings"));
+          $("portfolioTabHoldings").addEventListener("click", () => setPortfolioTab("holdings"));
+          $("portfolioTabActivity").addEventListener("click", () => setPortfolioTab("activity"));
           $("historyBtn").addEventListener("click", navigateToHistory);
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
@@ -5563,7 +5837,7 @@
           $("voteSheetSubmit").addEventListener("click", submitVoteSheet);
 
           // --- Credits info popup listeners ---
-          $("creditsDisplay").addEventListener("click", openCreditsInfoSheet);
+          $("creditsDisplay").addEventListener("click", () => navigateToPortfolio("holdings"));
           $("creditsInfoBackdrop").addEventListener("click", closeCreditsInfoSheet);
           $("creditsInfoClose").addEventListener("click", closeCreditsInfoSheet);
 
