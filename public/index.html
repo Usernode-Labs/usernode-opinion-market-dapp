@@ -158,6 +158,24 @@
       .pillButton:hover { border-color: var(--accent); }
       .pillButton[disabled] { opacity: 0.55; cursor: not-allowed; }
 
+      .userBadge { padding: 4px 10px 4px 4px; }
+      .userAvatar {
+        width: 26px; height: 26px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        font-size: 13px; font-weight: 600; line-height: 26px;
+        text-align: center; text-transform: uppercase;
+        user-select: none;
+        flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .userBadgeLabel {
+        max-width: 110px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        font-size: 14px; color: var(--fg);
+      }
+
       .btn {
         appearance: none;
         border: 1px solid var(--border);
@@ -1048,14 +1066,15 @@
   </head>
   <body>
     <header class="topBar">
-      <div class="topBar-inner row" style="justify-content: space-between; align-items: flex-start;">
+      <div class="topBar-inner row" style="justify-content: space-between; align-items: center;">
         <h1 style="margin: 0;">Opinion Market</h1>
         <div class="row">
           <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
             &#x1FA99; <code id="creditsAmount">0</code>
           </button>
-          <button class="pill pillButton" id="headerUsernameBtn" type="button">
-            User: <code id="headerUsername">(loading...)</code>
+          <button class="pill pillButton userBadge" id="headerUsernameBtn" type="button">
+            <span id="headerUserAvatar" class="userAvatar">?</span>
+            <span id="headerUsername" class="userBadgeLabel">(loading...)</span>
           </button>
           <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
@@ -2296,6 +2315,12 @@
         const $ = id => document.getElementById(id);
         function setText(el, v) { if (el) el.textContent = v; }
         function show(el, on) { if (el) el.classList.toggle("hide", !on); }
+        function setAvatarInitial(username) {
+          const el = $("headerUserAvatar");
+          if (!el) return;
+          const ch = username && String(username).trim()[0];
+          el.textContent = ch || "?";
+        }
         function setDisabled(el, v) { if (el) el.disabled = !!v; }
 
         function formatCountdown(expiresAtMs) {
@@ -2847,6 +2872,7 @@
           const value = await UsernodeUsernames.setUsername(raw);
           myUsername = value;
           setText($("headerUsername"), myUsername);
+          setAvatarInitial(myUsername);
           await postActionRefresh();
         }
 
@@ -5279,6 +5305,7 @@
           try { me = await getNodeAddress(); } catch (_) {}
           myUsername = deriveDefaultUsername(me);
           setText($("headerUsername"), myUsername);
+          setAvatarInitial(myUsername);
 
           const mockEnabled = window.usernode && typeof window.usernode.isMockEnabled === "function"
             ? await window.usernode.isMockEnabled() : false;
@@ -5297,6 +5324,7 @@
               if (globalName && globalName !== deriveDefaultUsername(me)) {
                 myUsername = globalName;
                 setText($("headerUsername"), myUsername);
+                setAvatarInitial(myUsername);
               }
             } catch (_) {}
           }
