@@ -1696,6 +1696,14 @@
 
         const EXPLORER_BASE = window.location.origin + "/explorer-api";
         const TX_SEND_OPTS = { timeoutMs: 180_000, pollIntervalMs: 1500 };
+        // Hard cap on the per-survey pubkey lookup. The vote flow awaits
+        // this BEFORE it can even reach sendTransaction, so an unbounded
+        // fetch here wedges the whole vote on "Registering vote..." (and,
+        // once the progress bar crosses 120s, "Taking longer than
+        // expected") with no recovery. Bounding it lets the vote fall back
+        // to a plaintext `choice` memo — which the replay module already
+        // accepts — so votes always register promptly.
+        const PUBKEY_FETCH_TIMEOUT_MS = 6_000;
         const INITIAL_CREDITS = 1000;
         const FEE_RATE = 0.05;
         const LIQUIDITY_FEE_RATE = 0.02;
@@ -2806,11 +2814,20 @@
           showPending(pendingElId, "Registering vote...");
           const ki = getIntervalIndex(s, Date.now());
           const pubkey = await fetchPubkey(s.id, ki, s);
-          let memo;
+          let memo = null;
           if (pubkey) {
-            const ev = await encryptVote(pubkey, optionKey);
-            memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, ev, ki });
-          } else {
+            // Encrypt when we have a key, but never let an encryption
+            // hiccup wedge the vote — fall back to a plaintext `choice`
+            // memo (which the replay module accepts) so the vote still
+            // registers.
+            try {
+              const ev = await encryptVote(pubkey, optionKey);
+              memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, ev, ki });
+            } catch (_) {
+              memo = null;
+            }
+          }
+          if (!memo) {
             memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, choice: optionKey });
           }
           await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Opinion Market — Record your prediction on-chain." });
@@ -2862,6 +2879,7 @@
             switch (v.reason) {
               case "NOT_JOINED":          throw new Error("Join first to get credits");
               case "NO_SURVEY":           throw new Error("Question not found");
+              case "BTC_NO_TRADING":      throw new Error("The daily BTC market is vote-only — no trading");
               case "ARCHIVED":            throw new Error("Question has ended");
               case "MATCH_LOCKED":        throw new Error("Match has already kicked off — betting is closed");
               case "NO_OPTION":           throw new Error("That option no longer exists");
@@ -4157,11 +4175,14 @@
         let _bsSurveyId = null, _bsOptKey = null, _bsMode = "buy", _bsSide = "yes";
 
         function openBottomSheet(surveyId, optKey, optIdx, side) {
+          const s = SURVEYS_BY_ID.get(surveyId);
+          // Trading is disabled for the daily-BTC oracle market — never open
+          // the buy/sell sheet for it, even from a stale/programmatic call.
+          if (s && s.kind === "btc_daily") return;
           _bsSurveyId = surveyId;
           _bsOptKey = optKey;
           _bsMode = "buy";
           _bsSide = side === "no" ? "no" : "yes";
-          const s = SURVEYS_BY_ID.get(surveyId);
           const mkt = MARKETS.get(surveyId);
           const opt = s ? s.options.find(o => o.key === optKey) : null;
           if (!opt || !mkt) return;
@@ -4634,7 +4655,9 @@
 
           const vc = countUniqueVoters(latestTxs, s.id);
           const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
-          const canBet = !s.archived && JOINED.has(me);
+          // Trading is disabled for the daily-BTC oracle market: hide every
+          // buy/sell entry point (bet buttons + onboarding hint) for it.
+          const canBet = !s.archived && JOINED.has(me) && s.kind !== "btc_daily";
           const meVoteKey = res.meEntry && res.meEntry.voteKey;
           const meHasVoted = res.meEntry && res.meEntry.hasVoted;
           const myPreviousVote = meVoteKey || ((meHasVoted || _pendingVotes.has(s.id)) ? getStoredVote(s.id) : null);
@@ -5145,17 +5168,25 @@
         async function fetchPubkey(surveyId, ki, survey) {
           const m = PUBKEY_MAP.get(surveyId);
           if (m && m.has(ki)) return m.get(ki);
+          // Bound the network lookup with an AbortController (~6s) via the
+          // shared fetchWithTimeout helper so a slow or unreachable
+          // /__om/pubkeys endpoint can never wedge the vote flow on
+          // "Registering vote...". On timeout/error we return null and the
+          // caller (voteFlow) casts a plaintext `choice` vote instead — the
+          // vote still reaches sendTransaction promptly and registers
+          // on-chain. (Encryption is best-effort; auditability is restored
+          // once the on-chain publish_pubkeys tx lands and PUBKEY_MAP hits.)
           try {
             const params = `createdAtMs=${survey.createdAtMs}&expiresAtMs=${survey.expiresAtMs}` +
               (survey.revealIntervalMs ? `&revealIntervalMs=${survey.revealIntervalMs}` : "");
-            // 8s timeout: if the pubkey endpoint stalls we fall through to
-            // `return null` and vote in plaintext rather than hang the flow.
-            const resp = await fetchWithTimeout(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`, undefined, 8000);
+            const resp = await fetchWithTimeout(`/__om/pubkeys/${encodeURIComponent(surveyId)}?${params}`, undefined, PUBKEY_FETCH_TIMEOUT_MS);
             if (resp.ok) {
               const data = await resp.json();
               if (data.pubkeys && data.pubkeys[String(ki)]) return data.pubkeys[String(ki)];
             }
-          } catch (_) {}
+          } catch (_) {
+            // Aborted (timeout) or network failure — fall through to null.
+          }
           return null;
         }
 

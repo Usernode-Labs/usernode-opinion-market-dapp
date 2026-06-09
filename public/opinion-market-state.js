@@ -1112,6 +1112,14 @@
         settlement.resolvedPriceUsd = btcRes.resolvedPriceUsd;
         settlement.btcWinner = btcRes.winner;
         settlement.resolvedAt = btcRes.resolvedAt;
+        // Record the resolved winner regardless of whether a market/trades
+        // exist. BTC markets are not tradeable, so they have no seeded
+        // market or share holders — but a resolved BTC question must still
+        // display its winner.
+        if (btcRes.winner !== null) {
+          settlement.winner = btcRes.winner;
+          settlement.winners = [btcRes.winner];
+        }
         if (mkt && totalPool > 0) {
           settlement.feePool = mkt.feePool;
           if (btcRes.winner === null) {
@@ -1333,6 +1341,14 @@
     for (var ix7 = 0; ix7 < parsed.length; ix7++) {
       var pt = parsed[ix7];
       if (pt.memo.type === "place_bet" || pt.memo.type === "sell_shares") {
+        // Trading is disabled for the daily-BTC oracle market. Skip its
+        // trades at collection time so they never reach the processing
+        // loop, never seed a BTC market, and are ignored SILENTLY (no
+        // recordReject) — the UI never offers BTC betting, so any BTC
+        // trade memo is hand-crafted and shouldn't surface in the
+        // "your bet was dropped" banner.
+        var tradeSurvey = pt.memo.survey == null ? null : SURVEYS_BY_ID.get(String(pt.memo.survey));
+        if (tradeSurvey && tradeSurvey.kind === "btc_daily") continue;
         tradeEvents.push({ kind: "trade", ts: pt.tx.ts, p: pt });
       }
     }
@@ -1361,6 +1377,10 @@
       var svM = Pm.memo.survey == null ? null : String(Pm.memo.survey);
       var surveyM = SURVEYS_BY_ID.get(svM);
       if (!surveyM) { recordReject(Pm, "NO_SURVEY"); continue; }
+      // Belt-and-suspenders: BTC-market trades are filtered out above, but
+      // never process one here even if a future refactor lets it through.
+      // Ignore silently (no recordReject) and never seed a BTC market.
+      if (surveyM.kind === "btc_daily") continue;
       // World Cup matches lock at kickoff (well before the kickoff+8h expiry),
       // so a bet/sell whose chain ts lands at/after kickoff is dropped with a
       // distinct reason — no betting on a result that may already be known.
@@ -1619,6 +1639,9 @@
     if (!state.JOINED.has(pubkey)) return { ok: false, reason: "NOT_JOINED" };
     var survey = state.SURVEYS_BY_ID.get(surveyId);
     if (!survey) return { ok: false, reason: "NO_SURVEY" };
+    // Trading is disabled for the daily-BTC oracle market — Phase 6 ignores
+    // its trade memos entirely, so reject the preflight up front.
+    if (survey.kind === "btc_daily") return { ok: false, reason: "BTC_NO_TRADING" };
     if (survey.archived) return { ok: false, reason: "ARCHIVED" };
     if (survey.kind === "wc26_match" && survey.wc26 && typeof survey.wc26.kickoffMs === "number") {
       var nowMs = typeof params.now === "number" ? params.now : Date.now();

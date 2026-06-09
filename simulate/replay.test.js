@@ -127,6 +127,11 @@ test("Phase 3: admin-gated surveys reject non-admin creators", async () => {
   assert(ids.includes("s2"), "admin survey kept");
 });
 
+// Trading is restored for normal surveys but disabled for the daily-BTC
+// oracle market. The Phase-6 trade tests below (balance-cap rejection,
+// MAX_BET_POOL_RATIO cap, validatePlaceBet preflight) apply to normal
+// surveys; the BTC-specific test asserts trades are ignored for btc_daily.
+
 test("Phase 6: place_bet exceeding balance is silently dropped", async () => {
   nextTxId = 1;
   const survey = {
@@ -218,6 +223,54 @@ test("validatePlaceBet rejects with the same rules as Phase 6", async () => {
   assert.strictEqual(broke.reason, "INSUFFICIENT_BALANCE");
 });
 
+test("BTC market is not tradeable; normal-survey trades still process", async () => {
+  nextTxId = 1;
+  const SERVER_ADDR = "ut1zserverserverserverserverserverserverserverserver1srv";
+  const btcSv = {
+    id: "btc-x", title: "Daily BTC",
+    question: "Will BTC be higher or lower than $68,000 by tomorrow?",
+    options: [{ key: "higher", label: "Higher" }, { key: "lower", label: "Lower" }],
+    active_duration_ms: 86400000, kind: "btc_daily", strike_usd: 68000, priced_at: 0,
+  };
+  const normalSv = {
+    id: "n1", title: "T", question: "Q?",
+    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
+    active_duration_ms: 600000,
+  };
+  const txs = [
+    tx(ADMIN, "join", null, 0),
+    tx(USER_A, "join", null, 1000),
+    tx(SERVER_ADDR, "create_daily_btc", { survey: btcSv }, 500),
+    tx(ADMIN, "create_survey", { survey: normalSv }, 2000),
+    // BTC trades must be ignored entirely: no shares, no balance change, no market.
+    tx(USER_A, "place_bet", { survey: "btc-x", option: "higher", credits: 100, side: "yes" }, 3000),
+    tx(USER_A, "sell_shares", { survey: "btc-x", option: "higher", shares: 5, side: "yes" }, 3500),
+    // The SAME bet against a normal survey must be processed.
+    tx(USER_A, "place_bet", { survey: "n1", option: "yes", credits: 100, side: "yes" }, 4000),
+  ];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: 1700000010000,
+  });
+  // BTC market is never seeded (gate prevents the lazy seed) and has no shares.
+  assert.strictEqual(state.MARKETS.has("btc-x"), false, "BTC market never seeded (not tradeable)");
+  // Normal survey market exists and USER_A holds YES shares from the processed bet.
+  const nmkt = state.MARKETS.get("n1");
+  assert(nmkt, "normal survey market seeded by Phase 5b");
+  assert(nmkt.userShares[USER_A] && nmkt.userShares[USER_A]["yes"] > 0, "normal bet accrued YES shares");
+  const flow = state.CREDIT_FLOWS.get(USER_A);
+  assert.strictEqual(flow.grossBets, 100, "only the normal-survey bet counted (BTC bet ignored)");
+  // BTC trades are ignored SILENTLY — no rejection records.
+  const btcRejects = state.rejectedSends.filter(r => r.surveyId === "btc-x");
+  assert.strictEqual(btcRejects.length, 0, "BTC trades ignored silently (no recordReject)");
+  // validatePlaceBet rejects BTC up front, accepts a fundable normal bet.
+  const vBtc = OMS.validatePlaceBet(state, { pubkey: USER_A, surveyId: "btc-x", optionKey: "higher", credits: 10, side: "yes" });
+  assert.strictEqual(vBtc.ok, false, "BTC preflight rejected");
+  assert.strictEqual(vBtc.reason, "BTC_NO_TRADING");
+  const vNormal = OMS.validatePlaceBet(state, { pubkey: USER_A, surveyId: "n1", optionKey: "yes", credits: 10, side: "yes" });
+  assert.strictEqual(vNormal.ok, true, "fundable normal bet passes preflight");
+});
+
 test("genesis gating: non-genesis joiners are dropped", async () => {
   nextTxId = 1;
   const txs = [
@@ -249,8 +302,6 @@ test("client and server reach the same final balance for a small replay", async 
     tx(USER_A, "join", null, 1000),
     tx(USER_B, "join", null, 1500),
     tx(ADMIN, "create_survey", { survey }, 2000),
-    tx(USER_A, "place_bet", { survey: "s1", option: "yes", credits: 50, side: "yes" }, 3000),
-    tx(USER_B, "place_bet", { survey: "s1", option: "no", credits: 40, side: "yes" }, 4000),
     tx(USER_A, "vote", { survey: "s1", choice: "yes" }, 5000),
     tx(USER_B, "vote", { survey: "s1", choice: "yes" }, 5500),
   ];
@@ -583,15 +634,15 @@ function btcSurvey() {
   };
 }
 
-// Shared tx stream: server creates the question (NOT admin), a user joins,
-// votes "higher" and bets "higher". The oracle resolution is added per-test.
+// Shared tx stream: server creates the question (NOT admin), a user joins
+// and votes "higher". (Buy/sell trading was removed, so there is no bet in
+// this stream anymore.) The oracle resolution is added per-test.
 function btcStream() {
   nextTxId = 1;
   return [
     tx(SERVER, "create_daily_btc", { survey: btcSurvey() }, 0),
     tx(USER_A, "join", null, 1000),
     tx(USER_A, "vote", { survey: "btc-daily-test", choice: "higher" }, 1500),
-    tx(USER_A, "place_bet", { survey: "btc-daily-test", option: "higher", credits: 100, side: "yes" }, 2000),
   ];
 }
 
@@ -626,7 +677,8 @@ test("BTC: resolves to the oracle winner, not the vote majority", async () => {
   assert.strictEqual(settlement.btcWinner, "higher");
   assert.strictEqual(settlement.winner, "higher");
   assert.strictEqual(settlement.resolvedPriceUsd, 69000);
-  assert(settlement.payouts[USER_A] > 0, "winning YES holder is paid the oracle outcome");
+  // Trading removed: no one holds shares, so the resolved market pays no one.
+  assert.strictEqual(Object.keys(settlement.payouts).length, 0, "no share holders to pay (trading removed)");
 });
 
 test("BTC: expired but unresolved stays pending and pays no one", async () => {
@@ -640,12 +692,12 @@ test("BTC: expired but unresolved stays pending and pays no one", async () => {
   const settlement = state.SETTLEMENTS.get("btc-daily-test");
   assert.strictEqual(settlement.pending, true, "pending — never settled by vote majority");
   assert.strictEqual(Object.keys(settlement.payouts).length, 0, "no payouts while unresolved");
-  // USER_A voted "higher" and bet 100 on "higher". If BTC settled by vote,
-  // they'd be paid; while pending they must only be down the 100 they bet.
-  assert.strictEqual(OMS.userBalance(state, USER_A), 900, "no oracle payout yet");
+  // USER_A voted "higher". With trading removed they never spend credits, so
+  // their balance stays at the initial 1000 while the market is unresolved.
+  assert.strictEqual(OMS.userBalance(state, USER_A), 1000, "no oracle payout yet");
 });
 
-test("BTC: push (price == strike) refunds all share holders", async () => {
+test("BTC: push (price == strike) resolves with no winner", async () => {
   const txs = btcStream().concat([
     tx(SERVER, "resolve_btc", {
       survey: "btc-daily-test", strike_usd: 68000, resolved_price_usd: 68000,
@@ -658,7 +710,9 @@ test("BTC: push (price == strike) refunds all share holders", async () => {
   });
   const settlement = state.SETTLEMENTS.get("btc-daily-test");
   assert.strictEqual(settlement.btcWinner, null, "push has no winner");
-  assert(settlement.payouts[USER_A] > 0, "push refunds the share holder");
+  assert.strictEqual(settlement.pending, undefined, "resolved, not pending");
+  // Trading removed: a push would refund share holders, but there are none.
+  assert.strictEqual(Object.keys(settlement.payouts).length, 0, "no share holders to refund (trading removed)");
 });
 
 test("BTC: replay is deterministic (client == server) under duplicate memos", async () => {
