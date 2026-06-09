@@ -741,4 +741,149 @@ test("BTC: replay is deterministic (client == server) under duplicate memos", as
   assert.strictEqual(sa.payouts[USER_A], sb.payouts[USER_A]);
 });
 
+/* ── World Cup 2026 match markets ─────────────────────────────────── */
+
+const WC_KICKOFF = BASE + 50000000;
+function wcMatchMemo() {
+  return {
+    id: "wc26-GRP-A-1", matchId: "wc26-GRP-A-1",
+    title: "Mexico vs South Africa",
+    question: "Mexico vs South Africa — home win, draw, or away win?",
+    options: [
+      { key: "home_win", label: "Home win" },
+      { key: "draw", label: "Draw" },
+      { key: "away_win", label: "Away win" },
+    ],
+    kind: "wc26_match", stage: "group", group: "A",
+    home_team: "MEX", away_team: "RSA",
+    home_team_name: "Mexico", away_team_name: "South Africa",
+    kickoff_ms: WC_KICKOFF, venue: "Mexico City (Estadio Azteca)",
+    // active_duration_ms = kickoff - createdAt + 8h. createdAt here = BASE+0.
+    active_duration_ms: (WC_KICKOFF - BASE) + 8 * 3600000,
+    reveal_interval_ms: null,
+  };
+}
+// Server creates the match (non-admin), USER_A bets home_win, USER_B bets away_win.
+function wcStream() {
+  nextTxId = 1;
+  return [
+    tx(SERVER, "create_wc26_match", { match: wcMatchMemo() }, 0),
+    tx(USER_A, "join", null, 1000),
+    tx(USER_B, "join", null, 1100),
+    tx(USER_A, "place_bet", { survey: "wc26-GRP-A-1", option: "home_win", credits: 100, side: "yes" }, 2000),
+    tx(USER_B, "place_bet", { survey: "wc26-GRP-A-1", option: "away_win", credits: 100, side: "yes" }, 2500),
+  ];
+}
+
+test("WC26: server-authored match registers past the admin gate with wc26 fields", async () => {
+  const txs = wcStream();
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: BASE + 3000,
+  });
+  const sv = state.SURVEYS_BY_ID.get("wc26-GRP-A-1");
+  assert(sv, "wc26 match survey registered despite non-admin sender");
+  assert.strictEqual(sv.kind, "wc26_match");
+  assert.strictEqual(sv.createdBy, null, "wc26 survey has no joined creator");
+  assert(sv.wc26, "carries wc26 sub-object");
+  assert.strictEqual(sv.wc26.kickoffMs, WC_KICKOFF);
+  assert.strictEqual(sv.wc26.group, "A");
+  assert.strictEqual(sv.wc26.homeTeam, "MEX");
+  // expiresAtMs = createdAtMs + activeDurationMs, NOT clamped to an allowed
+  // duration (the variable kickoff-relative window is trusted verbatim).
+  assert.strictEqual(sv.expiresAtMs, sv.createdAtMs + ((WC_KICKOFF - BASE) + 8 * 3600000), "expires at kickoff+8h window");
+});
+
+test("WC26: bet at/after kickoff is rejected MATCH_LOCKED", async () => {
+  const txs = wcStream().concat([
+    tx(USER_A, "place_bet", { survey: "wc26-GRP-A-1", option: "home_win", credits: 50, side: "yes" }, (WC_KICKOFF - BASE) + 60000),
+  ]);
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: WC_KICKOFF + 9 * 3600000,
+  });
+  const locked = state.rejectedSends.filter((r) => r.reason === "MATCH_LOCKED");
+  assert.strictEqual(locked.length, 1, "exactly one MATCH_LOCKED rejection");
+});
+
+test("WC26: resolves to the oracle winner, paying winning-option holders", async () => {
+  const txs = wcStream().concat([
+    tx(SERVER, "resolve_wc26_match", {
+      matchId: "wc26-GRP-A-1", winnerKey: "home_win", source: "football-data-api",
+      resolved_at: WC_KICKOFF + 2 * 3600000,
+    }, (WC_KICKOFF - BASE) + 2 * 3600000),
+  ]);
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: WC_KICKOFF + 9 * 3600000,
+  });
+  const settlement = state.SETTLEMENTS.get("wc26-GRP-A-1");
+  assert.strictEqual(settlement.kind, "wc26_match");
+  assert.strictEqual(settlement.winner, "home_win", "oracle winner, not vote majority");
+  assert(settlement.payouts[USER_A] > 0, "home_win backer paid");
+  assert(!settlement.payouts[USER_B], "away_win backer gets nothing");
+  assert(OMS.userBalance(state, USER_A) > 1000, "winner ends up ahead");
+});
+
+test("WC26: void resolution refunds all share holders", async () => {
+  const txs = wcStream().concat([
+    tx(SERVER, "resolve_wc26_match", {
+      matchId: "wc26-GRP-A-1", winnerKey: "void", source: "football-data-api",
+      resolved_at: WC_KICKOFF + 2 * 3600000,
+    }, (WC_KICKOFF - BASE) + 2 * 3600000),
+  ]);
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: WC_KICKOFF + 9 * 3600000,
+  });
+  const settlement = state.SETTLEMENTS.get("wc26-GRP-A-1");
+  assert.strictEqual(settlement.wcWinner, "void");
+  assert(settlement.payouts[USER_A] > 0, "void refunds USER_A");
+  assert(settlement.payouts[USER_B] > 0, "void refunds USER_B");
+});
+
+test("WC26: expired but unresolved stays pending and pays no one", async () => {
+  const txs = wcStream(); // no resolve memo
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: WC_KICKOFF + 9 * 3600000,
+  });
+  const sv = state.SURVEYS_BY_ID.get("wc26-GRP-A-1");
+  assert(sv.archived, "past kickoff+8h expiry");
+  const settlement = state.SETTLEMENTS.get("wc26-GRP-A-1");
+  assert.strictEqual(settlement.pending, true, "pending with no resolution");
+  assert.strictEqual(Object.keys(settlement.payouts).length, 0, "no payouts while unresolved");
+});
+
+test("WC26: validatePlaceBet mirrors the MATCH_LOCKED rule against local clock", async () => {
+  const txs = wcStream();
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: WC_KICKOFF - 3600000,
+  });
+  const before = OMS.validatePlaceBet(state, { pubkey: USER_A, surveyId: "wc26-GRP-A-1", optionKey: "home_win", credits: 10, now: WC_KICKOFF - 1000 });
+  const after = OMS.validatePlaceBet(state, { pubkey: USER_A, surveyId: "wc26-GRP-A-1", optionKey: "home_win", credits: 10, now: WC_KICKOFF + 1000 });
+  assert.strictEqual(before.ok, true, "bet allowed before kickoff");
+  assert.strictEqual(after.ok, false, "bet blocked after kickoff");
+  assert.strictEqual(after.reason, "MATCH_LOCKED");
+});
+
+test("WC26: replay deterministic under duplicate create+resolve memos", async () => {
+  const txs = wcStream().concat([
+    tx(SERVER, "create_wc26_match", { match: wcMatchMemo() }, 500),
+    tx(SERVER, "resolve_wc26_match", { matchId: "wc26-GRP-A-1", winnerKey: "home_win", resolved_at: WC_KICKOFF + 2 * 3600000 }, (WC_KICKOFF - BASE) + 2 * 3600000),
+    tx(SERVER, "resolve_wc26_match", { matchId: "wc26-GRP-A-1", winnerKey: "home_win", resolved_at: WC_KICKOFF + 3 * 3600000 }, (WC_KICKOFF - BASE) + 3 * 3600000),
+  ]);
+  const opts = {
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: WC_KICKOFF + 9 * 3600000,
+  };
+  const a = await OMS.computeFullState(opts);
+  const b = await OMS.computeFullState(opts);
+  const sa = a.SETTLEMENTS.get("wc26-GRP-A-1");
+  const sb = b.SETTLEMENTS.get("wc26-GRP-A-1");
+  assert.strictEqual(sa.winner, "home_win");
+  assert.strictEqual(sa.payouts[USER_A], sb.payouts[USER_A], "deterministic payout");
+});
+
 run();

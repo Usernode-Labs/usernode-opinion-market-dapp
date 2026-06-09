@@ -67,6 +67,7 @@ const {
 } = require("./lib/dapp-server");
 const createVoteEncryption = require("./vote-encryption");
 const createDailyBtc = require("./daily-btc");
+const createWorldCup2026 = require("./world-cup-2026");
 const { buildLeaderboard } = require("./lib/leaderboard");
 
 loadEnvFile();
@@ -101,6 +102,7 @@ const SENDER_APP_SECRET_KEY = process.env.SENDER_APP_SECRET_KEY || "";
 // across parallel deploys (required for cross-deploy decrypt). Override
 // only if every co-operating server is configured with the same value.
 const VOTE_ENCRYPT_SEED = process.env.VOTE_ENCRYPT_SEED || "";
+const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || "";
 
 const NODE_RPC_URL = process.env.NODE_RPC_URL || "http://usernode-node:3000";
 
@@ -124,13 +126,16 @@ const app = express();
 app.set("trust proxy", 1);
 
 // Health check — used by Docker healthcheck and platform polling. Includes a
-// daily-BTC status block so "no question posted today" is observable without
-// log-diving (dailyBtc is constructed below; guard for boot ordering).
+// daily-BTC and WC26 status block so missing questions are observable without
+// log-diving (modules are constructed below; guard for boot ordering).
 app.get("/health", (_req, res) => {
   let dailyBtcStatus = null;
+  let wc26Status = null;
   try { dailyBtcStatus = typeof dailyBtc !== "undefined" && dailyBtc ? dailyBtc.getStatus() : null; }
   catch (_) { /* best-effort */ }
-  res.json({ status: "ok", staging: IS_STAGING, dailyBtc: dailyBtcStatus });
+  try { wc26Status = typeof worldCup2026 !== "undefined" && worldCup2026 ? worldCup2026.getStatus() : null; }
+  catch (_) { /* best-effort */ }
+  res.json({ status: "ok", staging: IS_STAGING, dailyBtc: dailyBtcStatus, worldCup2026: wc26Status });
 });
 
 // ── Mock API (only --local-dev) ──────────────────────────────────────────────
@@ -194,6 +199,53 @@ const dailyBtc = createDailyBtc({
   seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
 });
 dailyBtc.start();
+
+// ── World Cup 2026 match-prediction scheduler ─────────────────────────────────
+// Posts create_wc26_match memos up to 7 days before each kickoff, then fetches
+// results from football-data.org (FOOTBALL_DATA_API_KEY) and posts
+// resolve_wc26_match memos ~115 min after kickoff. Reuses vote-encryption's
+// sendMemo path. Staging seed injects upcoming matches directly into the cache.
+const worldCup2026 = createWorldCup2026({
+  appPubkey: APP_PUBKEY,
+  senderPubkey: SENDER_APP_PUBKEY || APP_PUBKEY,
+  getRawTransactions: () => omCache.getRawTransactions(),
+  sendMemo: voteEncryption.sendMemo,
+  footballDataApiKey: FOOTBALL_DATA_API_KEY,
+  seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
+});
+worldCup2026.start();
+
+// Structured schedule derived from the raw-tx cache (created matches +
+// resolutions, group + knockout), sorted by kickoff. A convenience for the
+// schedule screen's initial render — not authoritative (the client can fully
+// rebuild from /opinion-market/api/transactions). Falls back to the static
+// group-fixture list before any create_wc26_match has landed.
+app.get("/__wc26/schedule", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.set("Access-Control-Allow-Origin", "*");
+  const sched = worldCup2026.getSchedule();
+  res.json({
+    matches: sched.matches,
+    fixtures: worldCup2026.getFixtures(),
+    lastUpdated: sched.lastUpdated,
+  });
+});
+
+app.get("/__wc26/status", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(worldCup2026.getStatus());
+});
+
+app.post("/__wc26/tick", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    let out = await worldCup2026.tick();
+    if (IS_STAGING) out = await worldCup2026.seedStaging();
+    res.json({ ok: true, staging: IS_STAGING, status: out });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 // Internal manual trigger: force a daily-BTC tick now (idempotent) and return
 // the resulting status. Lets an operator post today's question immediately

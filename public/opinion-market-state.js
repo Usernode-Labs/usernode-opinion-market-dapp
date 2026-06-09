@@ -213,6 +213,56 @@
     return null;
   }
 
+  /**
+   * Normalize a `create_wc26_match` memo's `match` payload into a survey
+   * definition (same shape `normalizeSurveyDefinition` returns) carrying a
+   * `wc26` sub-object. Unlike standard surveys, WC26 matches have a VARIABLE
+   * `activeDurationMs` (kickoffMs - createdAtMs + 8h) that is NOT in
+   * `ALLOWED_SURVEY_DURATION_MS`, so this bypasses `normalizeSurveyDurationMs`
+   * and trusts the server-baked value verbatim (the server is the sole author
+   * of these memos — see world-cup-2026.js). Returns null if invalid.
+   */
+  function normalizeWc26Definition(rawMatch) {
+    if (!rawMatch || typeof rawMatch !== "object") return null;
+    var id = String(rawMatch.id || rawMatch.matchId || "").trim();
+    if (!id) return null;
+    var title = String(rawMatch.title || "").trim() || id;
+    var question = String(rawMatch.question || "").trim() || title;
+    var optionsRaw = Array.isArray(rawMatch.options) ? rawMatch.options : [];
+    var options = [];
+    for (var i = 0; i < optionsRaw.length; i++) {
+      var o = optionsRaw[i];
+      if (!o || typeof o !== "object") continue;
+      var key = String(o.key || "").trim();
+      if (!key) continue;
+      var label = String(o.label || "").trim() || key;
+      options.push({ key: key, label: label });
+    }
+    if (options.length < 2) return null;
+    var activeDurationMs = pickNumber(rawMatch.active_duration_ms, rawMatch.activeDurationMs);
+    if (!Number.isFinite(activeDurationMs) || activeDurationMs <= 0) {
+      activeDurationMs = DEFAULT_SURVEY_DURATION_MS;
+    }
+    var kickoffMs = pickNumber(rawMatch.kickoff_ms, rawMatch.kickoffMs);
+    return {
+      id: id, title: title, question: question,
+      activeDurationMs: activeDurationMs, options: options,
+      revealIntervalMs: null, allowCustomOptions: false,
+      kind: "wc26_match", strikeUsd: null, pricedAt: null,
+      wc26: {
+        matchId: id,
+        stage: rawMatch.stage ? String(rawMatch.stage) : "group",
+        group: rawMatch.group != null && rawMatch.group !== "" ? String(rawMatch.group) : null,
+        homeTeam: String(rawMatch.home_team || rawMatch.homeTeam || ""),
+        awayTeam: String(rawMatch.away_team || rawMatch.awayTeam || ""),
+        homeTeamName: String(rawMatch.home_team_name || rawMatch.homeTeamName || rawMatch.home_team || rawMatch.homeTeam || ""),
+        awayTeamName: String(rawMatch.away_team_name || rawMatch.awayTeamName || rawMatch.away_team || rawMatch.awayTeam || ""),
+        kickoffMs: Number.isFinite(kickoffMs) ? kickoffMs : null,
+        venue: rawMatch.venue ? String(rawMatch.venue) : "",
+      },
+    };
+  }
+
   function normalizeProposalDefinition(rawProposal, fromAddr) {
     if (!rawProposal || typeof rawProposal !== "object") return null;
     var title = String(rawProposal.title || "").trim();
@@ -803,6 +853,44 @@
       }
     }
 
+    /* --- Phase 3c: World Cup 2026 match markets + oracle resolutions ---
+     *
+     * `create_wc26_match` and `resolve_wc26_match` are server-authored memos
+     * (see world-cup-2026.js). Like daily-BTC they bypass the admin gate (the
+     * server's sender is not the admin) and resolve via an on-chain oracle
+     * memo, NEVER by vote majority. Determinism across restarts and parallel
+     * deploys is guaranteed by the matchId (= survey id) plus the same
+     * EARLIEST-memo-wins tie-break used by Phase 3b. Replay never calls the
+     * football API — the winner is read straight off `resolve_wc26_match`. */
+    var WC26_CREATIONS = new Map();   // matchId -> { survey, ts, from, txId }
+    var WC26_RESOLUTIONS = new Map(); // matchId -> { winnerKey, resolvedAt, ts, txId }
+    for (var ixw = 0; ixw < parsed.length; ixw++) {
+      var Pw = parsed[ixw];
+      if (Pw.memo.type === "create_wc26_match") {
+        var svw = normalizeWc26Definition(Pw.memo.match || Pw.memo.survey);
+        if (!svw) continue;
+        var prevW = WC26_CREATIONS.get(svw.id);
+        if (earlierWins(prevW, Pw.tx.ts, Pw.tx.id)) {
+          WC26_CREATIONS.set(svw.id, { survey: svw, ts: Pw.tx.ts, from: Pw.tx.from, txId: Pw.tx.id });
+        }
+      } else if (Pw.memo.type === "resolve_wc26_match") {
+        var wid = Pw.memo.matchId != null ? String(Pw.memo.matchId)
+          : (Pw.memo.match && Pw.memo.match.id != null) ? String(Pw.memo.match.id)
+          : (Pw.memo.survey != null ? String(Pw.memo.survey) : null);
+        if (!wid) continue;
+        var wWinner = Pw.memo.winnerKey != null ? String(Pw.memo.winnerKey)
+          : (Pw.memo.winner != null ? String(Pw.memo.winner) : null);
+        var prevWR = WC26_RESOLUTIONS.get(wid);
+        if (earlierWins(prevWR, Pw.tx.ts, Pw.tx.id)) {
+          WC26_RESOLUTIONS.set(wid, {
+            winnerKey: wWinner,
+            resolvedAt: pickNumber(Pw.memo.resolved_at, Pw.memo.resolvedAt) || Pw.tx.ts,
+            ts: Pw.tx.ts, txId: Pw.tx.id,
+          });
+        }
+      }
+    }
+
     /* --- Phase 3: Surveys (admin-only, rate-limited, with delete/resolve_early) --- */
     var effectiveAdmin = adminPubkey || firstJoiner;
     var allCreations = [];
@@ -850,6 +938,12 @@
     // liquidity on the first bet — no ante charged, no creator reward leaked.
     BTC_CREATIONS.forEach(function (b) {
       latestCreated.set(b.survey.id, { survey: b.survey, ts: b.ts, from: null });
+    });
+    // Merge World Cup 2026 match markets, same bypass as daily-BTC: `from` is
+    // null so Phase 5b skips creator-ante seeding and Phase 6 seeds the market
+    // lazily from platform liquidity on the first bet.
+    WC26_CREATIONS.forEach(function (w) {
+      latestCreated.set(w.survey.id, { survey: w.survey, ts: w.ts, from: null });
     });
     var earlyResolves = new Map();
     for (var ie = 0; ie < parsed.length; ie++) {
@@ -1076,6 +1170,75 @@
         return;
       }
 
+      /* World Cup 2026 oracle settlement. Resolves against the on-chain
+       * `resolve_wc26_match` winner key, NEVER by vote majority. A missing
+       * resolution leaves the survey `pending` (a later resolve memo settles
+       * it next rebuild). A "void" / null / unknown winner (postponed or
+       * cancelled match, or API outage past expiry) refunds all share
+       * holders proportionally. */
+      if (survey.kind === "wc26_match") {
+        var wcRes = WC26_RESOLUTIONS.get(survey.id);
+        settlement.kind = "wc26_match";
+        if (!wcRes) {
+          settlement.pending = true;
+          settlement.wcWinner = null;
+          SETTLEMENTS.set(survey.id, settlement);
+          return;
+        }
+        settlement.wcWinner = wcRes.winnerKey;
+        settlement.resolvedAt = wcRes.resolvedAt;
+        var wcValidWinner = wcRes.winnerKey != null && wcRes.winnerKey !== "void" &&
+          survey.options.some(function (o) { return o.key === wcRes.winnerKey; });
+        if (mkt && totalPool > 0) {
+          settlement.feePool = mkt.feePool;
+          if (!wcValidWinner) {
+            // void / unknown → refund all holders proportionally.
+            distributeRefund(mkt, settlement);
+          } else {
+            var wcWeights = {};
+            for (var wcwi = 0; wcwi < survey.options.length; wcwi++) wcWeights[survey.options[wcwi].key] = 0;
+            wcWeights[wcRes.winnerKey] = 1;
+            settlement.winner = wcRes.winnerKey;
+            settlement.winners = [wcRes.winnerKey];
+            settlement.resolutionWeights = wcWeights;
+            // YES holders of the winning option get 1x per share; others 0.
+            var wcYes = Object.entries(mkt.userShares);
+            for (var wcyi = 0; wcyi < wcYes.length; wcyi++) {
+              var wcPkY = wcYes[wcyi][0];
+              var wcShares = Object.entries(wcYes[wcyi][1]);
+              for (var wcsi = 0; wcsi < wcShares.length; wcsi++) {
+                var wcw = wcWeights[wcShares[wcsi][0]] || 0;
+                if (wcw > 0 && wcShares[wcsi][1] > 0) {
+                  settlement.payouts[wcPkY] = (settlement.payouts[wcPkY] || 0) + wcShares[wcsi][1] * wcw;
+                }
+              }
+            }
+            // NO holders pay out (1 - weight) per share.
+            var wcNo = Object.entries(mkt.userNoShares || {});
+            for (var wcni = 0; wcni < wcNo.length; wcni++) {
+              var wcPkN = wcNo[wcni][0];
+              var wcNoSh = Object.entries(wcNo[wcni][1]);
+              for (var wcnoi = 0; wcnoi < wcNoSh.length; wcnoi++) {
+                if (wcNoSh[wcnoi][1] <= 0) continue;
+                var wcNoPayout = (1 - (wcWeights[wcNoSh[wcnoi][0]] || 0)) * wcNoSh[wcnoi][1];
+                if (wcNoPayout > 0) settlement.payouts[wcPkN] = (settlement.payouts[wcPkN] || 0) + wcNoPayout;
+              }
+            }
+          }
+          if (voterSet.size > 0 && mkt.feePool > 0) {
+            settlement.voterDividendPer = mkt.feePool / voterSet.size;
+          }
+          var wcPo = Object.entries(settlement.payouts);
+          for (var wcpoi = 0; wcpoi < wcPo.length; wcpoi++) getCreditFlow(wcPo[wcpoi][0]).payouts += wcPo[wcpoi][1];
+          if (settlement.voterDividendPer > 0) {
+            var wcVs = Array.from(voterSet);
+            for (var wcvsi = 0; wcvsi < wcVs.length; wcvsi++) getCreditFlow(wcVs[wcvsi]).dividends += settlement.voterDividendPer;
+          }
+        }
+        SETTLEMENTS.set(survey.id, settlement);
+        return;
+      }
+
       if (mkt && totalPool > 0) {
         settlement.feePool = mkt.feePool;
         var totalVotes = Object.values(voteCounts).reduce(function (a, b) { return a + b; }, 0);
@@ -1218,6 +1381,14 @@
       // never process one here even if a future refactor lets it through.
       // Ignore silently (no recordReject) and never seed a BTC market.
       if (surveyM.kind === "btc_daily") continue;
+      // World Cup matches lock at kickoff (well before the kickoff+8h expiry),
+      // so a bet/sell whose chain ts lands at/after kickoff is dropped with a
+      // distinct reason — no betting on a result that may already be known.
+      if (surveyM.kind === "wc26_match" && surveyM.wc26 &&
+          typeof surveyM.wc26.kickoffMs === "number" && Pm.tx.ts >= surveyM.wc26.kickoffMs) {
+        recordReject(Pm, "MATCH_LOCKED", { kickoffMs: surveyM.wc26.kickoffMs });
+        continue;
+      }
       if (Pm.tx.ts >= surveyM.expiresAtMs) { recordReject(Pm, "EXPIRED"); continue; }
       var optKey = Pm.memo.option == null ? null : String(Pm.memo.option);
       if (!optKey || !surveyM.options.some(function (o) { return o.key === optKey; })) {
@@ -1472,6 +1643,10 @@
     // its trade memos entirely, so reject the preflight up front.
     if (survey.kind === "btc_daily") return { ok: false, reason: "BTC_NO_TRADING" };
     if (survey.archived) return { ok: false, reason: "ARCHIVED" };
+    if (survey.kind === "wc26_match" && survey.wc26 && typeof survey.wc26.kickoffMs === "number") {
+      var nowMs = typeof params.now === "number" ? params.now : Date.now();
+      if (nowMs >= survey.wc26.kickoffMs) return { ok: false, reason: "MATCH_LOCKED" };
+    }
     if (!survey.options.some(function (o) { return o.key === optionKey; })) return { ok: false, reason: "NO_OPTION" };
     if (!Number.isFinite(credits) || credits < 1) return { ok: false, reason: "BAD_CREDITS" };
 
@@ -1543,6 +1718,7 @@
     normalizeUsername: normalizeUsername,
     normalizeSurveyDurationMs: normalizeSurveyDurationMs,
     normalizeSurveyDefinition: normalizeSurveyDefinition,
+    normalizeWc26Definition: normalizeWc26Definition,
     normalizeProposalDefinition: normalizeProposalDefinition,
     activeUsersInWindow: activeUsersInWindow,
     getRevealCheckpoints: getRevealCheckpoints,

@@ -36,6 +36,13 @@
       "description": "Sidecar usernode RPC endpoint. Defaults to the in-network node service.",
       "required": false,
       "default": "http://usernode-node:3000"
+    },
+    {
+      "key": "FOOTBALL_DATA_API_KEY",
+      "description": "API key for football-data.org, used to fetch World Cup 2026 match results and post resolve_wc26_match memos. Leave empty to disable automatic result resolution (matches will stay pending until a key is configured).",
+      "required": false,
+      "private": true,
+      "staging_default": ""
     }
   ]
 }
