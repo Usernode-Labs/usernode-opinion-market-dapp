@@ -1628,15 +1628,43 @@
           });
         }
 
+        // Hard watchdog for any tx-signing await. The bridge is handed a
+        // `timeoutMs` (TX_SEND_OPTS), but we cannot rely on every bridge mode
+        // honoring it — in particular the `callNative` fallback above resolves
+        // off an external `__usernodeResolve` callback and will sit on its
+        // pending promise forever if the native/relay side never answers (app
+        // backgrounded, QR never scanned, channel ack dropped). An unsettled
+        // sendTransaction strands the global setSending() lock and pins
+        // "Registering vote..." on screen indefinitely. This guarantees the
+        // promise settles so the caller's catch/finally always runs — exactly
+        // the role fetchWithTimeout plays for network reads.
+        function withTimeout(promise, timeoutMs, message) {
+          let timer = null;
+          const watchdog = new Promise((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(message || "Timed out waiting for confirmation")),
+              timeoutMs
+            );
+          });
+          return Promise.race([promise, watchdog]).finally(() => clearTimeout(timer));
+        }
+
         async function getNodeAddress() {
           if (typeof window.getNodeAddress === "function") return await window.getNodeAddress();
           return await callNative("getNodeAddress");
         }
 
         async function sendTransaction(destination_pubkey, amount, memo, opts) {
+          // Bound the whole send so the flow can never hang forever. Give the
+          // bridge's own inclusion polling (opts.timeoutMs) room to finish and
+          // surface its real result/error first, then trip ~15s later as a
+          // last-resort backstop against a bridge mode that never settles.
+          const bridgeTimeout = (opts && opts.timeoutMs) || 180_000;
+          const watchdogMs = bridgeTimeout + 15_000;
+          const msg = "Vote timed out waiting for confirmation. It may still land — check back in a moment.";
           if (typeof window.sendTransaction === "function")
-            return await window.sendTransaction(destination_pubkey, amount, memo, opts);
-          return await callNative("sendTransaction", { destination_pubkey, amount, memo });
+            return await withTimeout(window.sendTransaction(destination_pubkey, amount, memo, opts), watchdogMs, msg);
+          return await withTimeout(callNative("sendTransaction", { destination_pubkey, amount, memo }), watchdogMs, msg);
         }
 
         const OPTION_COLORS = ['#6ea8fe','#ff6b6b','#5dd39e','#e6a817','#c084fc','#f472b6','#22d3ee','#fb923c'];
