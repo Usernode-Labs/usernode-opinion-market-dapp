@@ -92,7 +92,7 @@
 
       .topBar {
         flex: 0 0 auto;
-        padding: 14px 16px;
+        padding: 10px 16px;
         border-bottom: 1px solid var(--border);
         background: var(--card);
         z-index: 2;
@@ -100,6 +100,9 @@
       .topBar-inner {
         max-width: 900px;
         margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
       }
 
       .scrollArea {
@@ -1066,22 +1069,28 @@
   </head>
   <body>
     <header class="topBar">
-      <div class="topBar-inner row" style="justify-content: space-between; align-items: center;">
-        <h1 style="margin: 0;">Opinion Market</h1>
-        <div class="row">
-          <button class="pill pillButton userBadge" id="headerUsernameBtn" type="button">
-            <span id="headerUserAvatar" class="userAvatar">?</span>
-            <span id="headerUsername" class="userBadgeLabel">(loading...)</span>
-          </button>
-          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
-            &#x1FA99; <code id="creditsAmount">0</code>
-          </button>
+      <div class="topBar-inner">
+        <div class="row" style="justify-content: space-between; align-items: center;">
+          <div class="row">
+            <button class="btn" id="backBtn" style="display: none;">Back</button>
+            <h1 style="margin: 0;">Opinion Market</h1>
+          </div>
+          <div class="row">
+            <button class="pill pillButton userBadge" id="headerUsernameBtn" type="button">
+              <span id="headerUserAvatar" class="userAvatar">?</span>
+              <span id="headerUsername" class="userBadgeLabel">(loading...)</span>
+            </button>
+            <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
+              &#x1FA99; <code id="creditsAmount">0</code>
+            </button>
+          </div>
+        </div>
+        <div class="row" style="justify-content: flex-end;">
           <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
           <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
           <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026">&#x26BD;</button>
           <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
           <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
-          <button class="btn" id="backBtn" style="display: none;">Back</button>
         </div>
       </div>
     </header>
