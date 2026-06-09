@@ -611,6 +611,28 @@
         opacity: 0.85; font-style: italic;
       }
 
+      .pending-banner {
+        position: sticky; top: 0; z-index: 9000;
+        margin: 0 auto; max-width: 720px;
+        padding: 10px 14px;
+        display: flex; align-items: center; gap: 10px;
+        background: rgba(110,168,254,0.12);
+        border: 1px solid var(--accent, #6ea8fe);
+        border-radius: 8px;
+        color: var(--fg);
+        font-size: 13px; line-height: 1.4;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+      }
+      .pending-banner.hide { display: none; }
+      .pending-banner-spinner {
+        width: 14px; height: 14px; flex-shrink: 0;
+        border: 2px solid rgba(110,168,254,0.35);
+        border-top-color: var(--accent, #6ea8fe);
+        border-radius: 50%;
+        animation: pendingSpin 0.8s linear infinite;
+      }
+      @keyframes pendingSpin { to { transform: rotate(360deg); } }
+
       .optDot {
         display: inline-block;
         width: 10px; height: 10px;
@@ -1086,6 +1108,14 @@
         <button class="rejected-banner-dismiss" id="rejectedBannerDismiss" aria-label="Dismiss">&times;</button>
       </div>
       <ul id="rejectedBannerList" class="rejected-banner-list"></ul>
+    </div>
+
+    <!-- "Still confirming" banner — shown when a send timed out but its tx
+         may still land. The reconciler clears it automatically once the tx
+         appears in the feed. Deliberately calm (not a red error). -->
+    <div id="pendingTxBanner" class="pending-banner hide" role="status" aria-live="polite">
+      <span class="pending-banner-spinner" aria-hidden="true"></span>
+      <span id="pendingTxBannerLabel"></span>
     </div>
 
     <!-- Bottom sheet buy/sell modal -->
@@ -1641,10 +1671,15 @@
         function withTimeout(promise, timeoutMs, message) {
           let timer = null;
           const watchdog = new Promise((_, reject) => {
-            timer = setTimeout(
-              () => reject(new Error(message || "Timed out waiting for confirmation")),
-              timeoutMs
-            );
+            timer = setTimeout(() => {
+              // Tag the rejection so callers can tell a watchdog timeout
+              // (tx may still land — route to the `timedOut` lifecycle state
+              // and let the reconciler promote it) apart from a hard failure
+              // (user declined, validation, bridge unavailable).
+              const err = new Error(message || "Timed out waiting for confirmation");
+              err.isTimeout = true;
+              reject(err);
+            }, timeoutMs);
           });
           return Promise.race([promise, watchdog]).finally(() => clearTimeout(timer));
         }
@@ -1914,6 +1949,135 @@
         function getStoredVote(surveyId) {
           if (!me) return null;
           try { return localStorage.getItem(`om:vote:${me}:${surveyId}`) || null; } catch (_) { return null; }
+        }
+
+        /* ================================================================
+         *  PENDING-ACTION REGISTRY + RECONCILER
+         *
+         *  Every on-chain send is tracked through an explicit lifecycle:
+         *
+         *    pending  → submitted, awaiting inclusion
+         *    confirmed→ tx observed in the cache feed (terminal)
+         *    failed   → definitively rejected (terminal)
+         *    timedOut → we stopped actively waiting; may still land
+         *
+         *  `timedOut` is NOT terminal: the reconciler (run on every
+         *  refreshLoopOnce tick within a bounded window) promotes it to
+         *  `confirmed` the moment the tx appears. Inclusion is detected
+         *  WITHOUT decryption — we count plaintext memos from `me`
+         *  (type/survey/sender are never encrypted), so encrypted votes
+         *  reconcile pre-reveal just like plaintext ones.
+         *
+         *  The registry is generic (keyed by `kind`) so bets/joins can be
+         *  wired the same way later; votes are the reference implementation.
+         * ================================================================ */
+        const _pendingActions = new Map();
+        let _pendingActionSeq = 0;
+        // How long after a timeout we keep reconciling on the refresh loop
+        // before giving up and leaving the action in `timedOut`.
+        const RECONCILE_WINDOW_MS = 120_000;
+
+        // Count plaintext memos of the given types sent by `me` (optionally
+        // scoped to a survey). Used to detect inclusion: a brand-new send is
+        // "landed" once this count exceeds what it was at submit time. This
+        // is decryption-free and handles re-votes (the count increments).
+        function countMyMemos(types, surveyId) {
+          if (!me || !Array.isArray(latestTxs)) return 0;
+          let n = 0;
+          for (const raw of latestTxs) {
+            const p = parseAppTx(raw);
+            if (!p || p.tx.from !== me) continue;
+            if (!types.includes(p.memo.type)) continue;
+            if (surveyId != null && String(p.memo.survey) !== String(surveyId)) continue;
+            n++;
+          }
+          return n;
+        }
+
+        // Reconciliation predicate: matchTypes captured at registration so a
+        // PRIOR identical action (e.g. an earlier vote on the same survey)
+        // can never be mistaken for this one.
+        function actionReconciled(a) {
+          if (a.kind === "join") return !!(me && JOINED.has(me));
+          return countMyMemos(a.matchTypes, a.surveyId) > a.priorCount;
+        }
+
+        function registerPendingAction(fields) {
+          const localId = `act_${Date.now().toString(36)}_${++_pendingActionSeq}`;
+          const action = Object.assign({
+            localId,
+            kind: "vote",
+            surveyId: null,
+            optionKey: null,
+            matchTypes: ["vote"],
+            sentAtMs: Date.now(),
+            status: "pending",
+          }, fields);
+          // Snapshot the pre-send memo count so reconciliation is precise.
+          action.priorCount = action.kind === "join"
+            ? 0
+            : countMyMemos(action.matchTypes, action.surveyId);
+          _pendingActions.set(localId, action);
+          return action;
+        }
+
+        // Move an action to a terminal/non-terminal state. confirmed/failed
+        // are terminal → dropped from the registry. failed also clears the
+        // optimistic vote so a declined send leaves no phantom "you voted".
+        function setActionStatus(localId, status) {
+          const a = _pendingActions.get(localId);
+          if (!a) return;
+          a.status = status;
+          if (status === "confirmed" || status === "failed") {
+            if (status === "failed" && a.kind === "vote" && a.surveyId) {
+              _pendingVotes.delete(a.surveyId);
+              try { localStorage.removeItem(`om:vote:${me}:${a.surveyId}`); } catch (_) {}
+            }
+            _pendingActions.delete(localId);
+          }
+        }
+
+        // Walk outstanding actions: promote any that have landed, and expire
+        // the reconcile window for ones that never do. Called after each
+        // rebuild in refreshLoopOnce so it always sees the freshest feed.
+        // Returns true if anything changed (so the banner can re-render).
+        function reconcilePendingActions() {
+          let changed = false;
+          const now = Date.now();
+          for (const a of Array.from(_pendingActions.values())) {
+            if (actionReconciled(a)) {
+              setActionStatus(a.localId, "confirmed");
+              changed = true;
+              continue;
+            }
+            // `pending` actions whose send already resolved-as-timeout become
+            // `timedOut`; we keep reconciling until the window lapses. After
+            // that the action stays `timedOut` (banner persists) but we stop
+            // tracking it so it doesn't scan forever.
+            if (a.status === "timedOut" && now - a.sentAtMs > RECONCILE_WINDOW_MS) {
+              _pendingActions.delete(a.localId);
+              changed = true;
+            }
+          }
+          return changed;
+        }
+
+        function pendingTimedOutCount() {
+          let n = 0;
+          for (const a of _pendingActions.values()) if (a.status === "timedOut") n++;
+          return n;
+        }
+
+        function renderPendingBanner() {
+          const banner = $("pendingTxBanner");
+          const label = $("pendingTxBannerLabel");
+          if (!banner || !label) return;
+          const n = pendingTimedOutCount();
+          if (n === 0) { banner.classList.add("hide"); return; }
+          label.textContent = n === 1
+            ? "Your vote is still confirming — it may take a moment to appear. We’ll update this automatically."
+            : `${n} actions are still confirming — they may take a moment to appear. We’ll update this automatically.`;
+          banner.classList.remove("hide");
         }
 
         /* ================================================================
@@ -2841,14 +3005,42 @@
           } else {
             memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, choice: optionKey });
           }
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Opinion Market — Record your prediction on-chain." });
-          // The vote is committed the moment sendTransaction resolves. The
-          // refresh below is cosmetic (it repaints counts) — run it
+          // Write optimistic state BEFORE awaiting the send and register the
+          // action as `pending`. For encrypted votes the real choice isn't
+          // visible until reveal, so this local memory is the only signal the
+          // user has that their vote is in flight — recording it pre-send
+          // means a timeout never erases it and the user isn't tricked into
+          // re-voting (and burning a second tx fee).
+          storeMyVote(s.id, optionKey);
+          const action = registerPendingAction({
+            kind: "vote", surveyId: s.id, optionKey, matchTypes: ["vote"],
+          });
+          try {
+            await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Opinion Market — Record your prediction on-chain." });
+          } catch (e) {
+            if (e && e.isTimeout) {
+              // The bridge/watchdog stopped waiting, but the tx may still
+              // land. Keep optimistic state, flip to `timedOut`, and let the
+              // reconciler promote it. Return a non-throwing outcome so the
+              // caller renders the calm "still confirming" surface, not a red
+              // error.
+              setActionStatus(action.localId, "timedOut");
+              postActionRefresh().catch(() => {});
+              return { status: "timedOut", action };
+            }
+            // Hard failure (declined / validation / bridge unavailable):
+            // clear optimistic state and the registry entry, then surface it.
+            setActionStatus(action.localId, "failed");
+            throw e;
+          }
+          // The vote is committed the moment sendTransaction resolves.
+          setActionStatus(action.localId, "confirmed");
+          // The refresh below is cosmetic (it repaints counts) — run it
           // best-effort so a stalled/failed /opinion-market/api/transactions
           // read can never strand the "Registering vote..." spinner on an
           // already-successful vote.
-          storeMyVote(s.id, optionKey);
           postActionRefresh().catch(() => {});
+          return { status: "confirmed", action };
         }
 
         async function addOptionFlow(labelRaw) {
@@ -4448,18 +4640,29 @@
           // Track success in the try and release the lock unconditionally in
           // the finally so the spinner/disabled-control lock can never leak —
           // even on an unexpected throw or a future unbounded await.
-          let ok = false;
+          let outcome = null;
           try {
-            await voteFlow(_voteSheetSelected, { pendingElId: "voteSheetPending" });
-            ok = true;
+            outcome = await voteFlow(_voteSheetSelected, { pendingElId: "voteSheetPending" });
           } catch (e) {
+            // Hard failure only — voteFlow returns (does not throw) on a
+            // timeout, so anything caught here is a genuine rejection.
             if (errEl) {
               errEl.textContent = (e && e.message) || String(e);
               errEl.style.display = "block";
             }
           } finally {
-            setSending(false, ok);
-            if (ok) closeVoteSheet();
+            const confirmed = !!(outcome && outcome.status === "confirmed");
+            const timedOut = !!(outcome && outcome.status === "timedOut");
+            // confirmed → "Confirmed!" completion animation; everything else
+            // just clears the spinner without the success flourish.
+            setSending(false, confirmed);
+            if (confirmed || timedOut) {
+              // Close the sheet either way: the optimistic choice is already
+              // rendered and a timeout shows the calm sticky banner instead
+              // of trapping the user behind a red error in the sheet.
+              closeVoteSheet();
+              if (timedOut) renderPendingBanner();
+            }
           }
         }
 
@@ -5221,6 +5424,10 @@
             const rawTxs = await getAppTransactions(2000);
             const noNewTxs = rawTxs.length === _lastRebuildTxCount;
             if (noNewTxs) {
+              // Still reconcile against the existing feed: an action may have
+              // been registered after the tx it's waiting on was already in
+              // latestTxs, and the timeout window still needs to expire.
+              if (_pendingActions.size > 0) { reconcilePendingActions(); renderPendingBanner(); }
               if (currentSurveyId && latestTxs) {
                 renderSurveyDetail(computeResults(latestTxs, me, currentSurveyId));
               }
@@ -5257,6 +5464,12 @@
               show($("screenProposals"), joined);
               show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
             }
+
+            // Reconcile outstanding sends against the freshly-rebuilt feed:
+            // promote any that have landed (incl. encrypted votes, via
+            // plaintext memo count) to `confirmed`, and expire stale timeouts.
+            reconcilePendingActions();
+            renderPendingBanner();
 
             renderSurveyList();
             renderProposalList();
