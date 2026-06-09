@@ -574,6 +574,7 @@
         transition: opacity 0.3s ease;
       }
       .inline-toast.hide { display: none; opacity: 0; }
+      .inline-toast.success { background: var(--success, #5dd39e); color: #06281c; }
 
       .rejected-banner {
         position: sticky; top: 0; z-index: 9000;
@@ -1973,19 +1974,24 @@
          * ================================================================ */
         const _pendingActions = new Map();
         let _pendingActionSeq = 0;
-        // How long after a timeout we keep reconciling on the refresh loop
-        // before giving up and leaving the action in `timedOut`.
-        const RECONCILE_WINDOW_MS = 120_000;
+        // How long we keep reconciling a `timedOut` action on the refresh
+        // loop before giving up. Measured from when the action ENTERS the
+        // timedOut state (a.timedOutAtMs), NOT from sentAtMs — the watchdog
+        // doesn't fire until ~195s after the send, so anchoring to sentAtMs
+        // would make the window already-expired the instant the banner shows
+        // and the action would be dropped before it ever reconciled.
+        const RECONCILE_WINDOW_MS = 180_000;
 
         // Count plaintext memos of the given types sent by `me` (optionally
-        // scoped to a survey). Used to detect inclusion: a brand-new send is
-        // "landed" once this count exceeds what it was at submit time. This
-        // is decryption-free and handles re-votes (the count increments).
+        // scoped to a survey). Decryption-free: type/survey/sender are never
+        // encrypted. Used as a secondary inclusion signal and to handle
+        // re-votes (the count increments on each new vote tx).
         function countMyMemos(types, surveyId) {
           if (!me || !Array.isArray(latestTxs)) return 0;
           let n = 0;
           for (const raw of latestTxs) {
-            const p = parseAppTx(raw);
+            let p;
+            try { p = parseAppTx(raw); } catch (_) { p = null; }
             if (!p || p.tx.from !== me) continue;
             if (!types.includes(p.memo.type)) continue;
             if (surveyId != null && String(p.memo.survey) !== String(surveyId)) continue;
@@ -1994,12 +2000,33 @@
           return n;
         }
 
-        // Reconciliation predicate: matchTypes captured at registration so a
-        // PRIOR identical action (e.g. an earlier vote on the same survey)
-        // can never be mistaken for this one.
+        // Is `me` recorded as having voted on this survey in the rebuilt
+        // state? This is the SAME signal the rest of the UI uses to show the
+        // user's choice, and rebuildState sets hasVoted for encrypted votes
+        // too (it keys off the plaintext `vote` memo type). So it flips true
+        // the moment the vote tx lands — no key reveal required.
+        function meHasVotedOn(surveyId) {
+          if (!me || !surveyId || !Array.isArray(latestTxs)) return false;
+          try {
+            const res = computeResults(latestTxs, me, surveyId);
+            return !!(res && res.meEntry && res.meEntry.hasVoted);
+          } catch (_) { return false; }
+        }
+
+        // Reconciliation predicate. Two independent decryption-free signals,
+        // either of which confirms inclusion:
+        //   (1) canonical hasVoted flipping false→true (primary), and
+        //   (2) a new matching memo from me vs the pre-send snapshot
+        //       (covers re-votes, where hasVoted was already true).
         function actionReconciled(a) {
-          if (a.kind === "join") return !!(me && JOINED.has(me));
-          return countMyMemos(a.matchTypes, a.surveyId) > a.priorCount;
+          if (!me) return false;
+          if (a.kind === "join") return JOINED.has(me);
+          if (a.kind === "vote" && a.surveyId) {
+            if (meHasVotedOn(a.surveyId) && !a.priorHasVoted) return true;
+          }
+          try { if (countMyMemos(a.matchTypes, a.surveyId) > a.priorCount) return true; }
+          catch (_) {}
+          return false;
         }
 
         function registerPendingAction(fields) {
@@ -2012,22 +2039,30 @@
             matchTypes: ["vote"],
             sentAtMs: Date.now(),
             status: "pending",
+            timedOutAtMs: 0,
           }, fields);
-          // Snapshot the pre-send memo count so reconciliation is precise.
+          // Snapshot pre-send signals so reconciliation can tell THIS send
+          // apart from a prior identical one on the same survey.
           action.priorCount = action.kind === "join"
             ? 0
             : countMyMemos(action.matchTypes, action.surveyId);
+          action.priorHasVoted = action.kind === "vote" && action.surveyId
+            ? meHasVotedOn(action.surveyId)
+            : false;
           _pendingActions.set(localId, action);
           return action;
         }
 
-        // Move an action to a terminal/non-terminal state. confirmed/failed
-        // are terminal → dropped from the registry. failed also clears the
+        // Move an action to a new lifecycle state. confirmed/failed are
+        // terminal → dropped from the registry. failed also clears the
         // optimistic vote so a declined send leaves no phantom "you voted".
+        // Entering timedOut stamps the moment so the reconcile window starts
+        // from here, not from the (much earlier) send time.
         function setActionStatus(localId, status) {
           const a = _pendingActions.get(localId);
           if (!a) return;
           a.status = status;
+          if (status === "timedOut" && !a.timedOutAtMs) a.timedOutAtMs = Date.now();
           if (status === "confirmed" || status === "failed") {
             if (status === "failed" && a.kind === "vote" && a.surveyId) {
               _pendingVotes.delete(a.surveyId);
@@ -2040,25 +2075,29 @@
         // Walk outstanding actions: promote any that have landed, and expire
         // the reconcile window for ones that never do. Called after each
         // rebuild in refreshLoopOnce so it always sees the freshest feed.
-        // Returns true if anything changed (so the banner can re-render).
+        // Surfaces a subtle "Vote recorded" toast when a vote that had timed
+        // out is reconciled to confirmed. Returns true if anything changed.
         function reconcilePendingActions() {
           let changed = false;
+          let confirmedTimedOutVote = false;
           const now = Date.now();
           for (const a of Array.from(_pendingActions.values())) {
-            if (actionReconciled(a)) {
+            let landed = false;
+            try { landed = actionReconciled(a); } catch (_) { landed = false; }
+            if (landed) {
+              if (a.kind === "vote" && a.status === "timedOut") confirmedTimedOutVote = true;
               setActionStatus(a.localId, "confirmed");
               changed = true;
               continue;
             }
-            // `pending` actions whose send already resolved-as-timeout become
-            // `timedOut`; we keep reconciling until the window lapses. After
-            // that the action stays `timedOut` (banner persists) but we stop
-            // tracking it so it doesn't scan forever.
-            if (a.status === "timedOut" && now - a.sentAtMs > RECONCILE_WINDOW_MS) {
+            // Give up only after the window measured from the timeout moment.
+            const windowStart = a.timedOutAtMs || a.sentAtMs;
+            if (a.status === "timedOut" && now - windowStart > RECONCILE_WINDOW_MS) {
               _pendingActions.delete(a.localId);
               changed = true;
             }
           }
+          if (confirmedTimedOutVote) showInlineSuccess("Vote recorded ✓");
           return changed;
         }
 
@@ -2698,9 +2737,20 @@
           const el = $("inlineToast");
           if (!el) return;
           el.textContent = msg;
-          el.classList.remove("hide");
+          el.classList.remove("hide", "success");
           clearTimeout(_toastTimer);
           _toastTimer = setTimeout(() => el.classList.add("hide"), 5000);
+        }
+        // Subtle, non-alarming confirmation (green) — used when a timed-out
+        // action is reconciled to confirmed by the refresh loop.
+        function showInlineSuccess(msg) {
+          const el = $("inlineToast");
+          if (!el) return;
+          el.textContent = msg;
+          el.classList.add("success");
+          el.classList.remove("hide");
+          clearTimeout(_toastTimer);
+          _toastTimer = setTimeout(() => el.classList.add("hide"), 4000);
         }
 
         /* Rejected-bets banner. The shared replay module records every
@@ -5488,6 +5538,23 @@
               renderSurveyDetail(res);
               const s = res.survey;
               if (s) updateSurveyCountdown(s);
+              // Fallback promotion: if the freshly-rebuilt state shows me as
+              // having voted on the survey I'm looking at, confirm any pending
+              // vote action for it directly off `res` — independent of the
+              // generic reconcile pass above, so the banner clears even if
+              // that pass somehow misses (different feed snapshot, etc.).
+              if (res.meEntry && res.meEntry.hasVoted) {
+                let promoted = false;
+                for (const a of Array.from(_pendingActions.values())) {
+                  if (a.kind === "vote" && a.surveyId === currentSurveyId && !a.priorHasVoted) {
+                    const wasTimedOut = a.status === "timedOut";
+                    setActionStatus(a.localId, "confirmed");
+                    promoted = true;
+                    if (wasTimedOut) showInlineSuccess("Vote recorded ✓");
+                  }
+                }
+                if (promoted) renderPendingBanner();
+              }
             }
 
             if ($("screenLeaderboard") && !$("screenLeaderboard").classList.contains("hide")) renderLeaderboard();
