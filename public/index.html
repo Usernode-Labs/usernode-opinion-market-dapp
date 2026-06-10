@@ -3083,8 +3083,18 @@
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           setText($("surveyTitle"), s.title);
           setText($("surveyQuestion"), s.question);
-          const creatorName = (s.createdBy && GLOBAL_USERNAMES.get(s.createdBy)) || (s.createdBy ? deriveDefaultUsername(s.createdBy) : "unknown");
-          setText($("surveyCreatedBy"), "Created by " + creatorName);
+          // Author-conditional "Created by" line. Server-authored markets
+          // (Daily BTC, WC26) have createdBy === null, as do any legacy
+          // surveys whose tx lacked a from_pubkey — for those we hide the
+          // element entirely rather than printing "Created by unknown".
+          if (s.createdBy) {
+            const creatorName = GLOBAL_USERNAMES.get(s.createdBy) || deriveDefaultUsername(s.createdBy);
+            setText($("surveyCreatedBy"), "Created by " + creatorName);
+            show($("surveyCreatedBy"), true);
+          } else {
+            setText($("surveyCreatedBy"), "");
+            show($("surveyCreatedBy"), false);
+          }
           const vc = countUniqueVoters(latestTxs, s.id);
           setText($("surveyVoterCount"), vc === 1 ? "1 vote" : `${vc} votes`);
 
@@ -3100,6 +3110,7 @@
             else statusLabel = w.kickoffMs ? ("Kickoff " + new Date(w.kickoffMs).toLocaleString()) : "Upcoming";
             const metaParts = [stageLabel, w.venue, statusLabel].filter(Boolean);
             setText($("surveyCreatedBy"), metaParts.join(" · "));
+            show($("surveyCreatedBy"), true);
           }
 
           // Reveal info
