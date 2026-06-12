@@ -47,6 +47,27 @@
         --danger: #ff6b6b;
         --ok: #5dd39e;
         --warn: #e6a817;
+        /* Redesign tokens (dark). Secondary surface, subtle elevation, and
+           a faint top-lit gradient give cards depth without new borders.
+           --text-muted-strong sits between --fg and --muted so important
+           secondary text (questions, stat labels) separates from titles. */
+        --card-2: #1b2433;
+        --text-muted-strong: #c6d0e0;
+        --elev-1: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.30);
+        --elev-2: 0 8px 24px rgba(0, 0, 0, 0.50), 0 2px 6px rgba(0, 0, 0, 0.35);
+        --grad-surface: linear-gradient(180deg, color-mix(in oklab, var(--card) 88%, #ffffff) 0%, var(--card) 100%);
+        --grad-surface-2: linear-gradient(180deg, color-mix(in oklab, var(--card-2) 88%, #ffffff) 0%, var(--card-2) 100%);
+        --grad-bg: linear-gradient(180deg, color-mix(in oklab, var(--bg) 94%, #ffffff) 0%, var(--bg) 60%);
+        /* Type scale + weight ramp — referenced by h1/h2/h3 and JS cssText. */
+        --fs-display: 28px;
+        --fs-h1: 19px;
+        --fs-h2: 15px;
+        --fs-h3: 14px;
+        --fs-body: 14px;
+        --fs-sm: 13px;
+        --fs-xs: 11px;
+        --fw-strong: 700;
+        --fw-med: 600;
       }
       :root[data-theme="dark"] { color-scheme: dark; }
 
@@ -61,6 +82,16 @@
         --danger: #c81e1e;
         --ok: #0f766e;
         --warn: #b45309;
+        /* Redesign tokens (light). Shadows use low-alpha slate so white
+           cards stay crisp; the surface gradient darkens slightly toward
+           the bottom instead of lightening (no headroom above white). */
+        --card-2: #f1f4f9;
+        --text-muted-strong: #2b3445;
+        --elev-1: 0 1px 2px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06);
+        --elev-2: 0 8px 20px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.08);
+        --grad-surface: linear-gradient(180deg, var(--card) 0%, color-mix(in oklab, var(--card) 96%, #000000) 100%);
+        --grad-surface-2: linear-gradient(180deg, var(--card-2) 0%, color-mix(in oklab, var(--card-2) 96%, #000000) 100%);
+        --grad-bg: linear-gradient(180deg, color-mix(in oklab, var(--bg) 97%, #000000) 0%, var(--bg) 60%);
       }
       @media (prefers-color-scheme: light) {
         :root:not([data-theme]) {
@@ -74,6 +105,15 @@
           --danger: #c81e1e;
           --ok: #0f766e;
           --warn: #b45309;
+          /* Light-theme redesign tokens — mirror of [data-theme="light"]
+             so system-preference-light (no explicit choice) matches. */
+          --card-2: #f1f4f9;
+          --text-muted-strong: #2b3445;
+          --elev-1: 0 1px 2px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06);
+          --elev-2: 0 8px 20px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.08);
+          --grad-surface: linear-gradient(180deg, var(--card) 0%, color-mix(in oklab, var(--card) 96%, #000000) 100%);
+          --grad-surface-2: linear-gradient(180deg, var(--card-2) 0%, color-mix(in oklab, var(--card-2) 96%, #000000) 100%);
+          --grad-bg: linear-gradient(180deg, color-mix(in oklab, var(--bg) 97%, #000000) 0%, var(--bg) 60%);
         }
       }
 
@@ -82,6 +122,7 @@
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
           Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
         background: var(--bg);
+        background: var(--grad-bg, var(--bg));
         color: var(--fg);
         display: flex;
         flex-direction: column;
@@ -95,6 +136,8 @@
         padding: 14px 16px;
         border-bottom: 1px solid var(--border);
         background: var(--card);
+        background: var(--grad-surface, var(--card));
+        box-shadow: var(--elev-1);
         z-index: 2;
       }
       .topBar-inner {
@@ -119,7 +162,7 @@
         flex-direction: column;
         align-items: stretch;
         justify-content: flex-start;
-        gap: 14px;
+        gap: 16px;
       }
       .archivedDock {
         margin-top: auto;
@@ -127,14 +170,25 @@
 
       .panel {
         background: var(--card);
+        background: var(--grad-surface, var(--card));
         border: 1px solid var(--border);
         border-radius: 16px;
-        padding: 16px;
+        padding: 18px;
+        box-shadow: var(--elev-1);
+      }
+      /* Nested/secondary panel — sits on a primary panel, so it uses the
+         lighter --card-2 surface and no resting shadow to avoid doubled
+         elevation. Opt-in via class; existing nested .panel usages keep
+         their look unless given .panel-nested. */
+      .panel-nested {
+        background: var(--card-2);
+        background: var(--grad-surface-2, var(--card-2));
+        box-shadow: none;
       }
 
-      h1 { font-size: 18px; margin: 0 0 4px; letter-spacing: 0.2px; }
-      h2 { font-size: 15px; margin: 0; }
-      h3 { font-size: 14px; margin: 0 0 8px; }
+      h1 { font-size: var(--fs-h1); font-weight: var(--fw-strong); margin: 0 0 4px; letter-spacing: 0.2px; }
+      h2 { font-size: var(--fs-h2); font-weight: var(--fw-med); margin: 0; letter-spacing: 0.1px; }
+      h3 { font-size: var(--fs-h3); font-weight: var(--fw-med); margin: 0 0 8px; }
       p { margin: 8px 0; color: var(--muted); line-height: 1.45; }
       code {
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
@@ -144,6 +198,24 @@
       hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 
       .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+      /* Standardized emoji icon. Emoji render at OS-dependent sizes and
+         baselines, so we pin font-size + line-height and use inline-flex
+         centering instead of relying on the text baseline. Size modifiers
+         keep nav/inline icons (sm) and list-row icons (md) consistent. */
+      .icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        font-size: 16px;
+        font-style: normal;
+        vertical-align: middle;
+        flex: 0 0 auto;
+      }
+      .icon-sm { font-size: 15px; }
+      .icon-md { font-size: 18px; }
+      .icon-lg { font-size: 22px; }
 
       .pill {
         display: inline-flex;
@@ -157,6 +229,25 @@
       .pillButton { background: transparent; cursor: pointer; }
       .pillButton:hover { border-color: var(--accent); }
       .pillButton[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+      /* Credits/balance is the primary status in the header: faint
+         accent-tinted fill, accent border, and a dominant numeric value
+         so it outranks the neutral username pill. */
+      #creditsDisplay {
+        background: color-mix(in oklab, var(--accent) 9%, var(--card));
+        border-color: color-mix(in oklab, var(--accent) 35%, var(--border));
+        color: var(--text-muted-strong);
+        padding: 5px 12px;
+      }
+      #creditsDisplay:hover { border-color: var(--accent); }
+      #creditsDisplay #creditsAmount {
+        font-size: var(--fs-h1);
+        font-weight: var(--fw-strong);
+        color: var(--fg);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+        line-height: 1;
+      }
 
       .btn {
         appearance: none;
@@ -180,6 +271,26 @@
         background: color-mix(in oklab, var(--accent) 10%, transparent);
       }
       .btn.small { padding: 6px 10px; font-size: 13px; }
+
+      /* Market / proposal list card. Promotes the JS-built list items from
+         flat transparent buttons (.btn) to true elevated cards: secondary
+         surface, resting elevation, and a hover lift mirroring .wc26-card.
+         Applied on top of .btn in buildCard()/proposal builders so the
+         click handling and grid layout set inline are preserved. */
+      .marketCard {
+        background: var(--card-2);
+        background: var(--grad-surface-2, var(--card-2));
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px 15px;
+        box-shadow: var(--elev-1);
+        transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+      }
+      .marketCard:hover {
+        border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+        box-shadow: var(--elev-2);
+        transform: translateY(-1px);
+      }
 
       .input {
         width: 100%;
@@ -250,9 +361,9 @@
       @media (max-width: 480px) {
         .statsGrid { grid-template-columns: 1fr; }
       }
-      .statCard-label { font-size: 13px; color: var(--muted); margin: 0; }
-      .statCard-value { font-size: 26px; font-weight: 700; margin: 4px 0 2px; }
-      .statCard-detail { font-size: 11px; color: var(--muted); margin: 0; }
+      .statCard-label { font-size: var(--fs-sm); font-weight: var(--fw-med); color: var(--text-muted-strong); margin: 0; letter-spacing: 0.01em; }
+      .statCard-value { font-size: var(--fs-display); font-weight: var(--fw-strong); line-height: 1.1; margin: 6px 0 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+      .statCard-detail { font-size: var(--fs-xs); color: var(--muted); margin: 0; }
 
       .history-row {
         display: flex;
@@ -267,7 +378,7 @@
         transition: border-color 0.15s;
       }
       .history-row:hover { border-color: var(--accent); }
-      .history-icon { font-size: 18px; flex: 0 0 auto; line-height: 1; margin-top: 1px; }
+      .history-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex: 0 0 auto; line-height: 1; margin-top: 1px; }
       .history-body { flex: 1; min-width: 0; }
       .history-label { font-size: 13px; line-height: 1.4; }
       .history-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
@@ -346,15 +457,19 @@
         0%   { background-position: -480px 0; }
         100% { background-position: 480px 0; }
       }
-      #appLoading { display: grid; gap: 10px; }
+      #appLoading { display: grid; gap: 12px; }
       #appLoading .skelHead {
         height: 14px; width: 40%; border-radius: 6px; margin-bottom: 6px;
       }
+      /* Mirror the live .marketCard look (surface, radius, padding,
+         elevation) so the first-paint placeholder matches the real cards. */
       #appLoading .skelCard {
         border: 1px solid var(--border);
-        border-radius: 10px;
-        background: var(--card);
-        padding: 14px;
+        border-radius: 14px;
+        background: var(--card-2);
+        background: var(--grad-surface-2, var(--card-2));
+        box-shadow: var(--elev-1);
+        padding: 14px 15px;
         display: grid; gap: 10px;
       }
       #appLoading .skelRow { display: flex; justify-content: space-between; gap: 10px; }
@@ -375,9 +490,11 @@
       .skelBar.pill { width: 64px; height: 22px; border-radius: 999px; flex: none; }
       #appLoadingError {
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: 16px;
         background: var(--card);
-        padding: 16px;
+        background: var(--grad-surface, var(--card));
+        box-shadow: var(--elev-1);
+        padding: 18px;
         text-align: center;
       }
       #appLoadingError .muted { font-size: 13px; margin: 0 0 10px; }
@@ -412,8 +529,8 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 8px 0;
-        border-bottom: 1px solid var(--border);
+        padding: 10px 0;
+        border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
         flex-wrap: wrap;
       }
       .marketRow:last-child { border-bottom: none; }
@@ -493,7 +610,7 @@
         align-items: center;
         gap: 12px;
         padding: 10px 0;
-        border-bottom: 1px solid var(--border);
+        border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
         font-variant-numeric: tabular-nums;
       }
       .leaderRow:last-child { border-bottom: none; }
@@ -656,8 +773,8 @@
       }
       .voteStatus .optDot { vertical-align: -1px; }
       .optionCard {
-        padding: 10px 0;
-        border-bottom: 1px solid var(--border);
+        padding: 12px 0;
+        border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
       }
       .optionCard:last-child { border-bottom: none; }
       .optionCard-header {
@@ -790,7 +907,7 @@
         transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
         max-width: 500px;
         margin: 0 auto;
-        box-shadow: 0 -4px 24px rgba(0,0,0,0.15);
+        box-shadow: var(--elev-2);
       }
       .bottomSheet.open { transform: translateY(0); }
       .bottomSheet-handle {
@@ -1017,18 +1134,20 @@
       .wc26-section { margin-top: 20px; }
       .wc26-section:first-child { margin-top: 0; }
       .wc26-section-title {
-        font-size: 12px; font-weight: 700; text-transform: uppercase;
-        letter-spacing: .06em; color: var(--muted); margin: 0 0 8px;
+        font-size: var(--fs-xs); font-weight: var(--fw-strong); text-transform: uppercase;
+        letter-spacing: .06em; color: var(--text-muted-strong); margin: 0 0 8px;
       }
       .wc26-card {
-        display: flex; flex-direction: column; gap: 4px;
-        padding: 10px 12px; background: var(--card);
-        border: 1px solid var(--border); border-radius: 10px;
-        cursor: pointer; transition: box-shadow .15s; margin-bottom: 8px;
+        display: flex; flex-direction: column; gap: 5px;
+        padding: 13px 14px; background: var(--card-2);
+        background: var(--grad-surface-2, var(--card-2));
+        border: 1px solid var(--border); border-radius: 12px;
+        box-shadow: var(--elev-1);
+        cursor: pointer; transition: box-shadow .15s, transform .15s, border-color .15s; margin-bottom: 10px;
       }
-      .wc26-card:hover { box-shadow: 0 2px 8px color-mix(in oklab,var(--accent) 20%,transparent); }
+      .wc26-card:hover { box-shadow: var(--elev-2); transform: translateY(-1px); border-color: color-mix(in oklab, var(--accent) 40%, var(--border)); }
       .wc26-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-      .wc26-teams { font-size: 14px; font-weight: 600; flex: 1; }
+      .wc26-teams { font-size: var(--fs-body); font-weight: var(--fw-med); flex: 1; }
       .wc26-badge {
         font-size: 11px; padding: 2px 7px; border-radius: 999px;
         font-weight: 700; white-space: nowrap; flex-shrink: 0;
@@ -1051,17 +1170,17 @@
       <div class="topBar-inner row" style="justify-content: space-between; align-items: flex-start;">
         <h1 style="margin: 0;">Opinion Market</h1>
         <div class="row">
-          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?">
-            &#x1FA99; <code id="creditsAmount">0</code>
+          <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?" aria-label="Your credits balance">
+            <span class="icon icon-sm" aria-hidden="true">&#x1FA99;</span> <code id="creditsAmount">0</code>
           </button>
           <button class="pill pillButton" id="headerUsernameBtn" type="button">
             User: <code id="headerUsername">(loading...)</code>
           </button>
-          <button class="btn small hide" id="historyBtn" type="button" title="My History">&#x1F4DC;</button>
-          <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard">&#x1F3C6;</button>
-          <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026">&#x26BD;</button>
-          <button class="btn small" id="infoBtn" type="button" title="How it works">&#x2753;</button>
-          <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
+          <button class="btn small hide" id="historyBtn" type="button" title="My History" aria-label="My History"><span class="icon icon-sm" aria-hidden="true">&#x1F4DC;</span></button>
+          <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard" aria-label="Leaderboard"><span class="icon icon-sm" aria-hidden="true">&#x1F3C6;</span></button>
+          <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026" aria-label="World Cup 2026"><span class="icon icon-sm" aria-hidden="true">&#x26BD;</span></button>
+          <button class="btn small" id="infoBtn" type="button" title="How it works" aria-label="How it works"><span class="icon icon-sm" aria-hidden="true">&#x2753;</span></button>
+          <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme"><span class="icon icon-sm" aria-hidden="true">&#x1F319;</span></button>
           <button class="btn" id="backBtn" style="display: none;">Back</button>
         </div>
       </div>
@@ -1183,7 +1302,7 @@
     <div class="bottomSheet" id="creditsInfoSheet" role="dialog" aria-labelledby="creditsInfoTitle">
       <div class="bottomSheet-handle"></div>
       <div class="bottomSheet-header">
-        <span class="bottomSheet-optName" id="creditsInfoTitle">&#x1FA99; Credits</span>
+        <span class="bottomSheet-optName" id="creditsInfoTitle"><span class="icon icon-md" aria-hidden="true">&#x1FA99;</span> Credits</span>
       </div>
       <div class="creditsInfo-body">
         <p>
@@ -1419,7 +1538,7 @@
                    resolve/delete buttons below. -->
               <button class="btn primary small hide" id="voteSurveyBtn" type="button" style="margin-top: 8px;">Vote</button>
               <button class="btn small hide" id="resolveEarlyBtn" type="button" style="margin-top: 8px; color: var(--warn); border-color: var(--warn);">&#x23F1; Resolve early (testing)</button>
-              <button class="btn small hide" id="deleteSurveyBtn" type="button" style="margin-top: 8px; color: var(--danger); border-color: var(--danger);">&#x1F5D1; Delete question</button>
+              <button class="btn small hide" id="deleteSurveyBtn" type="button" style="margin-top: 8px; color: var(--danger); border-color: var(--danger);"><span class="icon icon-sm" aria-hidden="true">&#x1F5D1;</span> Delete question</button>
               <div id="deletePending" class="tx-progress hide" role="status" aria-live="polite">
                 <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
                 <div class="tx-progress-label">Deleting...</div>
@@ -1493,7 +1612,7 @@
             <!-- World Cup 2026 — hub screen (live, today, coming up, results) -->
             <div class="panel hide" id="screenWC26Hub">
               <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h2 style="margin: 0;">&#x26BD; World Cup 2026</h2>
+                <h2 style="margin: 0;"><span class="icon icon-md" aria-hidden="true">&#x26BD;</span> World Cup 2026</h2>
                 <button class="btn small" id="wcScheduleBtn" type="button">Schedule</button>
               </div>
               <div id="wc26HubContent"></div>
@@ -1502,7 +1621,7 @@
             <!-- World Cup 2026 — full schedule by group -->
             <div class="panel hide" id="screenWC26Schedule">
               <div class="row" style="align-items: center; margin-bottom: 12px; gap: 8px;">
-                <h2 style="margin: 0; flex: 1;">&#x26BD; Group Stage Schedule</h2>
+                <h2 style="margin: 0; flex: 1;"><span class="icon icon-md" aria-hidden="true">&#x26BD;</span> Group Stage Schedule</h2>
               </div>
               <div id="wc26ScheduleContent"></div>
             </div>
@@ -3827,8 +3946,8 @@
 
           function buildCard(s, badgeText) {
             const b = document.createElement("button");
-            b.className = "btn";
-            b.style.cssText = "display:grid;gap:4px;text-align:left;";
+            b.className = "btn marketCard";
+            b.style.cssText = "display:grid;gap:6px;text-align:left;";
 
             const mkt = MARKETS.get(s.id);
             const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
@@ -3837,7 +3956,7 @@
             const row1 = document.createElement("div");
             row1.style.cssText = "display:flex;justify-content:space-between;align-items:baseline;gap:8px;";
             const titleEl = document.createElement("div");
-            titleEl.style.cssText = "font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;";
+            titleEl.style.cssText = "font-size:var(--fs-h3);font-weight:var(--fw-med);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;";
             titleEl.textContent = s.title;
             if (s.kind === "btc_daily") {
               const badge = document.createElement("span");
@@ -3856,7 +3975,7 @@
                 if (p > topProb) { topProb = p; topIdx = i; }
               }
               const pill = document.createElement("span");
-              pill.style.cssText = "flex:0 0 auto;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;";
+              pill.style.cssText = "flex:0 0 auto;font-size:var(--fs-sm);font-weight:var(--fw-strong);font-variant-numeric:tabular-nums;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;padding:3px 9px;border-radius:999px;background:color-mix(in oklab, var(--accent) 12%, transparent);";
               pill.title = "Market odds from betting, not vote results";
               const dot = document.createElement("span");
               dot.style.cssText = "width:8px;height:8px;border-radius:50%;background:" + optionColor(topIdx, s.options[topIdx].label);
@@ -3870,8 +3989,7 @@
 
             // Row 2: question text (2-line clamp)
             const questionEl = document.createElement("div");
-            questionEl.className = "muted";
-            questionEl.style.cssText = "font-size:12px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
+            questionEl.style.cssText = "color:var(--text-muted-strong);font-size:var(--fs-sm);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
             questionEl.textContent = s.question;
             b.appendChild(questionEl);
 
@@ -3880,7 +3998,7 @@
             const totalVol = (hasMarket && mkt.optionVolume) ? Object.values(mkt.optionVolume).reduce((a, c) => a + c, 0) : 0;
             const statsEl = document.createElement("div");
             statsEl.className = "muted";
-            statsEl.style.cssText = "font-size:11px;font-variant-numeric:tabular-nums;";
+            statsEl.style.cssText = "font-size:var(--fs-xs);font-variant-numeric:tabular-nums;";
             const parts = [];
             parts.push(votes === 1 ? "1 vote" : votes + " votes");
             if (totalVol > 0) parts.push(formatCredits(totalVol) + "c volume");
@@ -3954,17 +4072,16 @@
 
           for (const pr of OPEN_PROPOSALS) {
             const card = document.createElement("div");
-            card.className = "panel";
+            card.className = "panel panel-nested";
             card.style.cssText = "display:grid;gap:6px;";
 
             const titleEl = document.createElement("div");
-            titleEl.style.cssText = "font-weight:600;line-height:1.3;";
+            titleEl.style.cssText = "font-size:var(--fs-h3);font-weight:var(--fw-med);line-height:1.3;";
             titleEl.textContent = pr.def.title;
             card.appendChild(titleEl);
 
             const qEl = document.createElement("div");
-            qEl.className = "muted";
-            qEl.style.cssText = "font-size:12px;line-height:1.4;";
+            qEl.style.cssText = "color:var(--text-muted-strong);font-size:var(--fs-sm);line-height:1.4;";
             qEl.textContent = pr.def.question;
             card.appendChild(qEl);
 
@@ -3982,7 +4099,7 @@
             progWrap.appendChild(bar);
             const progLabel = document.createElement("div");
             progLabel.className = "muted";
-            progLabel.style.cssText = "font-size:11px;line-height:1.4;";
+            progLabel.style.cssText = "font-size:var(--fs-xs);line-height:1.4;";
             // At-now progress estimate. The authoritative promotion check
             // runs in replay at each upvote tx's ts; this denominator is
             // computed at `now` for user guidance only.
@@ -3994,7 +4111,7 @@
             const proposer = GLOBAL_USERNAMES.get(pr.proposedBy) || deriveDefaultUsername(pr.proposedBy);
             const metaEl = document.createElement("div");
             metaEl.className = "muted";
-            metaEl.style.cssText = "font-size:11px;";
+            metaEl.style.cssText = "font-size:var(--fs-xs);";
             metaEl.textContent = "by " + proposer;
             card.appendChild(metaEl);
 
