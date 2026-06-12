@@ -1639,6 +1639,34 @@
           return await callNative("sendTransaction", { destination_pubkey, amount, memo });
         }
 
+        // --- Cancellable submits -------------------------------------------
+        // The hosted bridge's sendTransaction does not (yet) honor a
+        // caller-supplied AbortSignal for its inclusion polling, so a submit
+        // stuck behind high network latency can leave the UI pinned in a
+        // "Submitting..." state. We wrap the send with an AbortController:
+        // raceAbort() rejects the moment the user cancels, freeing the UI
+        // immediately. The signal is still forwarded into the bridge opts so
+        // it cleans up natively once bridge support lands; until then the
+        // abandoned in-flight send is harmless — the chain poller dedups any
+        // tx that does land.
+        function makeAbortError() { const e = new Error("aborted"); e.__omAborted = true; return e; }
+        function isAbortError(e) { return !!e && (e.__omAborted === true || e.name === "AbortError"); }
+        function raceAbort(promise, signal) {
+          if (!signal) return promise;
+          if (signal.aborted) return Promise.reject(makeAbortError());
+          return new Promise((resolve, reject) => {
+            const onAbort = () => reject(makeAbortError());
+            signal.addEventListener("abort", onAbort, { once: true });
+            promise.then(
+              (v) => { signal.removeEventListener("abort", onAbort); resolve(v); },
+              (err) => { signal.removeEventListener("abort", onAbort); reject(err); }
+            );
+          });
+        }
+        // In-flight proposal submission controller, aborted by the Cancel
+        // button. Null whenever no proposal submit is running.
+        let _proposalAbort = null;
+
         const OPTION_COLORS = ['#6ea8fe','#ff6b6b','#5dd39e','#e6a817','#c084fc','#f472b6','#22d3ee','#fb923c'];
         const COLOR_NAME_MAP = {red:'#ff6b6b',blue:'#6ea8fe',green:'#5dd39e',yellow:'#e6a817',gold:'#e6a817',purple:'#c084fc',violet:'#c084fc',pink:'#f472b6',cyan:'#22d3ee',teal:'#22d3ee',orange:'#fb923c',black:'#888888',white:'#e0e0e0',brown:'#a0522d',gray:'#9ca3af',grey:'#9ca3af'};
         const COLOR_NAME_RES = Object.keys(COLOR_NAME_MAP).map(k => [new RegExp('\\b' + k + '\\b', 'i'), COLOR_NAME_MAP[k]]);
@@ -2455,7 +2483,7 @@
          * ================================================================ */
         const TX_PROGRESS_EXPECTED_S = 60, TX_PROGRESS_WARN_S = 120, TX_PROGRESS_ERR_S = 180;
         let _txProgressRaf = null, _txProgressStart = 0;
-        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].map($).filter(el => el && !el.classList.contains("hide"));
+        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "addProposalPending", "proposalPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].map($).filter(el => el && !el.classList.contains("hide"));
 
         function txProgressPercent(s) {
           if (s <= TX_PROGRESS_EXPECTED_S) { const t = s / TX_PROGRESS_EXPECTED_S; return 95 * (1 - Math.pow(1 - t, 3)); }
@@ -2601,15 +2629,18 @@
           else if (txSucceeded) completeTxProgress();
           else {
             stopTxProgress();
-            ["setUsernamePending", "addSurveyPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].forEach(id => {
+            ["setUsernamePending", "addSurveyPending", "addProposalPending", "proposalPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].forEach(id => {
               const el = $(id);
               if (el) { el.classList.add("hide"); resetProgressBar(el); }
             });
           }
-          // #voteSheetCancel stays enabled while sending so the vote sheet
-          // always has a usable escape hatch (see cancelVoteSheet) even if a
-          // tx is mid-flight — same exemption pattern as #addSurveyBtn.
-          document.querySelectorAll("button, input, select").forEach(el => { if (!el.closest("#screenLeaderboard") && el.id !== "addSurveyBtn" && el.id !== "voteSheetCancel") el.disabled = !!v; });
+          // #voteSheetCancel and #cancelProposalBtn stay enabled while
+          // sending so those flows always have a usable escape hatch (see
+          // cancelVoteSheet / the cancelProposalBtn handler) even if a tx is
+          // mid-flight — same exemption pattern as #addSurveyBtn. The
+          // proposal Cancel additionally aborts the in-flight submit.
+          const SENDING_EXEMPT_IDS = new Set(["addSurveyBtn", "voteSheetCancel", "cancelProposalBtn"]);
+          document.querySelectorAll("button, input, select").forEach(el => { if (!el.closest("#screenLeaderboard") && !SENDING_EXEMPT_IDS.has(el.id)) el.disabled = !!v; });
           if (!isAdmin) { const btn = $("addSurveyBtn"); if (btn) { btn.style.opacity = "0.45"; btn.style.cursor = "not-allowed"; btn.title = "Only admins can create questions for now"; } }
           if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) {
             const joinBtn = $("joinBtn"); if (joinBtn) joinBtn.disabled = true;
@@ -2965,8 +2996,19 @@
           if (memo.length > 1024) throw new Error("Proposal payload too large — please shorten your title, question, or option labels.");
           setSending(true);
           showPending("addProposalPending", "Submitting proposal...");
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Propose question", confirmSubtitle: "Opinion Market — Propose a new question for the community to upvote." });
-          await postActionRefresh();
+          const controller = new AbortController();
+          _proposalAbort = controller;
+          try {
+            // raceAbort frees the UI the instant Cancel is pressed; the signal
+            // is also forwarded so the bridge can abort natively where supported.
+            await raceAbort(
+              sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, signal: controller.signal, confirmTitle: "Propose question", confirmSubtitle: "Opinion Market — Propose a new question for the community to upvote." }),
+              controller.signal
+            );
+            await postActionRefresh();
+          } finally {
+            if (_proposalAbort === controller) _proposalAbort = null;
+          }
         }
 
         async function upvoteProposalFlow(proposalId) {
@@ -5580,6 +5622,12 @@
           });
 
           $("cancelProposalBtn").addEventListener("click", () => {
+            // If a submit is in flight, abort the network request instead of
+            // just closing. The saveProposalBtn catch handler then exits the
+            // submitting state and leaves the editable form intact (no toast).
+            // Cancel stays clickable throughout because it's exempt from the
+            // setSending(true) disable sweep.
+            if (_proposalAbort) { _proposalAbort.abort(); return; }
             show($("addProposalPanel"), false);
             clearAddProposalForm();
           });
@@ -5590,7 +5638,12 @@
               show($("addProposalPanel"), false);
               clearAddProposalForm();
               setSending(false, true);
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) {
+              setSending(false, false);
+              // A user-initiated cancel is not an error: drop back to the
+              // editable form (inputs preserved) with no error toast.
+              if (!isAbortError(e)) showInlineError(e.message || e);
+            }
           });
 
           initProposalOptionFields();
