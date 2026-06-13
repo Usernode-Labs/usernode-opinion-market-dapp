@@ -691,6 +691,7 @@
         transition: opacity 0.3s ease;
       }
       .inline-toast.hide { display: none; opacity: 0; }
+      .inline-toast.success { background: var(--success, #5dd39e); color: #06281c; }
 
       .rejected-banner {
         position: sticky; top: 0; z-index: 9000;
@@ -727,6 +728,28 @@
       .rejected-banner-list .reason {
         opacity: 0.85; font-style: italic;
       }
+
+      .pending-banner {
+        position: sticky; top: 0; z-index: 9000;
+        margin: 0 auto; max-width: 720px;
+        padding: 10px 14px;
+        display: flex; align-items: center; gap: 10px;
+        background: rgba(110,168,254,0.12);
+        border: 1px solid var(--accent, #6ea8fe);
+        border-radius: 8px;
+        color: var(--fg);
+        font-size: 13px; line-height: 1.4;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+      }
+      .pending-banner.hide { display: none; }
+      .pending-banner-spinner {
+        width: 14px; height: 14px; flex-shrink: 0;
+        border: 2px solid rgba(110,168,254,0.35);
+        border-top-color: var(--accent, #6ea8fe);
+        border-radius: 50%;
+        animation: pendingSpin 0.8s linear infinite;
+      }
+      @keyframes pendingSpin { to { transform: rotate(360deg); } }
 
       .optDot {
         display: inline-block;
@@ -1205,6 +1228,14 @@
         <button class="rejected-banner-dismiss" id="rejectedBannerDismiss" aria-label="Dismiss">&times;</button>
       </div>
       <ul id="rejectedBannerList" class="rejected-banner-list"></ul>
+    </div>
+
+    <!-- "Still confirming" banner — shown when a send timed out but its tx
+         may still land. The reconciler clears it automatically once the tx
+         appears in the feed. Deliberately calm (not a red error). -->
+    <div id="pendingTxBanner" class="pending-banner hide" role="status" aria-live="polite">
+      <span class="pending-banner-spinner" aria-hidden="true"></span>
+      <span id="pendingTxBannerLabel"></span>
     </div>
 
     <!-- Bottom sheet buy/sell modal -->
@@ -1747,15 +1778,48 @@
           });
         }
 
+        // Hard watchdog for any tx-signing await. The bridge is handed a
+        // `timeoutMs` (TX_SEND_OPTS), but we cannot rely on every bridge mode
+        // honoring it — in particular the `callNative` fallback above resolves
+        // off an external `__usernodeResolve` callback and will sit on its
+        // pending promise forever if the native/relay side never answers (app
+        // backgrounded, QR never scanned, channel ack dropped). An unsettled
+        // sendTransaction strands the global setSending() lock and pins
+        // "Registering vote..." on screen indefinitely. This guarantees the
+        // promise settles so the caller's catch/finally always runs — exactly
+        // the role fetchWithTimeout plays for network reads.
+        function withTimeout(promise, timeoutMs, message) {
+          let timer = null;
+          const watchdog = new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              // Tag the rejection so callers can tell a watchdog timeout
+              // (tx may still land — route to the `timedOut` lifecycle state
+              // and let the reconciler promote it) apart from a hard failure
+              // (user declined, validation, bridge unavailable).
+              const err = new Error(message || "Timed out waiting for confirmation");
+              err.isTimeout = true;
+              reject(err);
+            }, timeoutMs);
+          });
+          return Promise.race([promise, watchdog]).finally(() => clearTimeout(timer));
+        }
+
         async function getNodeAddress() {
           if (typeof window.getNodeAddress === "function") return await window.getNodeAddress();
           return await callNative("getNodeAddress");
         }
 
         async function sendTransaction(destination_pubkey, amount, memo, opts) {
+          // Bound the whole send so the flow can never hang forever. Give the
+          // bridge's own inclusion polling (opts.timeoutMs) room to finish and
+          // surface its real result/error first, then trip ~15s later as a
+          // last-resort backstop against a bridge mode that never settles.
+          const bridgeTimeout = (opts && opts.timeoutMs) || 180_000;
+          const watchdogMs = bridgeTimeout + 15_000;
+          const msg = "Vote timed out waiting for confirmation. It may still land — check back in a moment.";
           if (typeof window.sendTransaction === "function")
-            return await window.sendTransaction(destination_pubkey, amount, memo, opts);
-          return await callNative("sendTransaction", { destination_pubkey, amount, memo });
+            return await withTimeout(window.sendTransaction(destination_pubkey, amount, memo, opts), watchdogMs, msg);
+          return await withTimeout(callNative("sendTransaction", { destination_pubkey, amount, memo }), watchdogMs, msg);
         }
 
         // --- Cancellable submits -------------------------------------------
@@ -2041,6 +2105,173 @@
         function getStoredVote(surveyId) {
           if (!me) return null;
           try { return localStorage.getItem(`om:vote:${me}:${surveyId}`) || null; } catch (_) { return null; }
+        }
+
+        /* ================================================================
+         *  PENDING-ACTION REGISTRY + RECONCILER
+         *
+         *  Every on-chain send is tracked through an explicit lifecycle:
+         *
+         *    pending  → submitted, awaiting inclusion
+         *    confirmed→ tx observed in the cache feed (terminal)
+         *    failed   → definitively rejected (terminal)
+         *    timedOut → we stopped actively waiting; may still land
+         *
+         *  `timedOut` is NOT terminal: the reconciler (run on every
+         *  refreshLoopOnce tick within a bounded window) promotes it to
+         *  `confirmed` the moment the tx appears. Inclusion is detected
+         *  WITHOUT decryption — we count plaintext memos from `me`
+         *  (type/survey/sender are never encrypted), so encrypted votes
+         *  reconcile pre-reveal just like plaintext ones.
+         *
+         *  The registry is generic (keyed by `kind`) so bets/joins can be
+         *  wired the same way later; votes are the reference implementation.
+         * ================================================================ */
+        const _pendingActions = new Map();
+        let _pendingActionSeq = 0;
+        // How long we keep reconciling a `timedOut` action on the refresh
+        // loop before giving up. Measured from when the action ENTERS the
+        // timedOut state (a.timedOutAtMs), NOT from sentAtMs — the watchdog
+        // doesn't fire until ~195s after the send, so anchoring to sentAtMs
+        // would make the window already-expired the instant the banner shows
+        // and the action would be dropped before it ever reconciled.
+        const RECONCILE_WINDOW_MS = 180_000;
+
+        // Count plaintext memos of the given types sent by `me` (optionally
+        // scoped to a survey). Decryption-free: type/survey/sender are never
+        // encrypted. Used as a secondary inclusion signal and to handle
+        // re-votes (the count increments on each new vote tx).
+        function countMyMemos(types, surveyId) {
+          if (!me || !Array.isArray(latestTxs)) return 0;
+          let n = 0;
+          for (const raw of latestTxs) {
+            let p;
+            try { p = parseAppTx(raw); } catch (_) { p = null; }
+            if (!p || p.tx.from !== me) continue;
+            if (!types.includes(p.memo.type)) continue;
+            if (surveyId != null && String(p.memo.survey) !== String(surveyId)) continue;
+            n++;
+          }
+          return n;
+        }
+
+        // Is `me` recorded as having voted on this survey in the rebuilt
+        // state? This is the SAME signal the rest of the UI uses to show the
+        // user's choice, and rebuildState sets hasVoted for encrypted votes
+        // too (it keys off the plaintext `vote` memo type). So it flips true
+        // the moment the vote tx lands — no key reveal required.
+        function meHasVotedOn(surveyId) {
+          if (!me || !surveyId || !Array.isArray(latestTxs)) return false;
+          try {
+            const res = computeResults(latestTxs, me, surveyId);
+            return !!(res && res.meEntry && res.meEntry.hasVoted);
+          } catch (_) { return false; }
+        }
+
+        // Reconciliation predicate. Two independent decryption-free signals,
+        // either of which confirms inclusion:
+        //   (1) canonical hasVoted flipping false→true (primary), and
+        //   (2) a new matching memo from me vs the pre-send snapshot
+        //       (covers re-votes, where hasVoted was already true).
+        function actionReconciled(a) {
+          if (!me) return false;
+          if (a.kind === "join") return JOINED.has(me);
+          if (a.kind === "vote" && a.surveyId) {
+            if (meHasVotedOn(a.surveyId) && !a.priorHasVoted) return true;
+          }
+          try { if (countMyMemos(a.matchTypes, a.surveyId) > a.priorCount) return true; }
+          catch (_) {}
+          return false;
+        }
+
+        function registerPendingAction(fields) {
+          const localId = `act_${Date.now().toString(36)}_${++_pendingActionSeq}`;
+          const action = Object.assign({
+            localId,
+            kind: "vote",
+            surveyId: null,
+            optionKey: null,
+            matchTypes: ["vote"],
+            sentAtMs: Date.now(),
+            status: "pending",
+            timedOutAtMs: 0,
+          }, fields);
+          // Snapshot pre-send signals so reconciliation can tell THIS send
+          // apart from a prior identical one on the same survey.
+          action.priorCount = action.kind === "join"
+            ? 0
+            : countMyMemos(action.matchTypes, action.surveyId);
+          action.priorHasVoted = action.kind === "vote" && action.surveyId
+            ? meHasVotedOn(action.surveyId)
+            : false;
+          _pendingActions.set(localId, action);
+          return action;
+        }
+
+        // Move an action to a new lifecycle state. confirmed/failed are
+        // terminal → dropped from the registry. failed also clears the
+        // optimistic vote so a declined send leaves no phantom "you voted".
+        // Entering timedOut stamps the moment so the reconcile window starts
+        // from here, not from the (much earlier) send time.
+        function setActionStatus(localId, status) {
+          const a = _pendingActions.get(localId);
+          if (!a) return;
+          a.status = status;
+          if (status === "timedOut" && !a.timedOutAtMs) a.timedOutAtMs = Date.now();
+          if (status === "confirmed" || status === "failed") {
+            if (status === "failed" && a.kind === "vote" && a.surveyId) {
+              _pendingVotes.delete(a.surveyId);
+              try { localStorage.removeItem(`om:vote:${me}:${a.surveyId}`); } catch (_) {}
+            }
+            _pendingActions.delete(localId);
+          }
+        }
+
+        // Walk outstanding actions: promote any that have landed, and expire
+        // the reconcile window for ones that never do. Called after each
+        // rebuild in refreshLoopOnce so it always sees the freshest feed.
+        // Surfaces a subtle "Vote recorded" toast when a vote that had timed
+        // out is reconciled to confirmed. Returns true if anything changed.
+        function reconcilePendingActions() {
+          let changed = false;
+          let confirmedTimedOutVote = false;
+          const now = Date.now();
+          for (const a of Array.from(_pendingActions.values())) {
+            let landed = false;
+            try { landed = actionReconciled(a); } catch (_) { landed = false; }
+            if (landed) {
+              if (a.kind === "vote" && a.status === "timedOut") confirmedTimedOutVote = true;
+              setActionStatus(a.localId, "confirmed");
+              changed = true;
+              continue;
+            }
+            // Give up only after the window measured from the timeout moment.
+            const windowStart = a.timedOutAtMs || a.sentAtMs;
+            if (a.status === "timedOut" && now - windowStart > RECONCILE_WINDOW_MS) {
+              _pendingActions.delete(a.localId);
+              changed = true;
+            }
+          }
+          if (confirmedTimedOutVote) showInlineSuccess("Vote recorded ✓");
+          return changed;
+        }
+
+        function pendingTimedOutCount() {
+          let n = 0;
+          for (const a of _pendingActions.values()) if (a.status === "timedOut") n++;
+          return n;
+        }
+
+        function renderPendingBanner() {
+          const banner = $("pendingTxBanner");
+          const label = $("pendingTxBannerLabel");
+          if (!banner || !label) return;
+          const n = pendingTimedOutCount();
+          if (n === 0) { banner.classList.add("hide"); return; }
+          label.textContent = n === 1
+            ? "Your vote is still confirming — it may take a moment to appear. We’ll update this automatically."
+            : `${n} actions are still confirming — they may take a moment to appear. We’ll update this automatically.`;
+          banner.classList.remove("hide");
         }
 
         /* ================================================================
@@ -2661,9 +2892,20 @@
           const el = $("inlineToast");
           if (!el) return;
           el.textContent = msg;
-          el.classList.remove("hide");
+          el.classList.remove("hide", "success");
           clearTimeout(_toastTimer);
           _toastTimer = setTimeout(() => el.classList.add("hide"), 5000);
+        }
+        // Subtle, non-alarming confirmation (green) — used when a timed-out
+        // action is reconciled to confirmed by the refresh loop.
+        function showInlineSuccess(msg) {
+          const el = $("inlineToast");
+          if (!el) return;
+          el.textContent = msg;
+          el.classList.add("success");
+          el.classList.remove("hide");
+          clearTimeout(_toastTimer);
+          _toastTimer = setTimeout(() => el.classList.add("hide"), 4000);
         }
 
         /* Rejected-bets banner. The shared replay module records every
@@ -2980,14 +3222,42 @@
           if (!memo) {
             memo = makeMemo({ app: "opinion-market", type: "vote", survey: s.id, choice: optionKey });
           }
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Opinion Market — Record your prediction on-chain." });
-          // The vote is committed the moment sendTransaction resolves. The
-          // refresh below is cosmetic (it repaints counts) — run it
+          // Write optimistic state BEFORE awaiting the send and register the
+          // action as `pending`. For encrypted votes the real choice isn't
+          // visible until reveal, so this local memory is the only signal the
+          // user has that their vote is in flight — recording it pre-send
+          // means a timeout never erases it and the user isn't tricked into
+          // re-voting (and burning a second tx fee).
+          storeMyVote(s.id, optionKey);
+          const action = registerPendingAction({
+            kind: "vote", surveyId: s.id, optionKey, matchTypes: ["vote"],
+          });
+          try {
+            await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Confirm your vote", confirmSubtitle: "Opinion Market — Record your prediction on-chain." });
+          } catch (e) {
+            if (e && e.isTimeout) {
+              // The bridge/watchdog stopped waiting, but the tx may still
+              // land. Keep optimistic state, flip to `timedOut`, and let the
+              // reconciler promote it. Return a non-throwing outcome so the
+              // caller renders the calm "still confirming" surface, not a red
+              // error.
+              setActionStatus(action.localId, "timedOut");
+              postActionRefresh().catch(() => {});
+              return { status: "timedOut", action };
+            }
+            // Hard failure (declined / validation / bridge unavailable):
+            // clear optimistic state and the registry entry, then surface it.
+            setActionStatus(action.localId, "failed");
+            throw e;
+          }
+          // The vote is committed the moment sendTransaction resolves.
+          setActionStatus(action.localId, "confirmed");
+          // The refresh below is cosmetic (it repaints counts) — run it
           // best-effort so a stalled/failed /opinion-market/api/transactions
           // read can never strand the "Registering vote..." spinner on an
           // already-successful vote.
-          storeMyVote(s.id, optionKey);
           postActionRefresh().catch(() => {});
+          return { status: "confirmed", action };
         }
 
         async function addOptionFlow(labelRaw) {
@@ -4611,18 +4881,29 @@
           // Track success in the try and release the lock unconditionally in
           // the finally so the spinner/disabled-control lock can never leak —
           // even on an unexpected throw or a future unbounded await.
-          let ok = false;
+          let outcome = null;
           try {
-            await voteFlow(_voteSheetSelected, { pendingElId: "voteSheetPending" });
-            ok = true;
+            outcome = await voteFlow(_voteSheetSelected, { pendingElId: "voteSheetPending" });
           } catch (e) {
+            // Hard failure only — voteFlow returns (does not throw) on a
+            // timeout, so anything caught here is a genuine rejection.
             if (errEl) {
               errEl.textContent = (e && e.message) || String(e);
               errEl.style.display = "block";
             }
           } finally {
-            setSending(false, ok);
-            if (ok) closeVoteSheet();
+            const confirmed = !!(outcome && outcome.status === "confirmed");
+            const timedOut = !!(outcome && outcome.status === "timedOut");
+            // confirmed → "Confirmed!" completion animation; everything else
+            // just clears the spinner without the success flourish.
+            setSending(false, confirmed);
+            if (confirmed || timedOut) {
+              // Close the sheet either way: the optimistic choice is already
+              // rendered and a timeout shows the calm sticky banner instead
+              // of trapping the user behind a red error in the sheet.
+              closeVoteSheet();
+              if (timedOut) renderPendingBanner();
+            }
           }
         }
 
@@ -5394,6 +5675,10 @@
             const rawTxs = await getAppTransactions(2000);
             const noNewTxs = rawTxs.length === _lastRebuildTxCount;
             if (noNewTxs) {
+              // Still reconcile against the existing feed: an action may have
+              // been registered after the tx it's waiting on was already in
+              // latestTxs, and the timeout window still needs to expire.
+              if (_pendingActions.size > 0) { reconcilePendingActions(); renderPendingBanner(); }
               if (currentSurveyId && latestTxs) {
                 renderSurveyDetail(computeResults(latestTxs, me, currentSurveyId));
               }
@@ -5431,6 +5716,12 @@
               show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
             }
 
+            // Reconcile outstanding sends against the freshly-rebuilt feed:
+            // promote any that have landed (incl. encrypted votes, via
+            // plaintext memo count) to `confirmed`, and expire stale timeouts.
+            reconcilePendingActions();
+            renderPendingBanner();
+
             renderSurveyList();
             renderProposalList();
             renderRejectedBanner();
@@ -5448,6 +5739,23 @@
               renderSurveyDetail(res);
               const s = res.survey;
               if (s) updateSurveyCountdown(s);
+              // Fallback promotion: if the freshly-rebuilt state shows me as
+              // having voted on the survey I'm looking at, confirm any pending
+              // vote action for it directly off `res` — independent of the
+              // generic reconcile pass above, so the banner clears even if
+              // that pass somehow misses (different feed snapshot, etc.).
+              if (res.meEntry && res.meEntry.hasVoted) {
+                let promoted = false;
+                for (const a of Array.from(_pendingActions.values())) {
+                  if (a.kind === "vote" && a.surveyId === currentSurveyId && !a.priorHasVoted) {
+                    const wasTimedOut = a.status === "timedOut";
+                    setActionStatus(a.localId, "confirmed");
+                    promoted = true;
+                    if (wasTimedOut) showInlineSuccess("Vote recorded ✓");
+                  }
+                }
+                if (promoted) renderPendingBanner();
+              }
             }
 
             if ($("screenLeaderboard") && !$("screenLeaderboard").classList.contains("hide")) renderLeaderboard();
