@@ -2405,6 +2405,20 @@
           return window.OpinionMarketState.userBalance(_stateSnapshot(), pubkey);
         }
 
+        // A market with no trades yet (server-authored BTC/World Cup
+        // questions, promoted proposals — anything without a creator-ante
+        // Phase 5b seed) has no MARKETS entry until Phase 6 lazily seeds
+        // it on the first bet. For display + bet entry points, synthesize
+        // that same platform-liquidity seed so odds render and the first
+        // bet can actually be placed.
+        function getDisplayMarket(survey) {
+          if (!survey) return null;
+          const real = MARKETS.get(survey.id);
+          if (real) return real;
+          if (survey.archived) return null;
+          return window.OpinionMarketState.seedMarketForSurvey(survey);
+        }
+
         function userShareValue(pubkey) {
           let total = 0;
           for (const survey of SURVEYS) {
@@ -2940,6 +2954,7 @@
             case "BAD_SHARES":           return "invalid share amount";
             case "INSUFFICIENT_SHARES":  return `not enough shares (had ${r.held}, needed ${r.needed})`;
             case "NO_POOL":              return "the option's market pool was missing";
+            case "NO_MARKET":            return "the question has no market to bet into";
             case "ZERO_SHARES":          return "bet rounded down to zero shares";
             case "CPMM_UNAVAILABLE":     return "market calculator not loaded";
             default:                     return r.reason || "unknown reason";
@@ -3299,7 +3314,6 @@
             switch (v.reason) {
               case "NOT_JOINED":          throw new Error("Join first to get credits");
               case "NO_SURVEY":           throw new Error("Question not found");
-              case "BTC_NO_TRADING":      throw new Error("The daily BTC market is vote-only — no trading");
               case "ARCHIVED":            throw new Error("Question has ended");
               case "MATCH_LOCKED":        throw new Error("Match has already kicked off — betting is closed");
               case "NO_OPTION":           throw new Error("That option no longer exists");
@@ -3765,7 +3779,7 @@
 
           // Odds bars for markets with liquidity (skip live/settled)
           if (!isDone && !isLive) {
-            const mkt = MARKETS.get(survey.id);
+            const mkt = getDisplayMarket(survey);
             if (mkt && cpmmTotalLiquidity(mkt) > 0 && survey.options && CPMM && CPMM.cpmmProb) {
               const oddsRow = document.createElement("div");
               oddsRow.style.cssText = "display:flex;gap:3px;margin-top:6px;";
@@ -4219,7 +4233,7 @@
             b.className = "btn marketCard";
             b.style.cssText = "display:grid;gap:6px;text-align:left;";
 
-            const mkt = MARKETS.get(s.id);
+            const mkt = getDisplayMarket(s);
             const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
 
             // Row 1: title + leading option odds pill
@@ -4616,14 +4630,11 @@
 
         function openBottomSheet(surveyId, optKey, optIdx, side) {
           const s = SURVEYS_BY_ID.get(surveyId);
-          // Trading is disabled for the daily-BTC oracle market — never open
-          // the buy/sell sheet for it, even from a stale/programmatic call.
-          if (s && s.kind === "btc_daily") return;
           _bsSurveyId = surveyId;
           _bsOptKey = optKey;
           _bsMode = "buy";
           _bsSide = side === "no" ? "no" : "yes";
-          const mkt = MARKETS.get(surveyId);
+          const mkt = getDisplayMarket(s);
           const opt = s ? s.options.find(o => o.key === optKey) : null;
           if (!opt || !mkt) return;
           const pool = mkt.pools[optKey];
@@ -4916,7 +4927,7 @@
         }
 
         function updateBuyPreview() {
-          const mkt = MARKETS.get(_bsSurveyId);
+          const mkt = getDisplayMarket(SURVEYS_BY_ID.get(_bsSurveyId));
           if (!mkt || !_bsOptKey) return;
           const pool = mkt.pools[_bsOptKey];
           const c = parseInt($("bsBuyInput").value, 10);
@@ -4985,7 +4996,7 @@
           const _scrollY = _scrollEl ? _scrollEl.scrollTop : 0;
 
           const s = res.survey;
-          const mkt = MARKETS.get(s.id);
+          const mkt = getDisplayMarket(s);
           const settlement = SETTLEMENTS.get(s.id);
 
           // --- Daily-BTC info panel: strike + outcome / pending / live spot ---
@@ -5106,9 +5117,7 @@
 
           const vc = countUniqueVoters(latestTxs, s.id);
           const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
-          // Trading is disabled for the daily-BTC oracle market: hide every
-          // buy/sell entry point (bet buttons + onboarding hint) for it.
-          const canBet = !s.archived && JOINED.has(me) && s.kind !== "btc_daily";
+          const canBet = !s.archived && JOINED.has(me);
           const meVoteKey = res.meEntry && res.meEntry.voteKey;
           const meHasVoted = res.meEntry && res.meEntry.hasVoted;
           const myPreviousVote = meVoteKey || ((meHasVoted || _pendingVotes.has(s.id)) ? getStoredVote(s.id) : null);
@@ -6108,7 +6117,7 @@
             const c = parseInt($("bsBuyInput").value, 10);
             setText($("bsBuyError"), "");
             if (!c || c < 1) { setText($("bsBuyError"), "Enter credits to bet"); return; }
-            const poolTotal = (() => { const m = MARKETS.get(_bsSurveyId); return m ? Object.values(m.pools).reduce((a, p) => a + p.yes + p.no, 0) : 0; })();
+            const poolTotal = (() => { const m = getDisplayMarket(SURVEYS_BY_ID.get(_bsSurveyId)); return m ? Object.values(m.pools).reduce((a, p) => a + p.yes + p.no, 0) : 0; })();
             const betCap = Math.floor(poolTotal * MAX_BET_POOL_RATIO);
             const maxBuy = Math.min(Math.floor(myCredits()), betCap || Infinity);
             if (c > maxBuy) { setText($("bsBuyError"), "Max is " + maxBuy + " credits"); return; }
