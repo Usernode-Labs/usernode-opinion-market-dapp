@@ -127,10 +127,12 @@ test("Phase 3: admin-gated surveys reject non-admin creators", async () => {
   assert(ids.includes("s2"), "admin survey kept");
 });
 
-// Trading is restored for normal surveys but disabled for the daily-BTC
-// oracle market. The Phase-6 trade tests below (balance-cap rejection,
+// Trading is enabled for every market kind, including the daily-BTC
+// oracle market (its PR #19 trade gate was removed for issue #31, June
+// 2026). The Phase-6 trade tests below (balance-cap rejection,
 // MAX_BET_POOL_RATIO cap, validatePlaceBet preflight) apply to normal
-// surveys; the BTC-specific test asserts trades are ignored for btc_daily.
+// surveys; the BTC-specific test asserts the lazy platform-liquidity
+// seed lets the FIRST bet on a server-authored market go through.
 
 test("Phase 6: place_bet exceeding balance is silently dropped", async () => {
   nextTxId = 1;
@@ -223,7 +225,7 @@ test("validatePlaceBet rejects with the same rules as Phase 6", async () => {
   assert.strictEqual(broke.reason, "INSUFFICIENT_BALANCE");
 });
 
-test("BTC market is not tradeable; normal-survey trades still process", async () => {
+test("BTC market is tradeable: first bet lazily seeds it from platform liquidity", async () => {
   nextTxId = 1;
   const SERVER_ADDR = "ut1zserverserverserverserverserverserverserverserver1srv";
   const btcSv = {
@@ -242,33 +244,86 @@ test("BTC market is not tradeable; normal-survey trades still process", async ()
     tx(USER_A, "join", null, 1000),
     tx(SERVER_ADDR, "create_daily_btc", { survey: btcSv }, 500),
     tx(ADMIN, "create_survey", { survey: normalSv }, 2000),
-    // BTC trades must be ignored entirely: no shares, no balance change, no market.
+    // BTC bet: no Phase 5b market exists (createdBy is null), so Phase 6
+    // must lazily seed one from platform liquidity and process the bet.
     tx(USER_A, "place_bet", { survey: "btc-x", option: "higher", credits: 100, side: "yes" }, 3000),
-    tx(USER_A, "sell_shares", { survey: "btc-x", option: "higher", shares: 5, side: "yes" }, 3500),
-    // The SAME bet against a normal survey must be processed.
+    // The same bet against a normal survey is also processed.
     tx(USER_A, "place_bet", { survey: "n1", option: "yes", credits: 100, side: "yes" }, 4000),
   ];
   const state = await OMS.computeFullState({
     rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
     adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: 1700000010000,
   });
-  // BTC market is never seeded (gate prevents the lazy seed) and has no shares.
-  assert.strictEqual(state.MARKETS.has("btc-x"), false, "BTC market never seeded (not tradeable)");
-  // Normal survey market exists and USER_A holds YES shares from the processed bet.
+  // BTC market was lazily seeded by the first bet and USER_A holds shares.
+  const bmkt = state.MARKETS.get("btc-x");
+  assert(bmkt, "BTC market lazily seeded by the first bet");
+  assert(bmkt.userShares[USER_A] && bmkt.userShares[USER_A]["higher"] > 0, "BTC bet accrued YES shares");
   const nmkt = state.MARKETS.get("n1");
   assert(nmkt, "normal survey market seeded by Phase 5b");
   assert(nmkt.userShares[USER_A] && nmkt.userShares[USER_A]["yes"] > 0, "normal bet accrued YES shares");
   const flow = state.CREDIT_FLOWS.get(USER_A);
-  assert.strictEqual(flow.grossBets, 100, "only the normal-survey bet counted (BTC bet ignored)");
-  // BTC trades are ignored SILENTLY — no rejection records.
+  assert.strictEqual(flow.grossBets, 200, "both bets counted");
   const btcRejects = state.rejectedSends.filter(r => r.surveyId === "btc-x");
-  assert.strictEqual(btcRejects.length, 0, "BTC trades ignored silently (no recordReject)");
-  // validatePlaceBet rejects BTC up front, accepts a fundable normal bet.
+  assert.strictEqual(btcRejects.length, 0, "BTC bet was not rejected");
+  // validatePlaceBet accepts both fundable bets.
   const vBtc = OMS.validatePlaceBet(state, { pubkey: USER_A, surveyId: "btc-x", optionKey: "higher", credits: 10, side: "yes" });
-  assert.strictEqual(vBtc.ok, false, "BTC preflight rejected");
-  assert.strictEqual(vBtc.reason, "BTC_NO_TRADING");
+  assert.strictEqual(vBtc.ok, true, "BTC bet passes preflight");
   const vNormal = OMS.validatePlaceBet(state, { pubkey: USER_A, surveyId: "n1", optionKey: "yes", credits: 10, side: "yes" });
   assert.strictEqual(vNormal.ok, true, "fundable normal bet passes preflight");
+});
+
+test("first bet on an unseeded market passes validatePlaceBet (issue #31)", async () => {
+  // Server-authored markets (daily BTC, World Cup) and promoted proposals
+  // have createdBy: null, so Phase 5b never seeds them and MARKETS has no
+  // entry until the first bet. The preflight used to reject NO_MARKET
+  // here, which blocked the first bet forever — the lazy seed could
+  // never run. It must now validate against the platform-liquidity seed
+  // Phase 6 would create.
+  nextTxId = 1;
+  const SERVER_ADDR = "ut1zserverserverserverserverserverserverserverserver1srv";
+  const kickoff = 1700000000000 + 50000000;
+  const wcMatch = {
+    id: "wc26-m1", matchId: "wc26-m1",
+    title: "Mexico vs Poland",
+    question: "Mexico vs Poland — home win, draw, or away win?",
+    options: [
+      { key: "home_win", label: "Home win" },
+      { key: "draw", label: "Draw" },
+      { key: "away_win", label: "Away win" },
+    ],
+    kind: "wc26_match", stage: "group", group: "A",
+    home_team: "MEX", away_team: "POL",
+    home_team_name: "Mexico", away_team_name: "Poland",
+    kickoff_ms: kickoff,
+    active_duration_ms: 50000000 + 8 * 3600000,
+    reveal_interval_ms: null,
+  };
+  const txs = [
+    tx(USER_A, "join", null, 0),
+    tx(SERVER_ADDR, "create_wc26_match", { match: wcMatch }, 500),
+  ];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: 1700000010000,
+  });
+  const sv = state.SURVEYS_BY_ID.get("wc26-m1");
+  assert(sv, "World Cup survey registered");
+  assert.strictEqual(state.MARKETS.has("wc26-m1"), false, "no market until the first bet");
+  const v = OMS.validatePlaceBet(state, {
+    pubkey: USER_A, surveyId: "wc26-m1", optionKey: "home_win", credits: 50,
+    side: "yes", now: 1700000010000,
+  });
+  assert.strictEqual(v.ok, true, "first bet on an unseeded market passes preflight");
+  // The max-bet cap is computed against the would-be lazy seed, exactly
+  // as Phase 6 enforces it once the market exists.
+  const seeded = OMS.seedMarketForSurvey(sv);
+  const cap = Math.floor(OMS.cpmmTotalLiquidity(seeded) * OMS.MAX_BET_POOL_RATIO);
+  const over = OMS.validatePlaceBet(state, {
+    pubkey: USER_A, surveyId: "wc26-m1", optionKey: "home_win", credits: cap + 1,
+    side: "yes", now: 1700000010000,
+  });
+  assert.strictEqual(over.ok, false);
+  assert.strictEqual(over.reason, "OVER_MAX_BET");
 });
 
 test("genesis gating: non-genesis joiners are dropped", async () => {
