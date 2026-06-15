@@ -487,12 +487,18 @@ function createWorldCup2026(opts) {
   // Inject every group fixture directly into the cache so the preview renders
   // the whole schedule. Idempotent: deterministic per-match tx ids let the
   // cache dedup re-injections. Re-run on a cadence so it survives a chain reset.
+  // Also injects resolve_wc26_match memos for past-kickoff matches and
+  // sample vote memos from 5 staging predictors so the Standings screen
+  // renders populated data.
   async function seedStaging() {
     if (!seedTransaction || !fixtures.length) return getStatus();
     const now = nowFn();
-    let created;
-    try { created = parseExisting(getRawTransactions, appPubkey).created; }
-    catch (_) { created = new Map(); }
+    let existing;
+    try { existing = parseExisting(getRawTransactions, appPubkey); }
+    catch (_) { existing = { created: new Map(), resolved: new Set() }; }
+    const { created, resolved } = existing;
+
+    // 1. Create memos for unseeded fixtures.
     let injected = 0;
     for (const fx of fixtures) {
       if (created.has(fx.matchId)) continue;
@@ -507,13 +513,132 @@ function createWorldCup2026(opts) {
         memo: JSON.stringify(memo),
         created_at: new Date(now).toISOString(),
       };
-      try { seedTransaction(tx); injected++; }
+      try { seedTransaction(tx); injected++; created.set(fx.matchId, { matchId: fx.matchId, stage: fx.stage, kickoffMs: fx.kickoffMs, options: groupStageOptions().map(function (o) { return o.key; }) }); }
       catch (e) { console.error(`[wc26] staging seed error (${fx.matchId}): ${e.message}`); }
     }
     if (injected > 0) {
       status.lastSeedAt = now;
       console.log(`[wc26] staging-seeded ${injected} group fixtures`);
     }
+
+    // 2. Resolve memos for past-kickoff fixtures (deterministic fake results).
+    // WinnerKey chosen by matchId hash mod 3 (group: home_win/draw/away_win)
+    // or mod 2 (knockout: home_win/away_win) to produce varied outcomes.
+    const GROUP_OPTIONS = ["home_win", "draw", "away_win"];
+    const KNOCKOUT_OPTIONS = ["home_win", "away_win"];
+    function deterministicWinner(matchId, stage) {
+      var h = 0;
+      for (var ci = 0; ci < matchId.length; ci++) h = (h * 31 + matchId.charCodeAt(ci)) >>> 0;
+      var opts = stage === "group" ? GROUP_OPTIONS : KNOCKOUT_OPTIONS;
+      return opts[h % opts.length];
+    }
+    var pastFixtures = fixtures.filter(function (fx) { return fx.kickoffMs < now; });
+    var resolveInjected = 0;
+    for (var ri = 0; ri < pastFixtures.length; ri++) {
+      var rfx = pastFixtures[ri];
+      if (resolved.has(rfx.matchId)) continue;
+      if (!created.has(rfx.matchId)) continue;
+      var winnerKey = deterministicWinner(rfx.matchId, rfx.stage);
+      var resolveMemo = {
+        app: APP_ID,
+        type: "resolve_wc26_match",
+        matchId: rfx.matchId,
+        winnerKey: winnerKey,
+        source: "staging-seed",
+        resolved_at: rfx.kickoffMs + 8 * HOUR_MS,
+      };
+      var resolveTxId = "staging-resolve-" + rfx.matchId;
+      var resolveTx = {
+        tx_id: resolveTxId,
+        id: resolveTxId,
+        from_pubkey: senderPubkey,
+        destination_pubkey: appPubkey,
+        amount: 1,
+        memo: JSON.stringify(resolveMemo),
+        created_at: new Date(rfx.kickoffMs + 8 * HOUR_MS).toISOString(),
+      };
+      try { seedTransaction(resolveTx); resolveInjected++; resolved.add(rfx.matchId); }
+      catch (e) { console.error(`[wc26] staging resolve seed error (${rfx.matchId}): ${e.message}`); }
+    }
+    if (resolveInjected > 0) {
+      console.log(`[wc26] staging-seeded ${resolveInjected} match resolutions`);
+    }
+
+    // 3. Staging predictor join + vote seeds (5 users, up to 8 settled matches).
+    // Votes use pre-decrypted format (choice set directly, no ev field) — the
+    // decryptVoteMemos guard in opinion-market-state.js passes these through.
+    var STAGING_PREDICTORS = [
+      { pubkey: "staging-predictor-1", username: "staging-demo-alfie" },
+      { pubkey: "staging-predictor-2", username: "staging-demo-billie" },
+      { pubkey: "staging-predictor-3", username: "staging-demo-casey" },
+      { pubkey: "staging-predictor-4", username: "staging-demo-drew" },
+      { pubkey: "staging-predictor-5", username: "staging-demo-emery" },
+    ];
+    // Determine which matches are resolved so we can seed votes for them.
+    var resolvedPast = pastFixtures.filter(function (fx) { return resolved.has(fx.matchId); }).slice(0, 8);
+
+    // Inject join memo for each staging predictor (idempotent via tx_id).
+    for (var pi = 0; pi < STAGING_PREDICTORS.length; pi++) {
+      var pred = STAGING_PREDICTORS[pi];
+      var joinTxId = "staging-join-" + pred.pubkey;
+      var joinTx = {
+        tx_id: joinTxId, id: joinTxId,
+        from_pubkey: pred.pubkey,
+        destination_pubkey: appPubkey,
+        amount: 1,
+        memo: JSON.stringify({ app: APP_ID, type: "join" }),
+        created_at: new Date(now - 30 * 24 * HOUR_MS).toISOString(),
+      };
+      var usernameTxId = "staging-username-" + pred.pubkey;
+      var usernameTx = {
+        tx_id: usernameTxId, id: usernameTxId,
+        from_pubkey: pred.pubkey,
+        destination_pubkey: appPubkey,
+        amount: 1,
+        memo: JSON.stringify({ app: APP_ID, type: "set_username", username: pred.username }),
+        created_at: new Date(now - 30 * 24 * HOUR_MS + 1000).toISOString(),
+      };
+      try { seedTransaction(joinTx); } catch (_) {}
+      try { seedTransaction(usernameTx); } catch (_) {}
+    }
+
+    // Inject vote memos for each predictor on each resolved past match.
+    // Choice varies per predictor+match to produce a range of accuracy rates.
+    var voteInjected = 0;
+    for (var vi = 0; vi < resolvedPast.length; vi++) {
+      var vfx = resolvedPast[vi];
+      var actualWinner = deterministicWinner(vfx.matchId, vfx.stage);
+      var opts = vfx.stage === "group" ? GROUP_OPTIONS : KNOCKOUT_OPTIONS;
+      for (var vpi = 0; vpi < STAGING_PREDICTORS.length; vpi++) {
+        var vpred = STAGING_PREDICTORS[vpi];
+        var voteTxId = "staging-vote-" + vpred.pubkey + "-" + vfx.matchId;
+        // Each predictor gets their own offset so accuracy rates differ.
+        var choiceIdx = (vi + vpi * 2) % opts.length;
+        // Predictors 0 and 1 are mostly correct; others vary.
+        if (vpi <= 1) choiceIdx = opts.indexOf(actualWinner) !== -1 ? (vi % 2 === 0 ? opts.indexOf(actualWinner) : choiceIdx) : choiceIdx;
+        var voteMemo = {
+          app: APP_ID,
+          type: "vote",
+          survey: vfx.matchId,
+          choice: opts[choiceIdx],
+          ki: 0,
+        };
+        var voteTx = {
+          tx_id: voteTxId, id: voteTxId,
+          from_pubkey: vpred.pubkey,
+          destination_pubkey: appPubkey,
+          amount: 1,
+          memo: JSON.stringify(voteMemo),
+          created_at: new Date(vfx.kickoffMs - HOUR_MS).toISOString(),
+        };
+        try { seedTransaction(voteTx); voteInjected++; }
+        catch (e) { console.error(`[wc26] staging vote seed error (${voteTxId}): ${e.message}`); }
+      }
+    }
+    if (voteInjected > 0) {
+      console.log(`[wc26] staging-seeded ${voteInjected} predictor votes`);
+    }
+
     return getStatus();
   }
 
