@@ -2914,6 +2914,34 @@
           if (label) label.textContent = labelText;
         }
 
+        // Map a caught sendTransaction failure to a user-friendly message.
+        // The node/bridge rejects an on-chain send when the linked wallet
+        // owns no spendable base-currency UTXO to cover the 1-unit transfer
+        // plus the network fee. That surfaces as a raw string like "no
+        // eligibility base currency UTXO owner" / "no UTXO for owner". We
+        // detect that class of error and explain it in plain language,
+        // making clear it's about the on-chain wallet (not in-app credits)
+        // and that nothing was recorded. All other errors (and timeout/abort
+        // errors, which have their own lifecycle handling) pass through with
+        // their original message.
+        function friendlyTxError(e) {
+          if (e && (e.isTimeout || e.__omAborted || e.name === "AbortError")) {
+            return (e && e.message) || String(e);
+          }
+          const raw = (e && e.message) || String(e);
+          const low = String(raw).toLowerCase();
+          const isUtxoError =
+            low.includes("base currency utxo") ||
+            low.includes("eligibility base currency") ||
+            low.includes("no eligibility") ||
+            low.includes("no utxo for owner") ||
+            (low.includes("utxo") && low.includes("owner"));
+          if (isUtxoError) {
+            return "Your Usernode wallet has no base currency to cover the network fee for this action. Add funds to your linked wallet (separate from your in-app credits) and try again — nothing was recorded.";
+          }
+          return raw;
+        }
+
         let _toastTimer = null;
         function showInlineError(msg) {
           const el = $("inlineToast");
@@ -4540,7 +4568,7 @@
               btn.disabled = sending || notJoined || !!notGenesis;
               btn.addEventListener("click", async () => {
                 try { await upvoteProposalFlow(pr.id); }
-                catch (e) { showInlineError(e.message || String(e)); setSending(false); }
+                catch (e) { showInlineError(friendlyTxError(e)); setSending(false); }
               });
             }
             card.appendChild(btn);
@@ -5025,7 +5053,7 @@
             // Hard failure only — voteFlow returns (does not throw) on a
             // timeout, so anything caught here is a genuine rejection.
             if (errEl) {
-              errEl.textContent = (e && e.message) || String(e);
+              errEl.textContent = friendlyTxError(e);
               errEl.style.display = "block";
             }
           } finally {
@@ -6030,7 +6058,7 @@
               await setUsernameFlow(($("usernameInput") || {}).value || "");
               setSending(false, true);
               closeUsernameSheet();
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           window.addEventListener("keydown", (e) => {
@@ -6040,7 +6068,7 @@
 
           $("joinBtn").addEventListener("click", async () => {
             try { await joinFlow(); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("historyBtn").addEventListener("click", navigateToHistory);
@@ -6113,7 +6141,7 @@
             clearTimeout(_resolveConfirmTimer);
             if (btn) { btn.textContent = "\u23F1 Resolve early (testing)"; btn.style.background = ""; }
             try { await resolveEarlyFlow(s.id); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("deleteSurveyBtn").addEventListener("click", async () => {
@@ -6121,7 +6149,7 @@
             if (!s || sending || !isAdmin) return;
             if (_deleteConfirmId !== s.id) { requestDeleteConfirm(s.id); return; }
             try { await executeDeleteSurvey(s.id); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("addOptionToggleBtn").addEventListener("click", () => {
@@ -6144,7 +6172,7 @@
               show($("addOptionPanel"), false);
               const inp = $("newOptionInput"); if (inp) inp.value = "";
               setSending(false, true);
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("addSurveyOptionBtn").addEventListener("click", () => addSurveyOptionField(""));
@@ -6169,7 +6197,7 @@
               show($("addSurveyPanel"), false);
               clearAddSurveyForm();
               setSending(false, true);
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           initSurveyOptionFields();
@@ -6208,7 +6236,7 @@
               setSending(false, false);
               // A user-initiated cancel is not an error: drop back to the
               // editable form (inputs preserved) with no error toast.
-              if (!isAbortError(e)) showInlineError(e.message || e);
+              if (!isAbortError(e)) showInlineError(friendlyTxError(e));
             }
           });
 
@@ -6260,7 +6288,7 @@
               closeBottomSheet();
             } catch (e) {
               setSending(false, false);
-              setText($("bsBuyError"), e.message || String(e));
+              setText($("bsBuyError"), friendlyTxError(e));
             }
           });
           $("bsSellAction").addEventListener("click", async () => {
@@ -6280,7 +6308,7 @@
               closeBottomSheet();
             } catch (e) {
               setSending(false, false);
-              setText($("bsSellError"), e.message || String(e));
+              setText($("bsSellError"), friendlyTxError(e));
             }
           });
 
