@@ -48,12 +48,5 @@
       "private": true,
       "staging_default": ""
     },
-    {
-      "key": "NEWS_API_KEY",
-      "description": "NewsAPI.org API key for fetching the day's top headline used to generate the daily news poll. Free tier supports 100 requests/day. Leave empty to disable the daily news poll (no poll will be created that day; the BTC question reclaims the top slot).",
-      "required": false,
-      "private": true,
-      "staging_default": ""
-    }
   ]
 }

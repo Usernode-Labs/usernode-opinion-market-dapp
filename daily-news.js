@@ -2,7 +2,8 @@
  * Daily Hot News Poll — server-side scheduler for Opinion Market.
  *
  * Each UTC day this module:
- *   1. Fetches a trending headline from NewsAPI.org (`GET /v2/top-headlines`).
+ *   1. Fetches the day's top headline from the Hacker News Firebase API
+ *      (https://hacker-news.firebaseio.com — completely free, no API key).
  *   2. Sends the headline to the platform LLM proxy (USERNODE_LLM_PROXY_URL /
  *      USERNODE_LLM_PROXY_TOKEN) to generate a neutral binary yes/no poll
  *      question. The proxy is the platform's own Claude relay — no API key is
@@ -16,13 +17,13 @@
  *   - A 45-minute safety tick re-attempts if the midnight call fails.
  *   - Survey IDs are deterministic per UTC day (`news-daily-YYYY-MM-DD`), so
  *     restarts, safety ticks, and parallel deploys all collapse to one survey.
- *   - If NEWS_API_KEY is absent or the LLM proxy is unavailable, each tick
- *     logs a warning and exits early — no poll for that day. In staging,
- *     seedStaging() injects a hardcoded demo question so the preview is never
- *     empty even without any external API access.
+ *   - If the LLM proxy is unavailable, each tick logs a warning and exits
+ *     early — no poll for that day. In staging, seedStaging() first tries to
+ *     fetch a real headline from Hacker News and falls back to a hardcoded
+ *     question only if the network is unreachable.
  *
  * Two-server dedup:
- *   Both co-operating servers independently call NewsAPI and the LLM at
+ *   Both co-operating servers independently call the HN API and the LLM at
  *   midnight, so they may produce slightly different questions for the same
  *   day. The EARLIEST-memo-wins tie-break in Phase 3d of opinion-market-state.js
  *   resolves this: whichever server's `create_daily_news` tx lands on-chain
@@ -44,10 +45,11 @@ const STAGING_SEED_INTERVAL_MS = 2 * 60 * 1000;
 const HTTP_TIMEOUT_MS = 15000;
 const LLM_TIMEOUT_MS = 30000;
 
-// NewsAPI.org top-headlines. pageSize=3 gives fallback articles if the first
-// has no URL. Append &apiKey=<key> before calling.
-const NEWS_API_BASE =
-  "https://newsapi.org/v2/top-headlines?language=en&pageSize=3&sortBy=popularity";
+// Hacker News Firebase API — no API key required.
+const HN_TOP_STORIES_URL = "https://hacker-news.firebaseio.com/v0/topstories.json";
+const HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/";
+// How many top stories to try before giving up (skips Ask HN / Show HN).
+const HN_CANDIDATE_COUNT = 10;
 
 function utcDayId(ms) {
   const d = new Date(ms);
@@ -113,30 +115,43 @@ function httpRequest(method, url, headers, body, timeoutMs) {
   });
 }
 
-// Fetch today's top headline from NewsAPI.org.
+// Fetch today's top headline from the Hacker News Firebase API (no key needed).
 // Returns { title, url, sourceName } or throws.
-async function fetchHeadline(newsApiKey) {
-  const url = NEWS_API_BASE + "&apiKey=" + encodeURIComponent(newsApiKey);
-  const j = await httpRequest("GET", url, {}, null, HTTP_TIMEOUT_MS);
-  if (!j || !Array.isArray(j.articles)) {
-    throw new Error("unexpected NewsAPI response shape");
+async function fetchHeadline() {
+  const ids = await httpRequest("GET", HN_TOP_STORIES_URL, {}, null, HTTP_TIMEOUT_MS);
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new Error("HN topstories returned no IDs");
   }
-  for (const article of j.articles) {
+  const candidates = ids.slice(0, HN_CANDIDATE_COUNT);
+  for (const storyId of candidates) {
+    const story = await httpRequest(
+      "GET",
+      HN_ITEM_URL + storyId + ".json",
+      {},
+      null,
+      HTTP_TIMEOUT_MS
+    );
     if (
-      article.title &&
-      article.url &&
-      article.source &&
-      article.source.name &&
-      !article.title.includes("[Removed]")
+      story &&
+      story.type === "story" &&
+      typeof story.title === "string" &&
+      story.title.trim() &&
+      typeof story.url === "string" &&
+      story.url.trim()
     ) {
+      let sourceName = "Hacker News";
+      try {
+        const parsed = new URL(story.url);
+        sourceName = parsed.hostname.replace(/^www\./, "");
+      } catch (_) {}
       return {
-        title: String(article.title).trim(),
-        url: String(article.url).trim(),
-        sourceName: String(article.source.name).trim(),
+        title: story.title.trim(),
+        url: story.url.trim(),
+        sourceName,
       };
     }
   }
-  throw new Error("no usable article in NewsAPI response");
+  throw new Error("no usable story found in HN top stories");
 }
 
 // Generate a binary poll question from a headline via the platform LLM proxy.
@@ -256,9 +271,6 @@ function createDailyNews(opts) {
     typeof opts.seedTransaction === "function" ? opts.seedTransaction : null;
   const senderPubkey = opts.senderPubkey || appPubkey;
 
-  // NewsAPI.org key. Can be passed via opts (tests) or read from env.
-  const newsApiKey =
-    typeof opts.newsApiKey === "string" ? opts.newsApiKey : process.env.NEWS_API_KEY || "";
   // Platform LLM proxy — injected by the platform, never in dapp.json.
   const llmProxyUrl = process.env.USERNODE_LLM_PROXY_URL || "";
   const llmProxyToken = process.env.USERNODE_LLM_PROXY_TOKEN || "";
@@ -285,10 +297,6 @@ function createDailyNews(opts) {
     const now = nowFn();
     status.lastTickAt = now;
 
-    if (!newsApiKey) {
-      // Logged once at start; don't spam on every safety tick.
-      return getStatus();
-    }
     if (!llmEnabled) {
       return getStatus();
     }
@@ -303,7 +311,7 @@ function createDailyNews(opts) {
     // 1) Fetch headline.
     let headline;
     try {
-      headline = await fetchHeadline(newsApiKey);
+      headline = await fetchHeadline();
       status.lastHeadline = headline.title;
       status.lastFetchError = null;
     } catch (e) {
@@ -362,9 +370,11 @@ function createDailyNews(opts) {
     });
   }
 
-  // Staging-only seed. Injects a hardcoded demo `create_daily_news` tx directly
-  // into the cache's raw-tx feed via `seedTransaction` so the preview renders
-  // a news poll even when staging can't reach NewsAPI or the LLM proxy.
+  // Staging-only seed. Tries to fetch a real Hacker News headline first; falls
+  // back to a hardcoded question only if the HN API is unreachable. Either way,
+  // injects a `create_daily_news` tx directly into the cache's raw-tx feed via
+  // `seedTransaction` so the preview renders a news poll even when the LLM proxy
+  // is unavailable.
   // Idempotent: deterministic per-day tx id lets the cache dedup re-injections.
   // Re-running on a short cadence makes the question reappear within one
   // interval if a chain-reset clears the in-memory cache.
@@ -381,14 +391,28 @@ function createDailyNews(opts) {
       /* fall through and seed */
     }
 
+    // Try to get a real headline; use a fallback only if HN is unreachable.
+    let headlineText =
+      "Lawmakers push for mandatory AI content labels on social platforms";
+    let sourceUrl = "#";
+    let sourceName = "Hacker News";
+    try {
+      const hn = await fetchHeadline();
+      headlineText = hn.title;
+      sourceUrl = hn.url;
+      sourceName = hn.sourceName;
+    } catch (e) {
+      console.warn(`[daily-news] staging HN fetch failed, using fallback: ${e.message}`);
+    }
+
     const memo = buildCreateMemo(
       id,
       "Should social media platforms be legally required to label AI-generated content?",
       "Yes",
       "No",
-      "Lawmakers push for mandatory AI content labels on social platforms",
-      "#",
-      "Demo News",
+      headlineText,
+      sourceUrl,
+      sourceName,
       now
     );
     const seedTxId = "staging-seed-news-" + id;
@@ -406,7 +430,8 @@ function createDailyNews(opts) {
       status.lastCreateAt = now;
       status.lastCreateId = id;
       status.lastSendError = null;
-      console.log(`[daily-news] staging-seeded ${id}`);
+      status.lastHeadline = headlineText;
+      console.log(`[daily-news] staging-seeded ${id} (${sourceName})`);
     } catch (e) {
       status.lastSendError = `staging seed ${id}: ${e.message}`;
       console.error(`[daily-news] staging seed error (${id}): ${e.message}`);
@@ -443,7 +468,6 @@ function createDailyNews(opts) {
       lastFetchError: status.lastFetchError,
       lastSendError: status.lastSendError,
       llmEnabled,
-      newsApiKeyConfigured: !!newsApiKey,
     };
   }
 
@@ -474,9 +498,6 @@ function createDailyNews(opts) {
         "m)"
     );
 
-    if (!newsApiKey) {
-      console.warn("[daily-news] NEWS_API_KEY not configured — daily news polls disabled");
-    }
     if (!llmEnabled) {
       console.warn(
         "[daily-news] LLM proxy not configured (USERNODE_LLM_PROXY_TOKEN absent) — daily news polls disabled in production"

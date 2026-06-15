@@ -104,7 +104,6 @@ const SENDER_APP_SECRET_KEY = process.env.SENDER_APP_SECRET_KEY || "";
 // only if every co-operating server is configured with the same value.
 const VOTE_ENCRYPT_SEED = process.env.VOTE_ENCRYPT_SEED || "";
 const FOOTBALL_DATA_API_KEY = process.env.FOOTBALL_DATA_API_KEY || "";
-const NEWS_API_KEY = process.env.NEWS_API_KEY || "";
 
 const NODE_RPC_URL = process.env.NODE_RPC_URL || "http://usernode-node:3000";
 
@@ -231,7 +230,6 @@ const dailyNews = createDailyNews({
   senderPubkey: SENDER_APP_PUBKEY || APP_PUBKEY,
   getRawTransactions: () => omCache.getRawTransactions(),
   sendMemo: voteEncryption.sendMemo,
-  newsApiKey: NEWS_API_KEY,
   seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
 });
 dailyNews.start();
