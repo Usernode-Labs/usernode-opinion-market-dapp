@@ -69,6 +69,7 @@ const createVoteEncryption = require("./vote-encryption");
 const createDailyBtc = require("./daily-btc");
 const createWorldCup2026 = require("./world-cup-2026");
 const createStagingPolls = require("./staging-polls");
+const createDailyNews = require("./daily-news");
 const { buildLeaderboard } = require("./lib/leaderboard");
 
 loadEnvFile();
@@ -132,11 +133,14 @@ app.set("trust proxy", 1);
 app.get("/health", (_req, res) => {
   let dailyBtcStatus = null;
   let wc26Status = null;
+  let dailyNewsStatus = null;
   try { dailyBtcStatus = typeof dailyBtc !== "undefined" && dailyBtc ? dailyBtc.getStatus() : null; }
   catch (_) { /* best-effort */ }
   try { wc26Status = typeof worldCup2026 !== "undefined" && worldCup2026 ? worldCup2026.getStatus() : null; }
   catch (_) { /* best-effort */ }
-  res.json({ status: "ok", staging: IS_STAGING, dailyBtc: dailyBtcStatus, worldCup2026: wc26Status });
+  try { dailyNewsStatus = typeof dailyNews !== "undefined" && dailyNews ? dailyNews.getStatus() : null; }
+  catch (_) { /* best-effort */ }
+  res.json({ status: "ok", staging: IS_STAGING, dailyBtc: dailyBtcStatus, worldCup2026: wc26Status, dailyNews: dailyNewsStatus });
 });
 
 // ── Mock API (only --local-dev) ──────────────────────────────────────────────
@@ -230,6 +234,21 @@ const stagingPolls = createStagingPolls({
 });
 stagingPolls.start();
 
+// ── Daily Hot News Poll scheduler ─────────────────────────────────────────────
+// Fetches a trending headline from NewsAPI.org, generates a binary yes/no poll
+// question via the platform LLM proxy, and posts a `create_daily_news` memo on
+// a UTC-daily cadence. Pinned to the top of the feed above the Daily BTC
+// question. Staging seed injects a hardcoded demo question directly into the
+// cache so the preview is never empty.
+const dailyNews = createDailyNews({
+  appPubkey: APP_PUBKEY,
+  senderPubkey: SENDER_APP_PUBKEY || APP_PUBKEY,
+  getRawTransactions: () => omCache.getRawTransactions(),
+  sendMemo: voteEncryption.sendMemo,
+  seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
+});
+dailyNews.start();
+
 // Structured schedule derived from the raw-tx cache (created matches +
 // resolutions, group + knockout), sorted by kickoff. A convenience for the
 // schedule screen's initial render — not authoritative (the client can fully
@@ -275,6 +294,20 @@ app.post("/__om/daily-btc/tick", async (_req, res) => {
     // In staging the on-chain create path is a no-op (no signer); also run the
     // cache seed so an operator can force the preview question immediately.
     if (IS_STAGING) out = await dailyBtc.seedStaging();
+    res.json({ ok: true, staging: IS_STAGING, status: out });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Internal manual trigger: force a daily-news tick now (idempotent) and return
+// the resulting status. Lets an operator post today's poll immediately after a
+// deploy instead of waiting for the next UTC midnight boundary.
+app.post("/__om/daily-news/tick", async (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    let out = await dailyNews.tick();
+    if (IS_STAGING) out = await dailyNews.seedStaging();
     res.json({ ok: true, staging: IS_STAGING, status: out });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });

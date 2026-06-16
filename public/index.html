@@ -68,6 +68,13 @@
         --fs-xs: 11px;
         --fw-strong: 700;
         --fw-med: 600;
+        /* ── Redesign tokens ────────────────────────────── */
+        --topbar-blur: blur(12px);
+        --transition-fast: 0.12s ease;
+        --radius-pill: 999px;
+        --radius-card: 16px;
+        --radius-inner: 10px;
+        --accent-stripe: color-mix(in oklab, var(--accent) 65%, transparent);
       }
       :root[data-theme="dark"] { color-scheme: dark; }
 
@@ -117,6 +124,13 @@
         }
       }
 
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+      :focus:not(:focus-visible) { outline: none; }
+
       body {
         margin: 0;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
@@ -133,16 +147,53 @@
 
       .topBar {
         flex: 0 0 auto;
-        padding: 14px 16px;
+        padding: 10px 16px;
         border-bottom: 1px solid var(--border);
-        background: var(--card);
-        background: var(--grad-surface, var(--card));
+        background: color-mix(in oklab, var(--card) 78%, transparent);
+        backdrop-filter: var(--topbar-blur);
+        -webkit-backdrop-filter: var(--topbar-blur);
         box-shadow: var(--elev-1);
-        z-index: 2;
+        z-index: 10;
       }
       .topBar-inner {
         max-width: 900px;
         margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .topBar-brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .topBar-logo {
+        font-size: 20px;
+        line-height: 1;
+        color: var(--accent);
+        flex-shrink: 0;
+      }
+      .topBar-wordmark {
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+        margin: 0;
+      }
+      .topBar-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .topBar-menuBtn {
+        padding: 6px 10px;
+        font-size: 18px;
+        line-height: 1;
+        letter-spacing: 0.05em;
+        flex-shrink: 0;
       }
 
       .scrollArea {
@@ -187,8 +238,26 @@
       }
 
       h1 { font-size: var(--fs-h1); font-weight: var(--fw-strong); margin: 0 0 4px; letter-spacing: 0.2px; }
-      h2 { font-size: var(--fs-h2); font-weight: var(--fw-med); margin: 0; letter-spacing: 0.1px; }
+      h2 { font-size: 17px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
       h3 { font-size: var(--fs-h3); font-weight: var(--fw-med); margin: 0 0 8px; }
+      .section-heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin: 0 0 4px;
+      }
+      .section-heading::before {
+        content: "";
+        display: block;
+        width: 3px;
+        height: 1em;
+        background: var(--accent);
+        border-radius: 2px;
+        flex-shrink: 0;
+      }
       p { margin: 8px 0; color: var(--muted); line-height: 1.45; }
       code {
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
@@ -281,13 +350,15 @@
         background: var(--card-2);
         background: var(--grad-surface-2, var(--card-2));
         border: 1px solid var(--border);
+        border-left: 3px solid transparent;
         border-radius: 14px;
         padding: 14px 15px;
         box-shadow: var(--elev-1);
-        transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+        transition: box-shadow var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast);
       }
       .marketCard:hover {
         border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+        border-left-color: var(--accent-stripe);
         box-shadow: var(--elev-2);
         transform: translateY(-1px);
       }
@@ -578,6 +649,19 @@
         font-weight: 700;
         color: #f7931a;
         border: 1px solid #f7931a;
+        border-radius: 999px;
+        padding: 1px 7px;
+        white-space: nowrap;
+        vertical-align: middle;
+      }
+      .newsPollBadge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--accent);
+        border: 1px solid var(--accent);
         border-radius: 999px;
         padding: 1px 7px;
         white-space: nowrap;
@@ -934,26 +1018,29 @@
       }
       .bottomSheet.open { transform: translateY(0); }
       .bottomSheet-handle {
-        width: 36px; height: 4px;
-        border-radius: 2px;
-        background: var(--border);
+        width: 48px; height: 5px;
+        border-radius: 3px;
+        background: var(--muted);
+        opacity: 0.35;
         margin: 0 auto 16px;
       }
       .bottomSheet-header {
         display: flex;
         align-items: center;
         gap: 8px;
-        margin-bottom: 4px;
+        margin-bottom: 0;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
       }
       .bottomSheet-optName { font-weight: 600; font-size: 16px; }
       .bottomSheet-odds { color: var(--muted); font-size: 14px; margin-left: auto; font-variant-numeric: tabular-nums; }
       .bottomSheet-tabs {
         display: flex;
-        gap: 0;
-        margin: 12px 0;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        overflow: hidden;
+        gap: 4px;
+        margin: 14px 0;
+        background: color-mix(in oklab, var(--fg) 7%, transparent);
+        border-radius: 10px;
+        padding: 3px;
       }
       .bottomSheet-tab {
         flex: 1;
@@ -965,11 +1052,14 @@
         font-size: 13px;
         font-weight: 500;
         cursor: pointer;
-        transition: background 0.15s, color 0.15s;
+        border-radius: 8px;
+        transition: background var(--transition-fast), color var(--transition-fast);
       }
       .bottomSheet-tab.active {
-        background: color-mix(in oklab, var(--accent) 15%, transparent);
-        color: var(--accent);
+        background: var(--card);
+        color: var(--fg);
+        box-shadow: var(--elev-1);
+        font-weight: 600;
       }
       .bottomSheet-tab:disabled { opacity: 0.4; cursor: not-allowed; }
       .bottomSheet-sideToggle {
@@ -1027,17 +1117,18 @@
       .bottomSheet-preview .ok { color: var(--ok); }
       .bottomSheet-action {
         width: 100%;
+        min-height: 56px;
         padding: 14px;
         border-radius: 12px;
         border: none;
         background: var(--accent);
         color: #fff;
-        font-size: 15px;
+        font-size: 16px;
         font-weight: 600;
         cursor: pointer;
-        transition: opacity 0.15s;
+        transition: opacity var(--transition-fast);
       }
-      .bottomSheet-action:hover { opacity: 0.9; }
+      .bottomSheet-action:hover { opacity: 0.88; }
       .bottomSheet-action:disabled { opacity: 0.4; cursor: not-allowed; }
       .bottomSheet-error {
         font-size: 12px;
@@ -1153,6 +1244,131 @@
         font-size: 12px;
       }
 
+      /* ── Avatar initial ─────────────────────────────────────────── */
+      .avatar-initial {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: hsl(calc(var(--avatar-hue, 220) * 1deg) 50% 42%);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
+        line-height: 1;
+        text-transform: uppercase;
+        vertical-align: middle;
+      }
+
+      /* ── Tier badges (Leaderboard top-3) ────────────────────────── */
+      .tier-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .tier-gold   { background: #c8952a; color: #fff; }
+      .tier-silver { background: #8a96a4; color: #fff; }
+      .tier-bronze { background: #a0622a; color: #fff; }
+
+      /* ── Menu bottom sheet items ─────────────────────────────────── */
+      .menuSheet-items {
+        display: grid;
+        gap: 6px;
+        margin-top: 12px;
+      }
+      .menuSheet-item {
+        width: 100%;
+        text-align: left;
+        padding: 13px 14px;
+        font-size: 15px;
+        border-radius: 10px;
+      }
+      .menuSheet-divider {
+        height: 1px;
+        background: var(--border);
+        margin: 4px 0;
+      }
+      .menuSheet-themeRow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        font-size: 15px;
+        border-radius: 10px;
+      }
+
+      /* ── Onboarding steps ────────────────────────────────────────── */
+      .onboarding-steps {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+        margin: 16px 0 20px;
+        text-align: left;
+      }
+      @media (max-width: 440px) {
+        .onboarding-steps { grid-template-columns: 1fr; gap: 10px; }
+      }
+      .onboarding-step {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .onboarding-step-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 2px;
+        flex-shrink: 0;
+      }
+      .onboarding-step-num.n1 { background: color-mix(in oklab, var(--accent) 18%, transparent); color: var(--accent); }
+      .onboarding-step-num.n2 { background: color-mix(in oklab, var(--ok)     18%, transparent); color: var(--ok);     }
+      .onboarding-step-num.n3 { background: color-mix(in oklab, var(--warn)   18%, transparent); color: var(--warn);   }
+      .onboarding-step-label { font-weight: 700; font-size: 14px; color: var(--fg); line-height: 1.2; }
+      .onboarding-step-copy  { font-size: 12px; color: var(--muted); line-height: 1.4; }
+      .onboarding-join-btn {
+        width: 100%;
+        min-height: 52px;
+        padding: 14px;
+        border-radius: 12px;
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity var(--transition-fast);
+        appearance: none;
+      }
+      .onboarding-join-btn:hover { opacity: 0.88; }
+      .onboarding-join-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      /* ── Proposal progress bar ───────────────────────────────────── */
+      .proposal-progress-bar {
+        height: 6px;
+        border-radius: 3px;
+        background: color-mix(in oklab, var(--fg) 10%, transparent);
+        overflow: hidden;
+        margin-top: 4px;
+      }
+      .proposal-progress-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.3s ease, background 0.3s ease;
+      }
+
       /* ── World Cup 2026 ─────────────────────────────────────────── */
       .wc26-section { margin-top: 20px; }
       .wc26-section:first-child { margin-top: 0; }
@@ -1190,21 +1406,23 @@
   </head>
   <body>
     <header class="topBar">
-      <div class="topBar-inner row" style="justify-content: space-between; align-items: flex-start;">
-        <h1 style="margin: 0;">Opinion Market</h1>
-        <div class="row">
+      <div class="topBar-inner">
+        <!-- Brand lockup -->
+        <div class="topBar-brand">
+          <span class="topBar-logo" aria-hidden="true">&#x25C8;</span>
+          <h1 class="topBar-wordmark">Opinion Market</h1>
+        </div>
+        <!-- Right actions -->
+        <div class="topBar-actions">
           <button class="pill pillButton hide" id="creditsDisplay" type="button" title="What are credits?" aria-label="Your credits balance">
-            <span class="icon icon-sm" aria-hidden="true">&#x1FA99;</span> <code id="creditsAmount">0</code>
+            <span aria-hidden="true" style="font-size:13px;opacity:0.8;">&#x25CE;</span>&thinsp;<code id="creditsAmount">0</code>
           </button>
-          <button class="pill pillButton" id="headerUsernameBtn" type="button">
-            User: <code id="headerUsername">(loading...)</code>
+          <button class="pill pillButton" id="headerUsernameBtn" type="button" aria-label="Set username">
+            <span id="avatarInitial" class="avatar-initial" aria-hidden="true"></span>
+            <code id="headerUsername">(loading...)</code>
           </button>
-          <button class="btn small hide" id="historyBtn" type="button" title="My History" aria-label="My History"><span class="icon icon-sm" aria-hidden="true">&#x1F4DC;</span></button>
-          <button class="btn small hide" id="leaderboardBtn" type="button" title="Leaderboard" aria-label="Leaderboard"><span class="icon icon-sm" aria-hidden="true">&#x1F3C6;</span></button>
-          <button class="btn small hide" id="wcBtn" type="button" title="World Cup 2026" aria-label="World Cup 2026"><span class="icon icon-sm" aria-hidden="true">&#x26BD;</span></button>
-          <button class="btn small" id="infoBtn" type="button" title="How it works" aria-label="How it works"><span class="icon icon-sm" aria-hidden="true">&#x2753;</span></button>
-          <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme"><span class="icon icon-sm" aria-hidden="true">&#x1F319;</span></button>
-          <button class="btn" id="backBtn" style="display: none;">Back</button>
+          <button class="btn small topBar-menuBtn" id="menuBtn" type="button" title="Menu" aria-label="Open menu">&#xFE19;</button>
+          <button class="btn small" id="backBtn" style="display: none;" type="button">&#x2190; Back</button>
         </div>
       </div>
     </header>
@@ -1353,6 +1571,26 @@
       <button class="bottomSheet-action" id="creditsInfoClose" type="button" style="margin-top: 12px;">Got it</button>
     </div>
 
+    <!-- ── Menu bottom sheet ───────────────────────────────────────── -->
+    <div class="bottomSheet-backdrop" id="menuBackdrop"></div>
+    <div class="bottomSheet" id="menuSheet" role="dialog" aria-label="Navigation menu">
+      <div class="bottomSheet-handle"></div>
+      <div class="bottomSheet-header">
+        <span class="bottomSheet-optName">Menu</span>
+      </div>
+      <div class="menuSheet-items">
+        <button class="btn menuSheet-item hide" id="historyBtn" type="button">&#x1F4DC;&ensp;My History</button>
+        <button class="btn menuSheet-item hide" id="leaderboardBtn" type="button">&#x1F3C6;&ensp;Leaderboard</button>
+        <button class="btn menuSheet-item hide" id="wcBtn" type="button">&#x26BD;&ensp;World Cup 2026</button>
+        <button class="btn menuSheet-item" id="infoBtn" type="button">&#x2753;&ensp;How it works</button>
+        <div class="menuSheet-divider"></div>
+        <div class="menuSheet-themeRow">
+          <span>Theme</span>
+          <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme"><span class="icon icon-sm" aria-hidden="true">&#x1F319;</span></button>
+        </div>
+      </div>
+    </div>
+
     <div class="scrollArea" id="scrollRoot">
       <div class="scrollArea-inner">
             <!-- App-level first-load skeleton. Visible on first paint (no
@@ -1383,16 +1621,28 @@
             </div>
 
             <!-- Onboarding -->
-            <div class="panel onboarding hide" id="onboardingPanel">
-              <h2>Opinion Market</h2>
-              <p>Predict what the crowd will choose. Earn credits if you're right.</p>
-              <div style="text-align:left;max-width:420px;margin:16px auto;">
-                <p style="font-size:13px;line-height:1.6;margin:0 0 6px;"><strong>Vote</strong> &mdash; Share your honest opinion for free.</p>
-                <p style="font-size:13px;line-height:1.6;margin:0 0 6px;"><strong>Bet</strong> &mdash; Use credits to predict what others will choose.</p>
-                <p style="font-size:13px;line-height:1.6;margin:0 0 0;"><strong>Win</strong> &mdash; Correct predictions earn from the pool. Voters earn a small reward too.</p>
+            <div class="panel hide" id="onboardingPanel" style="padding:20px 18px 22px;">
+              <h2 class="section-heading" style="margin-bottom:6px;">Opinion Market</h2>
+              <p style="margin:0 0 0;font-size:13px;color:var(--muted);">Predict what the crowd will choose. Earn credits if you're right.</p>
+              <div class="onboarding-steps">
+                <div class="onboarding-step">
+                  <span class="onboarding-step-num n1">1</span>
+                  <span class="onboarding-step-label">Vote</span>
+                  <span class="onboarding-step-copy">Share your honest opinion on any question — always free.</span>
+                </div>
+                <div class="onboarding-step">
+                  <span class="onboarding-step-num n2">2</span>
+                  <span class="onboarding-step-label">Bet</span>
+                  <span class="onboarding-step-copy">Use credits to bet on what the majority will choose.</span>
+                </div>
+                <div class="onboarding-step">
+                  <span class="onboarding-step-num n3">3</span>
+                  <span class="onboarding-step-label">Win</span>
+                  <span class="onboarding-step-copy">Correct predictions earn from the pool. Voters get a reward too.</span>
+                </div>
               </div>
-              <button class="btn primary" id="joinBtn" type="button" style="margin-top:16px;">Join &amp; Get 1,000 Credits</button>
-              <p class="muted" style="font-size:11px;margin:8px 0 0;">Credits are for this dapp only.</p>
+              <button class="onboarding-join-btn" id="joinBtn" type="button">Join &amp; Get 1,000 Credits</button>
+              <p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:center;">Credits are for this dapp only &mdash; no real money involved.</p>
               <div id="joinPending" class="tx-progress hide" role="status" aria-live="polite">
                 <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
                 <div class="tx-progress-label">Joining...</div>
@@ -1415,11 +1665,11 @@
 
             <!-- Active survey list -->
             <div class="panel" id="screenActiveList">
-              <div class="row" style="justify-content: space-between; align-items: baseline;">
-                <h2>Live now</h2>
+              <div class="row" style="justify-content: space-between; align-items: center;margin-bottom:2px;">
+                <h2 class="section-heading">Live now</h2>
                 <button class="btn small" id="addSurveyBtn" type="button">+ New question</button>
               </div>
-              <p style="margin: 2px 0 0;">Vote on what you think, bet on what others will choose.</p>
+              <p style="margin: 2px 0 0;font-size:13px;">Vote on what you think, bet on what others will choose.</p>
 
               <div class="panel hide" id="addSurveyPanel" style="margin-top: 10px;">
                 <h3>Create question</h3>
@@ -1480,8 +1730,8 @@
                  opinion-market-state.js, so this panel is purely a view + two
                  new tx flows (propose_question, upvote_proposal). -->
             <div class="panel hide" id="screenProposals">
-              <div class="row" style="justify-content: space-between; align-items: baseline;">
-                <h2>Proposed questions</h2>
+              <div class="row" style="justify-content: space-between; align-items: center;margin-bottom:2px;">
+                <h2 class="section-heading">Proposed questions</h2>
                 <button class="btn small" id="addProposalBtn" type="button">+ Propose</button>
               </div>
               <p style="margin: 2px 0 0;" id="proposalIntro">Anyone can propose a question. When at least half of the users active in the last 72 hours upvote it, it goes live as a market.</p>
@@ -1536,6 +1786,7 @@
               <p style="margin-top: 0;" id="surveyQuestion"></p>
               <div id="surveyBtcInfo" class="btcInfo hide"></div>
               <div id="surveyWC26Info" class="btcInfo hide" style="padding:8px 10px;border-radius:8px;background:var(--card);border:1px solid var(--border);margin:4px 0;"></div>
+              <div id="surveyNewsInfo" class="hide" style="padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--border);margin:4px 0;font-size:13px;"></div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0;">
                 <div id="surveyCreatedBy" class="muted" style="font-size: 11px;"></div>
                 <div id="surveyVoterCount" class="muted" style="font-size: 11px;"></div>
@@ -1592,14 +1843,14 @@
 
             <!-- Leaderboard -->
             <div class="panel hide" id="screenLeaderboard">
-              <h2 style="margin-bottom: 12px;">Leaderboard</h2>
+              <h2 class="section-heading" style="margin-bottom: 10px;">Leaderboard</h2>
               <p class="muted" style="font-size: 13px; margin: 0 0 12px;">Lifetime earnings from correct predictions.</p>
               <div id="leaderboardContent"></div>
             </div>
 
             <!-- My History -->
             <div class="panel hide" id="screenHistory">
-              <h2 style="margin-bottom: 12px;">My History</h2>
+              <h2 class="section-heading" style="margin-bottom: 12px;">My History</h2>
               <div id="historyStats" class="statsGrid" style="margin-bottom: 16px;"></div>
               <div id="historyTimeline"></div>
             </div>
@@ -2368,6 +2619,20 @@
           return window.OpinionMarketState.userBalance(_stateSnapshot(), pubkey);
         }
 
+        // A market with no trades yet (server-authored BTC/World Cup
+        // questions, promoted proposals — anything without a creator-ante
+        // Phase 5b seed) has no MARKETS entry until Phase 6 lazily seeds
+        // it on the first bet. For display + bet entry points, synthesize
+        // that same platform-liquidity seed so odds render and the first
+        // bet can actually be placed.
+        function getDisplayMarket(survey) {
+          if (!survey) return null;
+          const real = MARKETS.get(survey.id);
+          if (real) return real;
+          if (survey.archived) return null;
+          return window.OpinionMarketState.seedMarketForSurvey(survey);
+        }
+
         function userShareValue(pubkey) {
           let total = 0;
           for (const survey of SURVEYS) {
@@ -2647,6 +2912,16 @@
         function show(el, on) { if (el) el.classList.toggle("hide", !on); }
         function setDisabled(el, v) { if (el) el.disabled = !!v; }
 
+        function updateAvatarInitial(username) {
+          const el = $("avatarInitial");
+          if (!el || !username) return;
+          el.textContent = username.charAt(0);
+          // Deterministic hue from username characters (0..359)
+          let h = 0;
+          for (let i = 0; i < username.length; i++) h = (h * 31 + username.charCodeAt(i)) % 360;
+          el.style.setProperty("--avatar-hue", String(Math.round(h)));
+        }
+
         function formatCountdown(expiresAtMs) {
           const diff = Math.max(0, expiresAtMs - Date.now());
           if (diff <= 0) return "Completed";
@@ -2903,6 +3178,7 @@
             case "BAD_SHARES":           return "invalid share amount";
             case "INSUFFICIENT_SHARES":  return `not enough shares (had ${r.held}, needed ${r.needed})`;
             case "NO_POOL":              return "the option's market pool was missing";
+            case "NO_MARKET":            return "the question has no market to bet into";
             case "ZERO_SHARES":          return "bet rounded down to zero shares";
             case "CPMM_UNAVAILABLE":     return "market calculator not loaded";
             default:                     return r.reason || "unknown reason";
@@ -3165,6 +3441,7 @@
           const value = await UsernodeUsernames.setUsername(raw);
           myUsername = value;
           setText($("headerUsername"), myUsername);
+          updateAvatarInitial(myUsername);
           await postActionRefresh();
         }
 
@@ -3180,7 +3457,6 @@
             switch (v.reason) {
               case "NOT_JOINED":          throw new Error("Join first to get credits");
               case "NO_SURVEY":           throw new Error("Question not found");
-              case "BTC_NO_TRADING":      throw new Error("The daily BTC market is vote-only — no trading");
               case "ARCHIVED":            throw new Error("Question has ended");
               case "MATCH_LOCKED":        throw new Error("Match has already kicked off — betting is closed");
               case "NO_OPTION":           throw new Error("That option no longer exists");
@@ -3636,7 +3912,7 @@
 
           // Odds bars for markets with liquidity (skip live/settled)
           if (!isDone && !isLive) {
-            const mkt = MARKETS.get(survey.id);
+            const mkt = getDisplayMarket(survey);
             if (mkt && cpmmTotalLiquidity(mkt) > 0 && survey.options && CPMM && CPMM.cpmmProb) {
               const oddsRow = document.createElement("div");
               oddsRow.style.cssText = "display:flex;gap:3px;margin-top:6px;";
@@ -4065,9 +4341,10 @@
 
           // WC26 matches are shown in their own hub screen — exclude from the main list.
           const active = SURVEYS.filter(s => !s.archived && s.kind !== "wc26_match");
-          // Pin the daily-BTC question to the top (stable sort preserves the
-          // existing newest-first order among the rest).
-          active.sort((a, b) => ((b.kind === "btc_daily") ? 1 : 0) - ((a.kind === "btc_daily") ? 1 : 0));
+          // Pin news_poll to the top (priority 2), btc_daily second (priority 1).
+          // Stable sort preserves newest-first order among equal-priority items.
+          function _kindPriority(k) { return k === "news_poll" ? 2 : k === "btc_daily" ? 1 : 0; }
+          active.sort((a, b) => _kindPriority(b.kind) - _kindPriority(a.kind));
           const archived = SURVEYS.filter(s => s.archived && s.kind !== "wc26_match");
           const _joined = me && JOINED.has(me);
           const onList = !currentSurveyId
@@ -4088,26 +4365,115 @@
           function buildCard(s, badgeText) {
             const b = document.createElement("button");
             b.className = "btn marketCard";
-            b.style.cssText = "display:grid;gap:6px;text-align:left;";
+            b.style.cssText = "display:grid;gap:8px;text-align:left;";
 
-            const mkt = MARKETS.get(s.id);
+            const mkt = getDisplayMarket(s);
             const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
 
-            // Row 1: title + leading option odds pill
-            const row1 = document.createElement("div");
-            row1.style.cssText = "display:flex;justify-content:space-between;align-items:baseline;gap:8px;";
-            const titleEl = document.createElement("div");
-            titleEl.style.cssText = "font-size:var(--fs-h3);font-weight:var(--fw-med);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;";
-            titleEl.textContent = s.title;
-            if (s.kind === "btc_daily") {
-              const badge = document.createElement("span");
-              badge.className = "btcBadge";
-              badge.textContent = "₿ Daily";
-              badge.style.marginRight = "6px";
-              titleEl.insertBefore(badge, titleEl.firstChild);
-            }
-            row1.appendChild(titleEl);
+            // ── Zone 1: Header bar — category tag + countdown chip ──────
+            const zone1 = document.createElement("div");
+            zone1.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;";
 
+            const catTag = document.createElement("span");
+            catTag.style.cssText = "font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--muted);flex-shrink:0;";
+            if (s.kind === "btc_daily") {
+              catTag.style.cssText += "color:#f7931a;border-color:#f7931a55;background:#f7931a12;";
+              catTag.textContent = "₿ Daily";
+            } else if (s.kind === "wc26_match") {
+              catTag.style.cssText += "color:var(--ok);border-color:color-mix(in oklab,var(--ok) 40%,var(--border));background:color-mix(in oklab,var(--ok) 8%,transparent);";
+              catTag.textContent = "⚽ World Cup";
+            } else if (s.kind === "news_poll") {
+              catTag.textContent = "Hot Topic";
+            } else {
+              catTag.textContent = "Poll";
+            }
+            zone1.appendChild(catTag);
+
+            if (badgeText) {
+              const cdChip = document.createElement("span");
+              const msLeft = s.expiresAtMs ? s.expiresAtMs - Date.now() : Infinity;
+              let chipBase = "font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--muted);white-space:nowrap;flex-shrink:0;";
+              if (!s.archived && msLeft > 0 && msLeft < 12 * 3600000) {
+                chipBase = "font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--danger);color:var(--danger);background:color-mix(in oklab,var(--danger) 8%,transparent);white-space:nowrap;flex-shrink:0;";
+              } else if (!s.archived && msLeft > 0 && msLeft < 24 * 3600000) {
+                chipBase = "font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--warn);color:var(--warn);background:color-mix(in oklab,var(--warn) 8%,transparent);white-space:nowrap;flex-shrink:0;";
+              }
+              cdChip.style.cssText = chipBase;
+              cdChip.textContent = badgeText;
+              if (s.expiresAtMs && !s.archived) { cdChip.classList.add("countdownTick"); cdChip.dataset.expires = s.expiresAtMs; }
+              zone1.appendChild(cdChip);
+            }
+            b.appendChild(zone1);
+
+            // ── Zone 2: Content block — title + question ─────────────────
+            const zone2 = document.createElement("div");
+            zone2.style.cssText = "display:grid;gap:3px;";
+
+            const titleEl = document.createElement("div");
+            titleEl.style.cssText = "font-size:15px;font-weight:600;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;letter-spacing:-0.01em;";
+            titleEl.textContent = s.title;
+            zone2.appendChild(titleEl);
+
+            const questionEl = document.createElement("div");
+            questionEl.style.cssText = "color:var(--text-muted-strong);font-size:var(--fs-sm);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
+            questionEl.textContent = s.question;
+            zone2.appendChild(questionEl);
+            if (s.kind === "news_poll" && s.sourceName) {
+              const sourceEl = document.createElement("div");
+              sourceEl.style.cssText = "font-size:var(--fs-xs);color:var(--muted);";
+              if (s.sourceUrl && s.sourceUrl !== "#") {
+                const link = document.createElement("a");
+                link.href = s.sourceUrl;
+                link.textContent = "Source: " + s.sourceName;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.style.cssText = "color:inherit;text-decoration:underline;";
+                link.addEventListener("click", (e) => e.stopPropagation());
+                sourceEl.appendChild(link);
+              } else {
+                sourceEl.textContent = "Source: " + s.sourceName;
+              }
+              zone2.appendChild(sourceEl);
+            }
+            b.appendChild(zone2);
+
+            // \u2500\u2500 Zone 3: Footer \u2014 meta chips + probability bar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            const zone3 = document.createElement("div");
+            zone3.style.cssText = "display:grid;gap:5px;";
+
+            const votes = countUniqueVoters(latestTxs, s.id);
+            const totalVol = (hasMarket && mkt.optionVolume) ? Object.values(mkt.optionVolume).reduce((a, c) => a + c, 0) : 0;
+            const metaChips = document.createElement("div");
+            metaChips.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;";
+
+            const votesChip = document.createElement("span");
+            votesChip.style.cssText = "font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;";
+            votesChip.textContent = votes === 1 ? "1 vote" : votes + " votes";
+            metaChips.appendChild(votesChip);
+
+            if (totalVol > 0) {
+              const sep1 = document.createElement("span");
+              sep1.style.cssText = "font-size:11px;color:var(--border);";
+              sep1.textContent = "\u00B7";
+              metaChips.appendChild(sep1);
+              const volChip = document.createElement("span");
+              volChip.style.cssText = "font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;";
+              volChip.textContent = formatCredits(totalVol) + "c volume";
+              metaChips.appendChild(volChip);
+            }
+            if (s.kind === "btc_daily" && typeof s.strikeUsd === "number") {
+              const sep2 = document.createElement("span");
+              sep2.style.cssText = "font-size:11px;color:var(--border);";
+              sep2.textContent = "\u00B7";
+              metaChips.appendChild(sep2);
+              const strikeChip = document.createElement("span");
+              strikeChip.style.cssText = "font-size:11px;color:var(--muted);";
+              strikeChip.textContent = "strike $" + s.strikeUsd.toLocaleString("en-US", { maximumFractionDigits: 0 });
+              metaChips.appendChild(strikeChip);
+            }
+            zone3.appendChild(metaChips);
+
+            // Probability progress bar (markets only)
             if (hasMarket && s.options && s.options.length > 0) {
               let topProb = -1, topIdx = 0;
               for (let i = 0; i < s.options.length; i++) {
@@ -4115,45 +4481,27 @@
                 const p = pool && CPMM.cpmmProb ? CPMM.cpmmProb(pool) : 0;
                 if (p > topProb) { topProb = p; topIdx = i; }
               }
-              const pill = document.createElement("span");
-              pill.style.cssText = "flex:0 0 auto;font-size:var(--fs-sm);font-weight:var(--fw-strong);font-variant-numeric:tabular-nums;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;padding:3px 9px;border-radius:999px;background:color-mix(in oklab, var(--accent) 12%, transparent);";
-              pill.title = "Market odds from betting, not vote results";
-              const dot = document.createElement("span");
-              dot.style.cssText = "width:8px;height:8px;border-radius:50%;background:" + optionColor(topIdx, s.options[topIdx].label);
-              pill.appendChild(dot);
-              const lbl = document.createElement("span");
-              lbl.textContent = formatPct(topProb);
-              pill.appendChild(lbl);
-              row1.appendChild(pill);
+              const probRow = document.createElement("div");
+              probRow.style.cssText = "display:flex;align-items:center;gap:6px;";
+
+              const probBar = document.createElement("div");
+              probBar.style.cssText = "flex:1;height:4px;border-radius:2px;background:var(--border);overflow:hidden;";
+              const probFill = document.createElement("div");
+              probFill.style.cssText = "height:100%;border-radius:2px;transition:width 0.3s ease;background:" + optionColor(topIdx, s.options[topIdx].label) + ";";
+              probFill.style.width = Math.round(topProb * 100) + "%";
+              probBar.appendChild(probFill);
+
+              const probLabel = document.createElement("span");
+              probLabel.style.cssText = "font-size:11px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:72px;text-align:right;";
+              const optLabel = (s.options[topIdx].label || s.options[topIdx].key).split(/[\|\[\]]/)[0].trim();
+              probLabel.textContent = (optLabel.length > 10 ? optLabel.slice(0, 9) + "\u2026" : optLabel) + " " + formatPct(topProb);
+
+              probRow.appendChild(probBar);
+              probRow.appendChild(probLabel);
+              zone3.appendChild(probRow);
             }
-            b.appendChild(row1);
 
-            // Row 2: question text (2-line clamp)
-            const questionEl = document.createElement("div");
-            questionEl.style.cssText = "color:var(--text-muted-strong);font-size:var(--fs-sm);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
-            questionEl.textContent = s.question;
-            b.appendChild(questionEl);
-
-            // Row 3: stats line
-            const votes = countUniqueVoters(latestTxs, s.id);
-            const totalVol = (hasMarket && mkt.optionVolume) ? Object.values(mkt.optionVolume).reduce((a, c) => a + c, 0) : 0;
-            const statsEl = document.createElement("div");
-            statsEl.className = "muted";
-            statsEl.style.cssText = "font-size:var(--fs-xs);font-variant-numeric:tabular-nums;";
-            const parts = [];
-            parts.push(votes === 1 ? "1 vote" : votes + " votes");
-            if (totalVol > 0) parts.push(formatCredits(totalVol) + "c volume");
-            if (s.kind === "btc_daily" && typeof s.strikeUsd === "number") parts.push("strike $" + s.strikeUsd.toLocaleString("en-US", { maximumFractionDigits: 0 }));
-            statsEl.textContent = parts.length > 0 ? parts.join(" \u00B7 ") : "";
-            if (badgeText) {
-              if (parts.length > 0) statsEl.appendChild(document.createTextNode(" \u00B7 "));
-              const cdSpan = document.createElement("span");
-              cdSpan.textContent = badgeText;
-              if (s.expiresAtMs && !s.archived) { cdSpan.classList.add("countdownTick"); cdSpan.dataset.expires = s.expiresAtMs; }
-              statsEl.appendChild(cdSpan);
-            }
-            b.appendChild(statsEl);
-
+            b.appendChild(zone3);
             b.addEventListener("click", () => { navigateToSurvey(s.id); refreshLoopOnce(); });
             return b;
           }
@@ -4232,10 +4580,12 @@
             const progWrap = document.createElement("div");
             progWrap.style.cssText = "display:grid;gap:4px;";
             const bar = document.createElement("div");
-            bar.style.cssText = "height:6px;border-radius:3px;background:rgba(127,127,127,0.2);overflow:hidden;";
+            bar.className = "proposal-progress-bar";
             const fill = document.createElement("div");
             const pct = need > 0 ? Math.min(100, Math.round((upvotes / need) * 100)) : 100;
-            fill.style.cssText = "height:100%;width:" + pct + "%;background:var(--accent,#4a90d9);";
+            const fillColor = pct >= 50 ? "var(--ok)" : "var(--accent)";
+            fill.className = "proposal-progress-fill";
+            fill.style.cssText = "width:" + pct + "%;background:" + fillColor + ";";
             bar.appendChild(fill);
             progWrap.appendChild(bar);
             const progLabel = document.createElement("div");
@@ -4487,14 +4837,11 @@
 
         function openBottomSheet(surveyId, optKey, optIdx, side) {
           const s = SURVEYS_BY_ID.get(surveyId);
-          // Trading is disabled for the daily-BTC oracle market — never open
-          // the buy/sell sheet for it, even from a stale/programmatic call.
-          if (s && s.kind === "btc_daily") return;
           _bsSurveyId = surveyId;
           _bsOptKey = optKey;
           _bsMode = "buy";
           _bsSide = side === "no" ? "no" : "yes";
-          const mkt = MARKETS.get(surveyId);
+          const mkt = getDisplayMarket(s);
           const opt = s ? s.options.find(o => o.key === optKey) : null;
           if (!opt || !mkt) return;
           const pool = mkt.pools[optKey];
@@ -4745,6 +5092,21 @@
           document.body.style.overflow = "";
         }
 
+        /* ================================================================
+         *  NAVIGATION MENU SHEET
+         * ================================================================ */
+        function openMenuSheet() {
+          $("menuBackdrop").classList.add("open");
+          $("menuSheet").classList.add("open");
+          document.body.style.overflow = "hidden";
+        }
+
+        function closeMenuSheet() {
+          $("menuBackdrop").classList.remove("open");
+          $("menuSheet").classList.remove("open");
+          document.body.style.overflow = "";
+        }
+
         async function submitVoteSheet() {
           if (!_voteSheetSurveyId || !_voteSheetSelected) return;
           const errEl = $("voteSheetError");
@@ -4787,7 +5149,7 @@
         }
 
         function updateBuyPreview() {
-          const mkt = MARKETS.get(_bsSurveyId);
+          const mkt = getDisplayMarket(SURVEYS_BY_ID.get(_bsSurveyId));
           if (!mkt || !_bsOptKey) return;
           const pool = mkt.pools[_bsOptKey];
           const c = parseInt($("bsBuyInput").value, 10);
@@ -4856,7 +5218,7 @@
           const _scrollY = _scrollEl ? _scrollEl.scrollTop : 0;
 
           const s = res.survey;
-          const mkt = MARKETS.get(s.id);
+          const mkt = getDisplayMarket(s);
           const settlement = SETTLEMENTS.get(s.id);
 
           // --- Daily-BTC info panel: strike + outcome / pending / live spot ---
@@ -4975,11 +5337,51 @@
             }
           }
 
+          // --- News-poll source attribution panel ---
+          const newsInfoEl = $("surveyNewsInfo");
+          if (newsInfoEl) {
+            if (s.kind === "news_poll" && (s.headline || s.sourceName)) {
+              newsInfoEl.textContent = "";
+              const head = document.createElement("div");
+              head.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+              const badge = document.createElement("span");
+              badge.className = "newsPollBadge";
+              badge.textContent = "Hot Topic";
+              head.appendChild(badge);
+              if (s.headline) {
+                const hl = document.createElement("span");
+                hl.className = "muted";
+                hl.style.cssText = "font-size:12px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
+                hl.textContent = s.headline;
+                head.appendChild(hl);
+              }
+              newsInfoEl.appendChild(head);
+              if (s.sourceName) {
+                const src = document.createElement("div");
+                src.style.cssText = "margin-top:4px;font-size:12px;";
+                if (s.sourceUrl && s.sourceUrl !== "#") {
+                  const link = document.createElement("a");
+                  link.href = s.sourceUrl;
+                  link.target = "_blank";
+                  link.rel = "noopener noreferrer";
+                  link.textContent = "Read the article on " + s.sourceName;
+                  link.style.cssText = "color:var(--accent);text-decoration:underline;";
+                  src.appendChild(link);
+                } else {
+                  src.className = "muted";
+                  src.textContent = "Source: " + s.sourceName;
+                }
+                newsInfoEl.appendChild(src);
+              }
+              show(newsInfoEl, true);
+            } else {
+              show(newsInfoEl, false);
+            }
+          }
+
           const vc = countUniqueVoters(latestTxs, s.id);
           const hasMarket = mkt && cpmmTotalLiquidity(mkt) > 0;
-          // Trading is disabled for the daily-BTC oracle market: hide every
-          // buy/sell entry point (bet buttons + onboarding hint) for it.
-          const canBet = !s.archived && JOINED.has(me) && s.kind !== "btc_daily";
+          const canBet = !s.archived && JOINED.has(me);
           const meVoteKey = res.meEntry && res.meEntry.voteKey;
           const meHasVoted = res.meEntry && res.meEntry.hasVoted;
           const myPreviousVote = meVoteKey || ((meHasVoted || _pendingVotes.has(s.id)) ? getStoredVote(s.id) : null);
@@ -5417,7 +5819,15 @@
             row.className = "leaderRow";
             const rank = document.createElement("div");
             rank.className = "leaderRank";
-            rank.textContent = String(i + 1);
+            if (i === 0) {
+              rank.innerHTML = '<span class="tier-badge tier-gold">1</span>';
+            } else if (i === 1) {
+              rank.innerHTML = '<span class="tier-badge tier-silver">2</span>';
+            } else if (i === 2) {
+              rank.innerHTML = '<span class="tier-badge tier-bronze">3</span>';
+            } else {
+              rank.textContent = String(i + 1);
+            }
             const name = document.createElement("div");
             name.className = "leaderName";
             name.textContent = entry.username;
@@ -5547,7 +5957,7 @@
             _lastRebuildTxCount = rawTxs.length;
 
             const latestUsername = getMyLatestUsername(txs, me);
-            if (latestUsername) { myUsername = latestUsername; setText($("headerUsername"), myUsername); }
+            if (latestUsername) { myUsername = latestUsername; setText($("headerUsername"), myUsername); updateAvatarInitial(myUsername); }
 
             await rebuildState(txs);
             if (_explicitAdminPubkey) {
@@ -5646,6 +6056,7 @@
           try { me = await getNodeAddress(); } catch (_) {}
           myUsername = deriveDefaultUsername(me);
           setText($("headerUsername"), myUsername);
+          updateAvatarInitial(myUsername);
 
           const mockEnabled = window.usernode && typeof window.usernode.isMockEnabled === "function"
             ? await window.usernode.isMockEnabled() : false;
@@ -5664,6 +6075,7 @@
               if (globalName && globalName !== deriveDefaultUsername(me)) {
                 myUsername = globalName;
                 setText($("headerUsername"), myUsername);
+                updateAvatarInitial(myUsername);
               }
             } catch (_) {}
           }
@@ -5761,10 +6173,13 @@
             catch (e) { setSending(false, false); showInlineError(e.message || e); }
           });
 
-          $("historyBtn").addEventListener("click", navigateToHistory);
-          $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
-          $("infoBtn").addEventListener("click", navigateToInfo);
-          $("wcBtn").addEventListener("click", navigateToWC26Hub);
+          $("menuBtn").addEventListener("click", openMenuSheet);
+          $("menuBackdrop").addEventListener("click", closeMenuSheet);
+
+          $("historyBtn").addEventListener("click", () => { closeMenuSheet(); navigateToHistory(); });
+          $("leaderboardBtn").addEventListener("click", () => { closeMenuSheet(); navigateToLeaderboard(); });
+          $("infoBtn").addEventListener("click", () => { closeMenuSheet(); navigateToInfo(); });
+          $("wcBtn").addEventListener("click", () => { closeMenuSheet(); navigateToWC26Hub(); });
           $("wcScheduleBtn").addEventListener("click", navigateToWC26Schedule);
 
           // --- Light/dark theme toggle ---------------------------------
@@ -5938,7 +6353,7 @@
             const c = parseInt($("bsBuyInput").value, 10);
             setText($("bsBuyError"), "");
             if (!c || c < 1) { setText($("bsBuyError"), "Enter credits to bet"); return; }
-            const poolTotal = (() => { const m = MARKETS.get(_bsSurveyId); return m ? Object.values(m.pools).reduce((a, p) => a + p.yes + p.no, 0) : 0; })();
+            const poolTotal = (() => { const m = getDisplayMarket(SURVEYS_BY_ID.get(_bsSurveyId)); return m ? Object.values(m.pools).reduce((a, p) => a + p.yes + p.no, 0) : 0; })();
             const betCap = Math.floor(poolTotal * MAX_BET_POOL_RATIO);
             const maxBuy = Math.min(Math.floor(myCredits()), betCap || Infinity);
             if (c > maxBuy) { setText($("bsBuyError"), "Max is " + maxBuy + " credits"); return; }

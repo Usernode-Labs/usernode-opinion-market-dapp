@@ -207,10 +207,19 @@
     var kind = typeof rawSurvey.kind === "string" && rawSurvey.kind ? rawSurvey.kind : null;
     var strikeUsd = pickNumber(rawSurvey.strike_usd, rawSurvey.strikeUsd);
     var pricedAt = pickNumber(rawSurvey.priced_at, rawSurvey.pricedAt);
+    // News-poll marker fields. Ride inside the survey definition so a
+    // server-authored `create_daily_news` memo carries source attribution
+    // through replay untouched. Plain surveys leave these null.
+    var headline = typeof rawSurvey.headline === "string" ? rawSurvey.headline.trim() || null : null;
+    var sourceUrl = typeof rawSurvey.source_url === "string" ? rawSurvey.source_url.trim() || null
+      : (typeof rawSurvey.sourceUrl === "string" ? rawSurvey.sourceUrl.trim() || null : null);
+    var sourceName = typeof rawSurvey.source_name === "string" ? rawSurvey.source_name.trim() || null
+      : (typeof rawSurvey.sourceName === "string" ? rawSurvey.sourceName.trim() || null : null);
     return {
       id: idBase, title: title, question: question, activeDurationMs: activeDurationMs,
       options: options, revealIntervalMs: revealIntervalMs, allowCustomOptions: allowCustomOptions,
       kind: kind, strikeUsd: strikeUsd, pricedAt: pricedAt,
+      headline: headline, sourceUrl: sourceUrl, sourceName: sourceName,
     };
   }
 
@@ -331,6 +340,39 @@
       if (p && typeof p.yes === "number" && typeof p.no === "number") sum += p.yes + p.no;
     }
     return sum;
+  }
+
+  /**
+   * Build the lazily-seeded market object for a survey that has no
+   * Phase 5b creator-ante market (server-authored daily-BTC / World Cup
+   * markets and promoted proposals all have `createdBy: null`). This is
+   * EXACTLY what Phase 6 creates on the first bet — seeded from platform
+   * liquidity, no ante charged. Exported so the client UI and the
+   * `validatePlaceBet` preflight can present/validate the first bet on a
+   * not-yet-traded market without forking the seeding math.
+   */
+  function seedMarketForSurvey(survey) {
+    if (!survey || !survey.options || survey.options.length < 2) return null;
+    var n = survey.options.length;
+    var initPools = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, n) : [];
+    var mkt = {
+      pools: {}, userShares: {}, userNoShares: {}, feePool: 0,
+      grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0,
+      creator: survey.createdBy || null, history: [], optionVolume: {},
+    };
+    if (initPools.length === n) {
+      var seedPerOption = (MARKET_ANTE + PLATFORM_LIQUIDITY) / n;
+      for (var i = 0; i < n; i++) {
+        mkt.pools[survey.options[i].key] = Object.assign({}, initPools[i]);
+        mkt.optionVolume[survey.options[i].key] = seedPerOption;
+      }
+      var ip = {};
+      for (var oo = 0; oo < n; oo++) {
+        ip[survey.options[oo].key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt.pools[survey.options[oo].key]) : 0;
+      }
+      mkt.history.push({ ts: survey.createdAtMs, probs: ip });
+    }
+    return mkt;
   }
 
   function addPoolLiquidity(pools, amount) {
@@ -898,6 +940,25 @@
       }
     }
 
+    /* --- Phase 3d: Daily News polls ---
+     *
+     * `create_daily_news` is a server-authored memo (see daily-news.js). Like
+     * daily-BTC it bypasses the admin gate, uses deterministic per-day ids
+     * (news-daily-YYYY-MM-DD), and is reconciled by EARLIEST-memo-wins so two
+     * parallel deploys that generate slightly different questions both resolve
+     * to the same canonical question once either tx lands on-chain. */
+    var NEWS_CREATIONS = new Map(); // surveyId -> { survey, ts, from, txId }
+    for (var ixn = 0; ixn < parsed.length; ixn++) {
+      var Pn = parsed[ixn];
+      if (Pn.memo.type !== "create_daily_news") continue;
+      var svn = normalizeSurveyDefinition(Pn.memo.survey);
+      if (!svn || svn.kind !== "news_poll") continue;
+      var prevN = NEWS_CREATIONS.get(svn.id);
+      if (earlierWins(prevN, Pn.tx.ts, Pn.tx.id)) {
+        NEWS_CREATIONS.set(svn.id, { survey: svn, ts: Pn.tx.ts, from: Pn.tx.from, txId: Pn.tx.id });
+      }
+    }
+
     /* --- Phase 3: Surveys (admin-only, rate-limited, with delete/resolve_early) --- */
     var effectiveAdmin = adminPubkey || firstJoiner;
     var allCreations = [];
@@ -951,6 +1012,10 @@
     // lazily from platform liquidity on the first bet.
     WC26_CREATIONS.forEach(function (w) {
       latestCreated.set(w.survey.id, { survey: w.survey, ts: w.ts, from: null });
+    });
+    // Merge daily-news polls, same bypass as daily-BTC: `from` is null.
+    NEWS_CREATIONS.forEach(function (n) {
+      latestCreated.set(n.survey.id, { survey: n.survey, ts: n.ts, from: null });
     });
     var earlyResolves = new Map();
     for (var ie = 0; ie < parsed.length; ie++) {
@@ -1120,9 +1185,9 @@
         settlement.btcWinner = btcRes.winner;
         settlement.resolvedAt = btcRes.resolvedAt;
         // Record the resolved winner regardless of whether a market/trades
-        // exist. BTC markets are not tradeable, so they have no seeded
-        // market or share holders — but a resolved BTC question must still
-        // display its winner.
+        // exist — a BTC question with no bets has no MARKETS entry (the
+        // market is only lazily seeded by the first bet), but a resolved
+        // BTC question must still display its winner.
         if (btcRes.winner !== null) {
           settlement.winner = btcRes.winner;
           settlement.winners = [btcRes.winner];
@@ -1348,14 +1413,11 @@
     for (var ix7 = 0; ix7 < parsed.length; ix7++) {
       var pt = parsed[ix7];
       if (pt.memo.type === "place_bet" || pt.memo.type === "sell_shares") {
-        // Trading is disabled for the daily-BTC oracle market. Skip its
-        // trades at collection time so they never reach the processing
-        // loop, never seed a BTC market, and are ignored SILENTLY (no
-        // recordReject) — the UI never offers BTC betting, so any BTC
-        // trade memo is hand-crafted and shouldn't surface in the
-        // "your bet was dropped" banner.
-        var tradeSurvey = pt.memo.survey == null ? null : SURVEYS_BY_ID.get(String(pt.memo.survey));
-        if (tradeSurvey && tradeSurvey.kind === "btc_daily") continue;
+        // All market kinds are tradeable, including the daily-BTC oracle
+        // market (its trade gate from PR #19 was removed in June 2026 —
+        // issue #31). BTC markets settle against the oracle price like
+        // World Cup markets settle against the match result; both pay
+        // share holders per the resolution weights in settleSurvey.
         tradeEvents.push({ kind: "trade", ts: pt.tx.ts, p: pt });
       }
     }
@@ -1384,10 +1446,6 @@
       var svM = Pm.memo.survey == null ? null : String(Pm.memo.survey);
       var surveyM = SURVEYS_BY_ID.get(svM);
       if (!surveyM) { recordReject(Pm, "NO_SURVEY"); continue; }
-      // Belt-and-suspenders: BTC-market trades are filtered out above, but
-      // never process one here even if a future refactor lets it through.
-      // Ignore silently (no recordReject) and never seed a BTC market.
-      if (surveyM.kind === "btc_daily") continue;
       // World Cup matches lock at kickoff (well before the kickoff+8h expiry),
       // so a bet/sell whose chain ts lands at/after kickoff is dropped with a
       // distinct reason — no betting on a result that may already be known.
@@ -1406,25 +1464,8 @@
 
       var mkt2 = MARKETS.get(svM);
       if (!mkt2) {
-        var n2 = surveyM.options.length;
-        var initPools2 = CPMM.cpmmInitPools ? CPMM.cpmmInitPools(MARKET_ANTE + PLATFORM_LIQUIDITY, n2) : [];
-        mkt2 = {
-          pools: {}, userShares: {}, userNoShares: {}, feePool: 0,
-          grossBetsByUser: {}, netSellsByUser: {}, creatorReward: 0,
-          creator: surveyM.createdBy || null, history: [], optionVolume: {},
-        };
-        if (initPools2.length === n2) {
-          var spo = (MARKET_ANTE + PLATFORM_LIQUIDITY) / n2;
-          for (var ii2 = 0; ii2 < n2; ii2++) {
-            mkt2.pools[surveyM.options[ii2].key] = Object.assign({}, initPools2[ii2]);
-            mkt2.optionVolume[surveyM.options[ii2].key] = spo;
-          }
-          var ip = {};
-          for (var oo = 0; oo < surveyM.options.length; oo++) {
-            ip[surveyM.options[oo].key] = CPMM.cpmmProb ? CPMM.cpmmProb(mkt2.pools[surveyM.options[oo].key]) : 0;
-          }
-          mkt2.history.push({ ts: surveyM.createdAtMs, probs: ip });
-        }
+        mkt2 = seedMarketForSurvey(surveyM);
+        if (!mkt2) { recordReject(Pm, "NO_MARKET"); continue; }
         MARKETS.set(svM, mkt2);
       }
 
@@ -1646,9 +1687,6 @@
     if (!state.JOINED.has(pubkey)) return { ok: false, reason: "NOT_JOINED" };
     var survey = state.SURVEYS_BY_ID.get(surveyId);
     if (!survey) return { ok: false, reason: "NO_SURVEY" };
-    // Trading is disabled for the daily-BTC oracle market — Phase 6 ignores
-    // its trade memos entirely, so reject the preflight up front.
-    if (survey.kind === "btc_daily") return { ok: false, reason: "BTC_NO_TRADING" };
     if (survey.archived) return { ok: false, reason: "ARCHIVED" };
     if (survey.kind === "wc26_match" && survey.wc26 && typeof survey.wc26.kickoffMs === "number") {
       var nowMs = typeof params.now === "number" ? params.now : Date.now();
@@ -1661,7 +1699,16 @@
     if (bal < credits) return { ok: false, reason: "INSUFFICIENT_BALANCE", balance: bal, needed: credits };
 
     var mkt = state.MARKETS.get(surveyId);
-    if (!mkt) return { ok: false, reason: "NO_MARKET" };
+    if (!mkt) {
+      // A market with no trades yet has no MARKETS entry — Phase 6 seeds
+      // it lazily from platform liquidity when the first bet lands, so
+      // validate against the seed the bet would actually trade into.
+      // (Rejecting here was the bug that made World Cup markets — whose
+      // surveys have no creator ante — permanently unbettable: the
+      // preflight blocked the first bet, so the lazy seed never ran.)
+      mkt = seedMarketForSurvey(survey);
+      if (!mkt) return { ok: false, reason: "NO_MARKET" };
+    }
     var totalPool = cpmmTotalLiquidity(mkt);
     var maxBet = Math.floor(totalPool * MAX_BET_POOL_RATIO);
     if (credits > maxBet) return { ok: false, reason: "OVER_MAX_BET", maxBet: maxBet, attempted: credits };
@@ -1731,6 +1778,7 @@
     getRevealCheckpoints: getRevealCheckpoints,
     cpmmTotalLiquidity: cpmmTotalLiquidity,
     addPoolLiquidity: addPoolLiquidity,
+    seedMarketForSurvey: seedMarketForSurvey,
     distributeRefund: distributeRefund,
 
     // Decryption
