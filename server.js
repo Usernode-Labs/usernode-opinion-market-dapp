@@ -69,6 +69,7 @@ const createVoteEncryption = require("./vote-encryption");
 const createDailyBtc = require("./daily-btc");
 const createWorldCup2026 = require("./world-cup-2026");
 const createDailyNews = require("./daily-news");
+const { createStagingCommodities } = require("./staging-commodities");
 const { buildLeaderboard } = require("./lib/leaderboard");
 
 loadEnvFile();
@@ -233,6 +234,18 @@ const dailyNews = createDailyNews({
   seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
 });
 dailyNews.start();
+
+// ── Staging-only demo Commodity markets ───────────────────────────────────────
+// Commodity markets are ordinary user-created surveys, so no scheduler posts
+// them — without this the Commodity category filter would be empty in a fresh
+// staging preview. Seeds two obviously-fake "Staging demo" commodity questions
+// straight into the cache. Null seedTransaction in production → hard no-op.
+const stagingCommodities = createStagingCommodities({
+  appPubkey: APP_PUBKEY,
+  senderPubkey: SENDER_APP_PUBKEY || APP_PUBKEY,
+  seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
+});
+if (IS_STAGING) stagingCommodities.seed();
 
 // Structured schedule derived from the raw-tx cache (created matches +
 // resolutions, group + knockout), sorted by kickoff. A convenience for the

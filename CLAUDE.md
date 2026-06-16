@@ -130,6 +130,10 @@ different ways:
 Memos are JSON. OM only acts on these:
 
 - `client → OM (survey)`:        `{"app":"opinion-market","type":"create_survey","survey":{…}}`
+  (optional presentational markers: `"category":"crypto"|"commodity"`, and
+  for commodities `"commodity":"gold"|"oil"` — grouping/filter + card badge
+  only, no effect on CPMM/settlement; see the `CATEGORIES` / `COMMODITIES`
+  registries and `surveyCategory()` in `public/opinion-market-state.js`)
 - `client → OM (vote)`:          `{"app":"opinion-market","type":"vote","survey":"<id>","ciphertext":"<b64>","interval":<i>}`
 - `client → OM (custom option)`: `{"app":"opinion-market","type":"add_option","survey":"<id>","option":{…}}`
 - `client → OM (display name)`:  `{"app":"opinion-market","type":"set_username","username":"<name>"}`

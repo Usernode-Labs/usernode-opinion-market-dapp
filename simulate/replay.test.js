@@ -941,4 +941,82 @@ test("WC26: replay deterministic under duplicate create+resolve memos", async ()
   assert.strictEqual(sa.payouts[USER_A], sb.payouts[USER_A], "deterministic payout");
 });
 
+/* ── Category / commodity marker fields (presentational grouping) ──── */
+
+test("CATEGORY: create_survey carries category+commodity through normalize", () => {
+  const def = OMS.normalizeSurveyDefinition({
+    id: "gold-q", title: "Gold", question: "Above $2400/oz?",
+    options: [{ label: "Yes" }, { label: "No" }],
+    category: "commodity", commodity: "gold",
+  });
+  assert(def, "definition normalized");
+  assert.strictEqual(def.category, "commodity");
+  assert.strictEqual(def.commodity, "gold");
+});
+
+test("CATEGORY: unknown values coerce to null; commodity needs commodity category", () => {
+  const base = { id: "x", title: "T", question: "Q?", options: [{ label: "Y" }, { label: "N" }] };
+  // Bogus category → null, and its commodity is dropped too.
+  const a = OMS.normalizeSurveyDefinition({ ...base, category: "bogus", commodity: "gold" });
+  assert.strictEqual(a.category, null);
+  assert.strictEqual(a.commodity, null);
+  // Valid non-commodity category keeps category but drops commodity.
+  const b = OMS.normalizeSurveyDefinition({ ...base, category: "crypto", commodity: "gold" });
+  assert.strictEqual(b.category, "crypto");
+  assert.strictEqual(b.commodity, null, "commodity only kept when category === commodity");
+  // Commodity category with an unknown commodity slug → commodity null.
+  const c = OMS.normalizeSurveyDefinition({ ...base, category: "commodity", commodity: "platinum" });
+  assert.strictEqual(c.category, "commodity");
+  assert.strictEqual(c.commodity, null, "unknown commodity coerces to null");
+  // Absent fields stay null (backward compatibility with old memos).
+  const d = OMS.normalizeSurveyDefinition(base);
+  assert.strictEqual(d.category, null);
+  assert.strictEqual(d.commodity, null);
+});
+
+test("CATEGORY: surveyCategory derivation (explicit wins, btc_daily → crypto)", () => {
+  assert.strictEqual(OMS.surveyCategory({ kind: "btc_daily" }), "crypto", "Daily BTC buckets into Crypto");
+  assert.strictEqual(OMS.surveyCategory({ kind: null }), null, "plain poll is general (null)");
+  assert.strictEqual(OMS.surveyCategory({ kind: "news_poll" }), null, "news poll is general");
+  assert.strictEqual(OMS.surveyCategory({ category: "commodity", commodity: "gold" }), "commodity");
+  assert.strictEqual(OMS.surveyCategory({ category: "bogus" }), null, "unknown category ignored");
+  assert.strictEqual(OMS.surveyCategory(null), null);
+});
+
+test("CATEGORY: tagging a survey does not change credit flows", async () => {
+  function stream(surveyExtra) {
+    nextTxId = 1;
+    const survey = {
+      id: "s1", title: "T", question: "Q?",
+      options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
+      active_duration_ms: 600000, ...surveyExtra,
+    };
+    return [
+      tx(ADMIN, "join", null, 0),
+      tx(USER_A, "join", null, 1000),
+      tx(ADMIN, "create_survey", { survey }, 2000),
+      tx(USER_A, "place_bet", { survey: "s1", option: "yes", credits: 100, side: "yes" }, 3000),
+    ];
+  }
+  const opts = (txs) => ({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {}, now: 1700000010000,
+  });
+  const plain = await OMS.computeFullState(opts(stream(null)));
+  const tagged = await OMS.computeFullState(opts(stream({ category: "commodity", commodity: "gold" })));
+
+  const pf = plain.CREDIT_FLOWS.get(USER_A);
+  const tf = tagged.CREDIT_FLOWS.get(USER_A);
+  assert.deepStrictEqual(
+    { grossBets: tf.grossBets, netSells: tf.netSells },
+    { grossBets: pf.grossBets, netSells: pf.netSells },
+    "credit flows identical with or without category",
+  );
+  assert.strictEqual(OMS.userBalance(tagged, USER_A), OMS.userBalance(plain, USER_A), "balance unchanged");
+  const taggedSurvey = tagged.SURVEYS.find(s => s.id === "s1");
+  assert.strictEqual(taggedSurvey.category, "commodity", "category preserved through full replay");
+  assert.strictEqual(taggedSurvey.commodity, "gold", "commodity preserved through full replay");
+  assert.strictEqual(OMS.surveyCategory(taggedSurvey), "commodity");
+});
+
 run();

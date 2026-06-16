@@ -1683,6 +1683,16 @@
                   <span class="muted" style="font-size: 13px;">Question</span>
                   <input id="newSurveyQuestion" class="input" maxlength="160" />
                 </label>
+                <label style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Category</span>
+                  <select id="newSurveyCategory" class="input">
+                    <option value="" selected>General</option>
+                  </select>
+                </label>
+                <label id="newSurveyCommodityRow" class="hide" style="display: grid; gap: 6px; margin-top: 8px;">
+                  <span class="muted" style="font-size: 13px;">Commodity type</span>
+                  <select id="newSurveyCommodity" class="input"></select>
+                </label>
                 <div style="display: grid; gap: 6px; margin-top: 8px;">
                   <span class="muted" style="font-size: 13px;">Options</span>
                   <div id="surveyOptionsList" style="display: grid; gap: 6px;"></div>
@@ -2620,6 +2630,9 @@
         let _firstJoiner = null;
         let GENESIS_ACCOUNTS = new Set();
         let currentSurveyId = null;
+        // Client-only view preference for the market-list category filter.
+        // "all" or a CATEGORIES slug ("crypto" / "commodity"). Resets on reload.
+        let surveyCategoryFilter = "all";
         let currentOptionByKey = new Map();
         let myAddedOptionBySurvey = {};
         let mySurveyCreationTimes = [];
@@ -3379,6 +3392,10 @@
           const d = $("newSurveyDuration"); if (d) d.value = String(DEFAULT_SURVEY_DURATION_MS);
           const r = $("newSurveyRevealInterval"); if (r) r.value = "";
           const c = $("newSurveyAllowCustom"); if (c) c.checked = false;
+          initSurveyCategoryFields();
+          const cat = $("newSurveyCategory"); if (cat) cat.value = "";
+          const com = $("newSurveyCommodity"); if (com) com.selectedIndex = 0;
+          updateCommodityRowVisibility();
         }
 
         function clearUsernameForm() {
@@ -3403,8 +3420,52 @@
           const revealRaw = ($("newSurveyRevealInterval") || {}).value;
           const revealIntervalMs = revealRaw ? Number(revealRaw) : null;
           const allowCustomOptions = ($("newSurveyAllowCustom") || {}).checked !== false;
+          const CATS = window.OpinionMarketState.CATEGORIES;
+          const COMS = window.OpinionMarketState.COMMODITIES;
+          const catRaw = String(($("newSurveyCategory") || {}).value || "").trim();
+          const category = Object.prototype.hasOwnProperty.call(CATS, catRaw) ? catRaw : null;
+          let commodity = null;
+          if (category === "commodity") {
+            const comRaw = String(($("newSurveyCommodity") || {}).value || "").trim();
+            if (!Object.prototype.hasOwnProperty.call(COMS, comRaw)) {
+              throw new Error("Choose a commodity type (e.g. Gold or Oil)");
+            }
+            commodity = comRaw;
+          }
           const id = `custom_${slugify(title) || "survey"}_${Date.now().toString(36)}`;
-          return { id, title, question, options, activeDurationMs, revealIntervalMs, allowCustomOptions };
+          return { id, title, question, options, activeDurationMs, revealIntervalMs, allowCustomOptions, category, commodity };
+        }
+
+        // Populate the Category/Commodity selects from the shared registries
+        // so adding a category/commodity needs no markup change. Idempotent.
+        function initSurveyCategoryFields() {
+          const CATS = window.OpinionMarketState.CATEGORIES;
+          const COMS = window.OpinionMarketState.COMMODITIES;
+          const catSel = $("newSurveyCategory");
+          if (catSel && catSel.options.length <= 1) {
+            Object.keys(CATS).forEach((slug) => {
+              const opt = document.createElement("option");
+              opt.value = slug;
+              opt.textContent = CATS[slug].label;
+              catSel.appendChild(opt);
+            });
+          }
+          const comSel = $("newSurveyCommodity");
+          if (comSel && comSel.options.length === 0) {
+            Object.keys(COMS).forEach((slug) => {
+              const opt = document.createElement("option");
+              opt.value = slug;
+              opt.textContent = COMS[slug].label;
+              comSel.appendChild(opt);
+            });
+          }
+        }
+
+        function updateCommodityRowVisibility() {
+          const catSel = $("newSurveyCategory");
+          const row = $("newSurveyCommodityRow");
+          if (!catSel || !row) return;
+          show(row, catSel.value === "commodity");
         }
 
         /* ================================================================
@@ -3617,14 +3678,17 @@
           if (me && !JOINED.has(me)) throw new Error("Join first to create questions");
           if (myCredits() < MARKET_ANTE) throw new Error(`You need at least ${MARKET_ANTE} credits to create a question (${MARKET_ANTE} goes to seed the betting pool).`);
           const survey = createSurveyFromForm();
+          const surveyMemo = {
+            id: survey.id, title: survey.title, question: survey.question,
+            active_duration_ms: survey.activeDurationMs, options: survey.options,
+            reveal_interval_ms: survey.revealIntervalMs, allow_custom_options: survey.allowCustomOptions,
+          };
+          if (survey.category) surveyMemo.category = survey.category;
+          if (survey.commodity) surveyMemo.commodity = survey.commodity;
           const memo = makeMemo({
             app: "opinion-market",
             type: "create_survey",
-            survey: {
-              id: survey.id, title: survey.title, question: survey.question,
-              active_duration_ms: survey.activeDurationMs, options: survey.options,
-              reveal_interval_ms: survey.revealIntervalMs, allow_custom_options: survey.allowCustomOptions,
-            },
+            survey: surveyMemo,
           });
           if (memo.length > 1024) throw new Error("Question payload too large \u2014 please shorten your title, question, or option labels.");
           setSending(true);
@@ -4475,6 +4539,22 @@
           function _kindPriority(k) { return k === "news_poll" ? 2 : k === "btc_daily" ? 1 : 0; }
           active.sort((a, b) => _kindPriority(b.kind) - _kindPriority(a.kind));
           const archived = SURVEYS.filter(s => s.archived && s.kind !== "wc26_match");
+
+          // ── Category filter bar (presentational; client-only view state) ──
+          const OMS = window.OpinionMarketState;
+          const CATS = OMS.CATEGORIES;
+          // Categories that actually appear among the active markets, in
+          // registry order. Daily BTC maps to "crypto" via surveyCategory.
+          const presentCats = Object.keys(CATS).filter(slug =>
+            active.some(s => OMS.surveyCategory(s) === slug));
+          // A filter pointing at a now-empty category falls back to "all".
+          if (surveyCategoryFilter !== "all" && presentCats.indexOf(surveyCategoryFilter) === -1) {
+            surveyCategoryFilter = "all";
+          }
+          renderSurveyFilterBar(presentCats);
+          const visibleActive = surveyCategoryFilter === "all"
+            ? active
+            : active.filter(s => OMS.surveyCategory(s) === surveyCategoryFilter);
           const _joined = me && JOINED.has(me);
           const onList = !currentSurveyId
             && (!$("screenHistory") || $("screenHistory").classList.contains("hide"))
@@ -4484,10 +4564,12 @@
             && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"));
           if (onList) show($("screenArchivedList"), _joined && archived.length > 0);
 
-          if (!active.length) {
+          if (!visibleActive.length) {
             const e = document.createElement("div");
             e.className = "muted";
-            e.textContent = "No active questions.";
+            e.textContent = active.length
+              ? "No active questions in this category."
+              : "No active questions.";
             activeEl.appendChild(e);
           }
 
@@ -4505,6 +4587,7 @@
 
             const catTag = document.createElement("span");
             catTag.style.cssText = "font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--muted);flex-shrink:0;";
+            const COMS = window.OpinionMarketState.COMMODITIES;
             if (s.kind === "btc_daily") {
               catTag.style.cssText += "color:#f7931a;border-color:#f7931a55;background:#f7931a12;";
               catTag.textContent = "₿ Daily";
@@ -4513,6 +4596,12 @@
               catTag.textContent = "⚽ World Cup";
             } else if (s.kind === "news_poll") {
               catTag.textContent = "Hot Topic";
+            } else if (s.category === "commodity" && COMS[s.commodity]) {
+              catTag.style.cssText += "color:#d4af37;border-color:#d4af3755;background:#d4af3712;";
+              catTag.textContent = COMS[s.commodity].badge;
+            } else if (s.category === "crypto") {
+              catTag.style.cssText += "color:#f7931a;border-color:#f7931a55;background:#f7931a12;";
+              catTag.textContent = "Crypto";
             } else {
               catTag.textContent = "Poll";
             }
@@ -4635,8 +4724,53 @@
             return b;
           }
 
-          for (const s of active) activeEl.appendChild(buildCard(s, "\u23F1 " + formatCountdown(s.expiresAtMs)));
+          for (const s of visibleActive) activeEl.appendChild(buildCard(s, "\u23F1 " + formatCountdown(s.expiresAtMs)));
           for (const s of archived) archivedEl.appendChild(buildCard(s, formatArchivedDate(s.expiresAtMs)));
+        }
+
+        /* Render the category filter chip row above the active market list.
+         * Shown only when more than one category is present (a single-chip
+         * bar would be pointless). Chips: "All" + one per present category.
+         * Selecting a chip updates the client-only `surveyCategoryFilter`
+         * and re-renders the list. */
+        function renderSurveyFilterBar(presentCats) {
+          const activeEl = $("activeSurveyList");
+          if (!activeEl || !activeEl.parentNode) return;
+          let bar = $("surveyFilterBar");
+          // Hide (and clear) the bar unless there are 2+ real categories to pick.
+          if (!presentCats || presentCats.length < 2) {
+            if (bar) { bar.textContent = ""; show(bar, false); }
+            return;
+          }
+          if (!bar) {
+            bar = document.createElement("div");
+            bar.id = "surveyFilterBar";
+            bar.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 2px;";
+            activeEl.parentNode.insertBefore(bar, activeEl);
+          }
+          show(bar, true);
+          bar.textContent = "";
+          const CATS = window.OpinionMarketState.CATEGORIES;
+          const chips = [{ slug: "all", label: "All" }].concat(
+            presentCats.map(slug => ({ slug, label: CATS[slug].label })));
+          for (const c of chips) {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "btn small";
+            const selected = surveyCategoryFilter === c.slug;
+            chip.style.cssText = "font-size:12px;padding:4px 12px;border-radius:999px;"
+              + (selected
+                ? "background:color-mix(in oklab,var(--accent) 18%,transparent);border-color:var(--accent);color:var(--accent);font-weight:600;"
+                : "");
+            chip.textContent = c.label;
+            chip.setAttribute("aria-pressed", selected ? "true" : "false");
+            chip.addEventListener("click", () => {
+              if (surveyCategoryFilter === c.slug) return;
+              surveyCategoryFilter = c.slug;
+              renderSurveyList();
+            });
+            bar.appendChild(chip);
+          }
         }
 
         /* Threshold a proposal must reach RIGHT NOW to launch: at least half
@@ -6423,12 +6557,16 @@
 
           $("addSurveyOptionBtn").addEventListener("click", () => addSurveyOptionField(""));
 
+          initSurveyCategoryFields();
+          const catSelEl = $("newSurveyCategory");
+          if (catSelEl) catSelEl.addEventListener("change", updateCommodityRowVisibility);
+
           $("addSurveyBtn").addEventListener("click", () => {
             if (!isAdmin) { showInlineError("Only admins can create questions for now"); return; }
             const panel = $("addSurveyPanel");
             const opening = panel && panel.classList.contains("hide");
             show(panel, !!opening);
-            if (opening) updateSurveyCooldownUi();
+            if (opening) { initSurveyCategoryFields(); updateCommodityRowVisibility(); updateSurveyCooldownUi(); }
             else clearAddSurveyForm();
           });
 

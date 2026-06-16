@@ -53,6 +53,45 @@
   ]);
   var ALLOWED_REVEAL_INTERVALS = new Set([86400000, 172800000, 259200000, 604800000]);
 
+  /* ── Market categories (presentational grouping only) ─────────────────
+   *
+   * `category` and `commodity` are optional marker fields on a survey
+   * definition. They are purely for UI grouping/filtering and the card
+   * badge — they DO NOT affect CPMM math, seeding, settlement, payouts,
+   * CREDIT_FLOWS, or rejection logic. Adding a new category / commodity is
+   * a single registry entry here; both the client (public/index.html) and
+   * the server (lib/leaderboard.js) read these via the OMS namespace so
+   * they never drift.
+   */
+  var CATEGORIES = {
+    crypto: { slug: "crypto", label: "Crypto", badge: "Crypto", color: "#f7931a" },
+    commodity: { slug: "commodity", label: "Commodity", badge: "Commodity", color: "#d4af37" },
+  };
+  // Commodity sub-types. Flexible: add a slug here to support a new
+  // commodity without touching the form, card, or filter code.
+  var COMMODITIES = {
+    gold: { slug: "gold", label: "Gold", badge: "🪙 Gold" },
+    oil: { slug: "oil", label: "Oil", badge: "🛢️ Oil" },
+  };
+
+  /**
+   * Derive the grouping category slug for any survey, so existing markets
+   * bucket correctly without editing the server schedulers:
+   *   - explicit `survey.category` wins (when it's a known category);
+   *   - else `kind === "btc_daily"` → "crypto" (Daily BTC joins Crypto);
+   *   - else null (general — plain polls and news_poll).
+   * `wc26_match` surveys live in the separate World Cup hub and are
+   * excluded from the main list before this is consulted.
+   */
+  function surveyCategory(survey) {
+    if (!survey || typeof survey !== "object") return null;
+    if (survey.category && Object.prototype.hasOwnProperty.call(CATEGORIES, survey.category)) {
+      return survey.category;
+    }
+    if (survey.kind === "btc_daily") return "crypto";
+    return null;
+  }
+
   /* ── Proposals (community question creation) ──────────────────────── */
 
   // Sliding window used to size the promotion electorate. A proposal goes
@@ -208,11 +247,20 @@
       : (typeof rawSurvey.sourceUrl === "string" ? rawSurvey.sourceUrl.trim() || null : null);
     var sourceName = typeof rawSurvey.source_name === "string" ? rawSurvey.source_name.trim() || null
       : (typeof rawSurvey.sourceName === "string" ? rawSurvey.sourceName.trim() || null : null);
+    // Category marker fields (presentational grouping only — see CATEGORIES).
+    // Accept only known slugs; coerce anything else to null. A `commodity`
+    // is only kept when the category is actually "commodity".
+    var categoryRaw = typeof rawSurvey.category === "string" ? rawSurvey.category.trim() : "";
+    var category = Object.prototype.hasOwnProperty.call(CATEGORIES, categoryRaw) ? categoryRaw : null;
+    var commodityRaw = typeof rawSurvey.commodity === "string" ? rawSurvey.commodity.trim() : "";
+    var commodity = (category === "commodity" && Object.prototype.hasOwnProperty.call(COMMODITIES, commodityRaw))
+      ? commodityRaw : null;
     return {
       id: idBase, title: title, question: question, activeDurationMs: activeDurationMs,
       options: options, revealIntervalMs: revealIntervalMs, allowCustomOptions: allowCustomOptions,
       kind: kind, strikeUsd: strikeUsd, pricedAt: pricedAt,
       headline: headline, sourceUrl: sourceUrl, sourceName: sourceName,
+      category: category, commodity: commodity,
     };
   }
 
@@ -1753,6 +1801,8 @@
     PROPOSAL_EXPIRY_MS: PROPOSAL_EXPIRY_MS,
     MAX_OPEN_PROPOSALS_PER_USER: MAX_OPEN_PROPOSALS_PER_USER,
     ACTIVITY_TYPES: ACTIVITY_TYPES,
+    CATEGORIES: CATEGORIES,
+    COMMODITIES: COMMODITIES,
 
     // Pure helpers
     parseMemo: parseMemo,
@@ -1765,6 +1815,7 @@
     normalizeUsername: normalizeUsername,
     normalizeSurveyDurationMs: normalizeSurveyDurationMs,
     normalizeSurveyDefinition: normalizeSurveyDefinition,
+    surveyCategory: surveyCategory,
     normalizeWc26Definition: normalizeWc26Definition,
     normalizeProposalDefinition: normalizeProposalDefinition,
     activeUsersInWindow: activeUsersInWindow,
