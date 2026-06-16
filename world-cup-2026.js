@@ -501,7 +501,7 @@ function createWorldCup2026(opts) {
     // 1. Create memos for unseeded fixtures.
     let injected = 0;
     for (const fx of fixtures) {
-      if (created.has(fx.matchId)) continue;
+      if (existing.created.has(fx.matchId)) continue;
       const memo = buildCreateMemo(fx, now);
       const seedTxId = "staging-seed-" + fx.matchId;
       const tx = {

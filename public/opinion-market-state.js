@@ -1635,28 +1635,26 @@
       vmNext = vmIter.next();
     }
 
-    /* --- Phase 8c: WC26 prediction accuracy per user --- */
+    /* --- Phase 8c: WC26 prediction standings --- */
     var wc26StandingsMap = new Map(); // Map<pubkey, { predicted, correct }>
-    for (var wci = 0; wci < SURVEYS.length; wci++) {
-      var svWc = SURVEYS[wci];
-      if (svWc.kind !== "wc26_match" || !svWc.archived) continue;
-      var stWc = SETTLEMENTS.get(svWc.id);
-      if (!stWc || stWc.pending || !stWc.winner || stWc.winner === "void") continue;
-      var winnerKey = stWc.winner;
-      // Iterate voteMap for this survey.
-      var vmWcIter = voteMap.entries();
-      var vmWcNext = vmWcIter.next();
-      while (!vmWcNext.done) {
-        var wvEntry = vmWcNext.value[1];
-        if (wvEntry.survey && wvEntry.survey.id === svWc.id && wvEntry.choice != null) {
-          var wvPubkey = wvEntry.from;
-          var wvAcc = wc26StandingsMap.get(wvPubkey);
-          if (!wvAcc) { wvAcc = { predicted: 0, correct: 0 }; wc26StandingsMap.set(wvPubkey, wvAcc); }
-          wvAcc.predicted++;
-          if (wvEntry.choice === winnerKey) wvAcc.correct++;
-        }
-        vmWcNext = vmWcIter.next();
-      }
+    var vmIter2 = voteMap.entries();
+    var vmNext2 = vmIter2.next();
+    while (!vmNext2.done) {
+      var ve = vmNext2.value[1];
+      vmNext2 = vmIter2.next();
+      if (!ve || ve.choice == null) continue;
+      var sv8c = SURVEYS_BY_ID.get(ve.survey);
+      if (!sv8c || sv8c.kind !== "wc26_match") continue;
+      if (!sv8c.archived) continue;
+      var set8c = SETTLEMENTS.get(sv8c.id);
+      if (!set8c || set8c.pending) continue;
+      var winnerKey8c = set8c.wcWinner;
+      if (!winnerKey8c || winnerKey8c === "void") continue;
+      var pk8c = ve.from;
+      var rec8c = wc26StandingsMap.get(pk8c);
+      if (!rec8c) { rec8c = { predicted: 0, correct: 0 }; wc26StandingsMap.set(pk8c, rec8c); }
+      rec8c.predicted++;
+      if (ve.choice === winnerKey8c) rec8c.correct++;
     }
 
     // Open proposals = not promoted and not expired as of `now`, newest-first.

@@ -47,34 +47,6 @@
         --danger: #ff6b6b;
         --ok: #5dd39e;
         --warn: #e6a817;
-        /* Redesign tokens (dark). Secondary surface, subtle elevation, and
-           a faint top-lit gradient give cards depth without new borders.
-           --text-muted-strong sits between --fg and --muted so important
-           secondary text (questions, stat labels) separates from titles. */
-        --card-2: #1b2433;
-        --text-muted-strong: #c6d0e0;
-        --elev-1: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.30);
-        --elev-2: 0 8px 24px rgba(0, 0, 0, 0.50), 0 2px 6px rgba(0, 0, 0, 0.35);
-        --grad-surface: linear-gradient(180deg, color-mix(in oklab, var(--card) 88%, #ffffff) 0%, var(--card) 100%);
-        --grad-surface-2: linear-gradient(180deg, color-mix(in oklab, var(--card-2) 88%, #ffffff) 0%, var(--card-2) 100%);
-        --grad-bg: linear-gradient(180deg, color-mix(in oklab, var(--bg) 94%, #ffffff) 0%, var(--bg) 60%);
-        /* Type scale + weight ramp — referenced by h1/h2/h3 and JS cssText. */
-        --fs-display: 28px;
-        --fs-h1: 19px;
-        --fs-h2: 15px;
-        --fs-h3: 14px;
-        --fs-body: 14px;
-        --fs-sm: 13px;
-        --fs-xs: 11px;
-        --fw-strong: 700;
-        --fw-med: 600;
-        /* ── Redesign tokens ────────────────────────────── */
-        --topbar-blur: blur(12px);
-        --transition-fast: 0.12s ease;
-        --radius-pill: 999px;
-        --radius-card: 16px;
-        --radius-inner: 10px;
-        --accent-stripe: color-mix(in oklab, var(--accent) 65%, transparent);
       }
       :root[data-theme="dark"] { color-scheme: dark; }
 
@@ -89,16 +61,6 @@
         --danger: #c81e1e;
         --ok: #0f766e;
         --warn: #b45309;
-        /* Redesign tokens (light). Shadows use low-alpha slate so white
-           cards stay crisp; the surface gradient darkens slightly toward
-           the bottom instead of lightening (no headroom above white). */
-        --card-2: #f1f4f9;
-        --text-muted-strong: #2b3445;
-        --elev-1: 0 1px 2px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06);
-        --elev-2: 0 8px 20px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.08);
-        --grad-surface: linear-gradient(180deg, var(--card) 0%, color-mix(in oklab, var(--card) 96%, #000000) 100%);
-        --grad-surface-2: linear-gradient(180deg, var(--card-2) 0%, color-mix(in oklab, var(--card-2) 96%, #000000) 100%);
-        --grad-bg: linear-gradient(180deg, color-mix(in oklab, var(--bg) 97%, #000000) 0%, var(--bg) 60%);
       }
       @media (prefers-color-scheme: light) {
         :root:not([data-theme]) {
@@ -112,15 +74,6 @@
           --danger: #c81e1e;
           --ok: #0f766e;
           --warn: #b45309;
-          /* Light-theme redesign tokens — mirror of [data-theme="light"]
-             so system-preference-light (no explicit choice) matches. */
-          --card-2: #f1f4f9;
-          --text-muted-strong: #2b3445;
-          --elev-1: 0 1px 2px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06);
-          --elev-2: 0 8px 20px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.08);
-          --grad-surface: linear-gradient(180deg, var(--card) 0%, color-mix(in oklab, var(--card) 96%, #000000) 100%);
-          --grad-surface-2: linear-gradient(180deg, var(--card-2) 0%, color-mix(in oklab, var(--card-2) 96%, #000000) 100%);
-          --grad-bg: linear-gradient(180deg, color-mix(in oklab, var(--bg) 97%, #000000) 0%, var(--bg) 60%);
         }
       }
 
@@ -136,7 +89,6 @@
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
           Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
         background: var(--bg);
-        background: var(--grad-bg, var(--bg));
         color: var(--fg);
         display: flex;
         flex-direction: column;
@@ -147,12 +99,9 @@
 
       .topBar {
         flex: 0 0 auto;
-        padding: 10px 16px;
+        padding: 14px 16px;
         border-bottom: 1px solid var(--border);
-        background: color-mix(in oklab, var(--card) 78%, transparent);
-        backdrop-filter: var(--topbar-blur);
-        -webkit-backdrop-filter: var(--topbar-blur);
-        box-shadow: var(--elev-1);
+        background: var(--card);
         z-index: 10;
       }
       .topBar-inner {
@@ -213,7 +162,7 @@
         flex-direction: column;
         align-items: stretch;
         justify-content: flex-start;
-        gap: 16px;
+        gap: 14px;
       }
       .archivedDock {
         margin-top: auto;
@@ -221,25 +170,14 @@
 
       .panel {
         background: var(--card);
-        background: var(--grad-surface, var(--card));
         border: 1px solid var(--border);
         border-radius: 16px;
-        padding: 18px;
-        box-shadow: var(--elev-1);
-      }
-      /* Nested/secondary panel — sits on a primary panel, so it uses the
-         lighter --card-2 surface and no resting shadow to avoid doubled
-         elevation. Opt-in via class; existing nested .panel usages keep
-         their look unless given .panel-nested. */
-      .panel-nested {
-        background: var(--card-2);
-        background: var(--grad-surface-2, var(--card-2));
-        box-shadow: none;
+        padding: 16px;
       }
 
-      h1 { font-size: var(--fs-h1); font-weight: var(--fw-strong); margin: 0 0 4px; letter-spacing: 0.2px; }
-      h2 { font-size: 17px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-      h3 { font-size: var(--fs-h3); font-weight: var(--fw-med); margin: 0 0 8px; }
+      h1 { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+      h2 { font-size: 15px; font-weight: 700; margin: 0; }
+      h3 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
       .section-heading {
         display: flex;
         align-items: center;
@@ -268,24 +206,6 @@
 
       .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
-      /* Standardized emoji icon. Emoji render at OS-dependent sizes and
-         baselines, so we pin font-size + line-height and use inline-flex
-         centering instead of relying on the text baseline. Size modifiers
-         keep nav/inline icons (sm) and list-row icons (md) consistent. */
-      .icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        line-height: 1;
-        font-size: 16px;
-        font-style: normal;
-        vertical-align: middle;
-        flex: 0 0 auto;
-      }
-      .icon-sm { font-size: 15px; }
-      .icon-md { font-size: 18px; }
-      .icon-lg { font-size: 22px; }
-
       .pill {
         display: inline-flex;
         align-items: center;
@@ -298,25 +218,6 @@
       .pillButton { background: transparent; cursor: pointer; }
       .pillButton:hover { border-color: var(--accent); }
       .pillButton[disabled] { opacity: 0.55; cursor: not-allowed; }
-
-      /* Credits/balance is the primary status in the header: faint
-         accent-tinted fill, accent border, and a dominant numeric value
-         so it outranks the neutral username pill. */
-      #creditsDisplay {
-        background: color-mix(in oklab, var(--accent) 9%, var(--card));
-        border-color: color-mix(in oklab, var(--accent) 35%, var(--border));
-        color: var(--text-muted-strong);
-        padding: 5px 12px;
-      }
-      #creditsDisplay:hover { border-color: var(--accent); }
-      #creditsDisplay #creditsAmount {
-        font-size: var(--fs-h1);
-        font-weight: var(--fw-strong);
-        color: var(--fg);
-        font-variant-numeric: tabular-nums;
-        letter-spacing: -0.01em;
-        line-height: 1;
-      }
 
       .btn {
         appearance: none;
@@ -340,28 +241,6 @@
         background: color-mix(in oklab, var(--accent) 10%, transparent);
       }
       .btn.small { padding: 6px 10px; font-size: 13px; }
-
-      /* Market / proposal list card. Promotes the JS-built list items from
-         flat transparent buttons (.btn) to true elevated cards: secondary
-         surface, resting elevation, and a hover lift mirroring .wc26-card.
-         Applied on top of .btn in buildCard()/proposal builders so the
-         click handling and grid layout set inline are preserved. */
-      .marketCard {
-        background: var(--card-2);
-        background: var(--grad-surface-2, var(--card-2));
-        border: 1px solid var(--border);
-        border-left: 3px solid transparent;
-        border-radius: 14px;
-        padding: 14px 15px;
-        box-shadow: var(--elev-1);
-        transition: box-shadow var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast);
-      }
-      .marketCard:hover {
-        border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
-        border-left-color: var(--accent-stripe);
-        box-shadow: var(--elev-2);
-        transform: translateY(-1px);
-      }
 
       .input {
         width: 100%;
@@ -432,9 +311,9 @@
       @media (max-width: 480px) {
         .statsGrid { grid-template-columns: 1fr; }
       }
-      .statCard-label { font-size: var(--fs-sm); font-weight: var(--fw-med); color: var(--text-muted-strong); margin: 0; letter-spacing: 0.01em; }
-      .statCard-value { font-size: var(--fs-display); font-weight: var(--fw-strong); line-height: 1.1; margin: 6px 0 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-      .statCard-detail { font-size: var(--fs-xs); color: var(--muted); margin: 0; }
+      .statCard-label { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; }
+      .statCard-value { font-size: 26px; font-weight: 700; line-height: 1.1; margin: 6px 0 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+      .statCard-detail { font-size: 11px; color: var(--muted); margin: 0; }
 
       .history-row {
         display: flex;
@@ -449,7 +328,7 @@
         transition: border-color 0.15s;
       }
       .history-row:hover { border-color: var(--accent); }
-      .history-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex: 0 0 auto; line-height: 1; margin-top: 1px; }
+      .history-icon { font-size: 18px; flex: 0 0 auto; line-height: 1; margin-top: 1px; }
       .history-body { flex: 1; min-width: 0; }
       .history-label { font-size: 13px; line-height: 1.4; }
       .history-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
@@ -532,15 +411,11 @@
       #appLoading .skelHead {
         height: 14px; width: 40%; border-radius: 6px; margin-bottom: 6px;
       }
-      /* Mirror the live .marketCard look (surface, radius, padding,
-         elevation) so the first-paint placeholder matches the real cards. */
       #appLoading .skelCard {
         border: 1px solid var(--border);
-        border-radius: 14px;
-        background: var(--card-2);
-        background: var(--grad-surface-2, var(--card-2));
-        box-shadow: var(--elev-1);
-        padding: 14px 15px;
+        border-radius: 10px;
+        background: var(--card);
+        padding: 14px;
         display: grid; gap: 10px;
       }
       #appLoading .skelRow { display: flex; justify-content: space-between; gap: 10px; }
@@ -563,8 +438,6 @@
         border: 1px solid var(--border);
         border-radius: 16px;
         background: var(--card);
-        background: var(--grad-surface, var(--card));
-        box-shadow: var(--elev-1);
         padding: 18px;
         text-align: center;
       }
@@ -601,7 +474,7 @@
         align-items: center;
         gap: 8px;
         padding: 10px 0;
-        border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+        border-bottom: 1px solid var(--border);
         flex-wrap: wrap;
       }
       .marketRow:last-child { border-bottom: none; }
@@ -694,7 +567,7 @@
         align-items: center;
         gap: 12px;
         padding: 10px 0;
-        border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+        border-bottom: 1px solid var(--border);
         font-variant-numeric: tabular-nums;
       }
       .leaderRow:last-child { border-bottom: none; }
@@ -881,7 +754,7 @@
       .voteStatus .optDot { vertical-align: -1px; }
       .optionCard {
         padding: 12px 0;
-        border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+        border-bottom: 1px solid var(--border);
       }
       .optionCard:last-child { border-bottom: none; }
       .optionCard-header {
@@ -1014,7 +887,7 @@
         transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
         max-width: 500px;
         margin: 0 auto;
-        box-shadow: var(--elev-2);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.50), 0 2px 6px rgba(0,0,0,0.35);
       }
       .bottomSheet.open { transform: translateY(0); }
       .bottomSheet-handle {
@@ -1053,12 +926,11 @@
         font-weight: 500;
         cursor: pointer;
         border-radius: 8px;
-        transition: background var(--transition-fast), color var(--transition-fast);
+        transition: background 0.12s ease, color 0.12s ease;
       }
       .bottomSheet-tab.active {
         background: var(--card);
         color: var(--fg);
-        box-shadow: var(--elev-1);
         font-weight: 600;
       }
       .bottomSheet-tab:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1126,7 +998,7 @@
         font-size: 16px;
         font-weight: 600;
         cursor: pointer;
-        transition: opacity var(--transition-fast);
+        transition: opacity 0.12s ease;
       }
       .bottomSheet-action:hover { opacity: 0.88; }
       .bottomSheet-action:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1349,7 +1221,7 @@
         font-size: 16px;
         font-weight: 600;
         cursor: pointer;
-        transition: opacity var(--transition-fast);
+        transition: opacity 0.12s ease;
         appearance: none;
       }
       .onboarding-join-btn:hover { opacity: 0.88; }
@@ -1373,20 +1245,18 @@
       .wc26-section { margin-top: 20px; }
       .wc26-section:first-child { margin-top: 0; }
       .wc26-section-title {
-        font-size: var(--fs-xs); font-weight: var(--fw-strong); text-transform: uppercase;
-        letter-spacing: .06em; color: var(--text-muted-strong); margin: 0 0 8px;
+        font-size: 11px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .06em; color: var(--muted); margin: 0 0 8px;
       }
       .wc26-card {
         display: flex; flex-direction: column; gap: 5px;
-        padding: 13px 14px; background: var(--card-2);
-        background: var(--grad-surface-2, var(--card-2));
+        padding: 13px 14px; background: var(--card);
         border: 1px solid var(--border); border-radius: 12px;
-        box-shadow: var(--elev-1);
-        cursor: pointer; transition: box-shadow .15s, transform .15s, border-color .15s; margin-bottom: 10px;
+        cursor: pointer; transition: box-shadow .15s, border-color .15s; margin-bottom: 10px;
       }
-      .wc26-card:hover { box-shadow: var(--elev-2); transform: translateY(-1px); border-color: color-mix(in oklab, var(--accent) 40%, var(--border)); }
+      .wc26-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); border-color: var(--accent); }
       .wc26-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-      .wc26-teams { font-size: var(--fs-body); font-weight: var(--fw-med); flex: 1; }
+      .wc26-teams { font-size: 14px; font-weight: 600; flex: 1; }
       .wc26-badge {
         font-size: 11px; padding: 2px 7px; border-radius: 999px;
         font-weight: 700; white-space: nowrap; flex-shrink: 0;
@@ -1551,7 +1421,7 @@
     <div class="bottomSheet" id="creditsInfoSheet" role="dialog" aria-labelledby="creditsInfoTitle">
       <div class="bottomSheet-handle"></div>
       <div class="bottomSheet-header">
-        <span class="bottomSheet-optName" id="creditsInfoTitle"><span class="icon icon-md" aria-hidden="true">&#x1FA99;</span> Credits</span>
+        <span class="bottomSheet-optName" id="creditsInfoTitle">&#x1FA99; Credits</span>
       </div>
       <div class="creditsInfo-body">
         <p>
@@ -1586,7 +1456,7 @@
         <div class="menuSheet-divider"></div>
         <div class="menuSheet-themeRow">
           <span>Theme</span>
-          <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme"><span class="icon icon-sm" aria-hidden="true">&#x1F319;</span></button>
+          <button class="btn small" id="themeToggleBtn" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#x1F319;</button>
         </div>
       </div>
     </div>
@@ -1798,7 +1668,7 @@
                    resolve/delete buttons below. -->
               <button class="btn primary small hide" id="voteSurveyBtn" type="button" style="margin-top: 8px;">Vote</button>
               <button class="btn small hide" id="resolveEarlyBtn" type="button" style="margin-top: 8px; color: var(--warn); border-color: var(--warn);">&#x23F1; Resolve early (testing)</button>
-              <button class="btn small hide" id="deleteSurveyBtn" type="button" style="margin-top: 8px; color: var(--danger); border-color: var(--danger);"><span class="icon icon-sm" aria-hidden="true">&#x1F5D1;</span> Delete question</button>
+              <button class="btn small hide" id="deleteSurveyBtn" type="button" style="margin-top: 8px; color: var(--danger); border-color: var(--danger);">&#x1F5D1; Delete question</button>
               <div id="deletePending" class="tx-progress hide" role="status" aria-live="polite">
                 <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
                 <div class="tx-progress-label">Deleting...</div>
@@ -1870,7 +1740,7 @@
             <!-- World Cup 2026 — full schedule by group -->
             <div class="panel hide" id="screenWC26Schedule">
               <div class="row" style="align-items: center; margin-bottom: 12px; gap: 8px;">
-                <h2 style="margin: 0; flex: 1;"><span class="icon icon-md" aria-hidden="true">&#x26BD;</span> Group Stage Schedule</h2>
+                <h2 style="margin: 0; flex: 1;">&#x26BD; Group Stage Schedule</h2>
               </div>
               <div id="wc26ScheduleContent"></div>
             </div>
@@ -2587,6 +2457,7 @@
         let _seenPromotedIds = new Set();
         let _proposalsBootstrapped = false;
         let LEADERBOARD = [];
+        let WC26_STANDINGS_MAP = new Map();
         let latestTxs = [];
         let me = null;
         let myUsername = null;
@@ -3974,6 +3845,21 @@
               wr.textContent = "Result: " + wl;
               meta.appendChild(wr);
             }
+            if (me) {
+              const vEntry = VOTE_MAP.get(me + ":" + survey.id);
+              if (vEntry && vEntry.choice != null) {
+                const winnerKey = settlement.wcWinner || settlement.winner;
+                const badge = document.createElement("span");
+                if (vEntry.choice === winnerKey) {
+                  badge.textContent = "✅ Your pick";
+                } else {
+                  const pickedOpt = survey.options.find(function (o) { return o.key === vEntry.choice; });
+                  badge.textContent = "❌ Your pick: " + (pickedOpt ? pickedOpt.label : vEntry.choice);
+                }
+                badge.style.cssText = "font-size:11px;";
+                meta.appendChild(badge);
+              }
+            }
           }
           // Vote outcome badge for settled matches where the user cast a prediction.
           if (isDone && me) {
@@ -4066,6 +3952,18 @@
               sec.appendChild(buildWC26Card(s, () => { _wc26NavBack = true; navigateToSurvey(s.id); refreshLoopOnce(); }));
             });
             content.appendChild(sec);
+          }
+
+          if (me) {
+            const myRecord = WC26_STANDINGS_MAP.get(me);
+            if (myRecord && myRecord.predicted > 0) {
+              const rec = document.createElement("p");
+              rec.className = "wc26-section-title";
+              rec.style.cssText = "background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:12px;";
+              const pct = Math.round(myRecord.correct / myRecord.predicted * 100);
+              rec.textContent = "Your predictions: " + myRecord.correct + " correct / " + myRecord.predicted + " total · " + pct + "%";
+              content.appendChild(rec);
+            }
           }
 
           addSection("Live Now", liveNow);
@@ -4518,7 +4416,7 @@
 
           function buildCard(s, badgeText) {
             const b = document.createElement("button");
-            b.className = "btn marketCard";
+            b.className = "btn";
             b.style.cssText = "display:grid;gap:8px;text-align:left;";
 
             const mkt = getDisplayMarket(s);
@@ -4569,12 +4467,12 @@
             zone2.appendChild(titleEl);
 
             const questionEl = document.createElement("div");
-            questionEl.style.cssText = "color:var(--text-muted-strong);font-size:var(--fs-sm);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
+            questionEl.style.cssText = "color:var(--muted);font-size:13px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
             questionEl.textContent = s.question;
             zone2.appendChild(questionEl);
             if (s.kind === "news_poll" && s.sourceName) {
               const sourceEl = document.createElement("div");
-              sourceEl.style.cssText = "font-size:var(--fs-xs);color:var(--muted);";
+              sourceEl.style.cssText = "font-size:11px;color:var(--muted);";
               if (s.sourceUrl && s.sourceUrl !== "#") {
                 const link = document.createElement("a");
                 link.href = s.sourceUrl;
@@ -4715,16 +4613,16 @@
 
           for (const pr of OPEN_PROPOSALS) {
             const card = document.createElement("div");
-            card.className = "panel panel-nested";
+            card.className = "panel";
             card.style.cssText = "display:grid;gap:6px;";
 
             const titleEl = document.createElement("div");
-            titleEl.style.cssText = "font-size:var(--fs-h3);font-weight:var(--fw-med);line-height:1.3;";
+            titleEl.style.cssText = "font-size:14px;font-weight:600;line-height:1.3;";
             titleEl.textContent = pr.def.title;
             card.appendChild(titleEl);
 
             const qEl = document.createElement("div");
-            qEl.style.cssText = "color:var(--text-muted-strong);font-size:var(--fs-sm);line-height:1.4;";
+            qEl.style.cssText = "color:var(--muted);font-size:13px;line-height:1.4;";
             qEl.textContent = pr.def.question;
             card.appendChild(qEl);
 
@@ -4744,7 +4642,7 @@
             progWrap.appendChild(bar);
             const progLabel = document.createElement("div");
             progLabel.className = "muted";
-            progLabel.style.cssText = "font-size:var(--fs-xs);line-height:1.4;";
+            progLabel.style.cssText = "font-size:11px;line-height:1.4;";
             // At-now progress estimate. The authoritative promotion check
             // runs in replay at each upvote tx's ts; this denominator is
             // computed at `now` for user guidance only.
@@ -4756,7 +4654,7 @@
             const proposer = GLOBAL_USERNAMES.get(pr.proposedBy) || deriveDefaultUsername(pr.proposedBy);
             const metaEl = document.createElement("div");
             metaEl.className = "muted";
-            metaEl.style.cssText = "font-size:var(--fs-xs);";
+            metaEl.style.cssText = "font-size:11px;";
             metaEl.textContent = "by " + proposer;
             card.appendChild(metaEl);
 
