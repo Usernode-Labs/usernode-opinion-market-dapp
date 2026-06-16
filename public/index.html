@@ -1895,7 +1895,10 @@
             <div class="panel hide" id="screenWC26Hub">
               <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h2 style="margin: 0;"><span class="icon icon-md" aria-hidden="true">&#x26BD;</span> World Cup 2026</h2>
-                <button class="btn small" id="wcScheduleBtn" type="button">Schedule</button>
+                <div style="display:flex;gap:6px;">
+                  <button class="btn small" id="wcScheduleBtn" type="button">Schedule</button>
+                  <button class="btn small" id="wcStandingsBtn" type="button">Standings</button>
+                </div>
               </div>
               <div id="wc26HubContent"></div>
             </div>
@@ -1906,6 +1909,14 @@
                 <h2 style="margin: 0; flex: 1;"><span class="icon icon-md" aria-hidden="true">&#x26BD;</span> Group Stage Schedule</h2>
               </div>
               <div id="wc26ScheduleContent"></div>
+            </div>
+
+            <!-- World Cup 2026 — prediction accuracy standings -->
+            <div class="panel hide" id="screenWC26Standings">
+              <div class="row" style="align-items: center; margin-bottom: 12px; gap: 8px;">
+                <h2 style="margin: 0; flex: 1;"><span class="icon icon-md" aria-hidden="true">&#x26BD;</span> WC26 Prediction Standings</h2>
+              </div>
+              <div id="wc26StandingsContent"></div>
             </div>
 
             <!-- How it works -->
@@ -2604,6 +2615,7 @@
         let VOTE_MAP = new Map();
         let PARSED_TXS = [];
         let EARNINGS_MAP = new Map();
+        let WC26_STANDINGS_MAP = new Map();
         let OPEN_PROPOSALS = [];
         let PROPOSALS = new Map();
         // Set of proposal ids already promoted as of the last rebuild, so we
@@ -2748,6 +2760,7 @@
           VOTE_MAP = state.voteMap;
           PARSED_TXS = state.parsedTxs || [];
           EARNINGS_MAP = state.earningsMap;
+          WC26_STANDINGS_MAP = state.wc26StandingsMap || new Map();
 
           // Proposals + promotion. The shared module decides promotion
           // deterministically; here we just surface open proposals and
@@ -3160,6 +3173,34 @@
           show(el, true);
           const label = el.querySelector(".tx-progress-label");
           if (label) label.textContent = labelText;
+        }
+
+        // Map a caught sendTransaction failure to a user-friendly message.
+        // The node/bridge rejects an on-chain send when the linked wallet
+        // owns no spendable base-currency UTXO to cover the 1-unit transfer
+        // plus the network fee. That surfaces as a raw string like "no
+        // eligibility base currency UTXO owner" / "no UTXO for owner". We
+        // detect that class of error and explain it in plain language,
+        // making clear it's about the on-chain wallet (not in-app credits)
+        // and that nothing was recorded. All other errors (and timeout/abort
+        // errors, which have their own lifecycle handling) pass through with
+        // their original message.
+        function friendlyTxError(e) {
+          if (e && (e.isTimeout || e.__omAborted || e.name === "AbortError")) {
+            return (e && e.message) || String(e);
+          }
+          const raw = (e && e.message) || String(e);
+          const low = String(raw).toLowerCase();
+          const isUtxoError =
+            low.includes("base currency utxo") ||
+            low.includes("eligibility base currency") ||
+            low.includes("no eligibility") ||
+            low.includes("no utxo for owner") ||
+            (low.includes("utxo") && low.includes("owner"));
+          if (isUtxoError) {
+            return "Your Usernode wallet has no base currency to cover the network fee for this action. Add funds to your linked wallet (separate from your in-app credits) and try again — nothing was recorded.";
+          }
+          return raw;
         }
 
         let _toastTimer = null;
@@ -3747,6 +3788,7 @@
           else if ($("screenInfo") && !$("screenInfo").classList.contains("hide")) history.replaceState(null, "", "#info");
           else if ($("screenWC26Hub") && !$("screenWC26Hub").classList.contains("hide")) history.replaceState(null, "", "#wc26");
           else if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) history.replaceState(null, "", "#wc26/schedule");
+          else if ($("screenWC26Standings") && !$("screenWC26Standings").classList.contains("hide")) history.replaceState(null, "", "#wc26/standings");
           else if (location.hash) history.replaceState(null, "", location.pathname + location.search);
         }
 
@@ -3766,6 +3808,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "none";
           renderProposalList();
           updateCreditsDisplay();
@@ -3787,6 +3830,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           setText($("surveyTitle"), s.title);
           setText($("surveyQuestion"), s.question);
@@ -3898,6 +3942,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderLeaderboard();
           syncHash();
@@ -3915,6 +3960,7 @@
           show($("screenInfo"), true);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           syncHash();
         }
@@ -3932,6 +3978,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderHistoryPanel();
           syncHash();
@@ -3954,6 +4001,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), true);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderWC26Hub();
           syncHash();
@@ -3971,8 +4019,27 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), true);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderWC26Schedule();
+          syncHash();
+        }
+
+        function navigateToWC26Standings() {
+          currentSurveyId = null;
+          show($("myStatsPanel"), false);
+          show($("screenActiveList"), false);
+          show($("screenProposals"), false);
+          show($("screenArchivedList"), false);
+          show($("screenSurvey"), false);
+          show($("screenHistory"), false);
+          show($("screenLeaderboard"), false);
+          show($("screenInfo"), false);
+          show($("screenWC26Hub"), false);
+          show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), true);
+          const bb = $("backBtn"); if (bb) bb.style.display = "";
+          renderWC26Standings();
           syncHash();
         }
 
@@ -4037,6 +4104,22 @@
               meta.appendChild(wr);
             }
           }
+          // Vote outcome badge for settled matches where the user cast a prediction.
+          if (isDone && me) {
+            const myVote = VOTE_MAP.get(me + ":" + survey.id);
+            if (myVote && myVote.choice != null) {
+              const winKey = settlement && settlement.winner;
+              const correct = winKey && myVote.choice === winKey;
+              const pickSpan = document.createElement("span");
+              if (correct) {
+                pickSpan.textContent = "✅ Your pick";
+              } else {
+                const wrongOpt = survey.options && survey.options.find(o => o.key === myVote.choice);
+                pickSpan.textContent = "❌ Your pick: " + (wrongOpt ? wrongOpt.label : myVote.choice);
+              }
+              meta.appendChild(pickSpan);
+            }
+          }
           if (meta.children.length) card.appendChild(meta);
 
           // Odds bars for markets with liquidity (skip live/settled)
@@ -4065,6 +4148,20 @@
           if (!content) return;
           content.innerHTML = "";
           const now = Date.now();
+
+          // Personal prediction record (only when user has settled predictions).
+          if (me) {
+            const myAcc = WC26_STANDINGS_MAP.get(me);
+            if (myAcc && myAcc.predicted > 0) {
+              const pct = Math.round((myAcc.correct / myAcc.predicted) * 100);
+              const rec = document.createElement("p");
+              rec.className = "wc26-section-title";
+              rec.style.cssText = "padding:8px 10px;border-radius:8px;background:var(--card);border:1px solid var(--border);margin:0 0 12px;";
+              rec.textContent = "Your predictions: " + myAcc.correct + " correct / " + myAcc.predicted + " total · " + pct + "%";
+              content.appendChild(rec);
+            }
+          }
+
           const surveys = SURVEYS.filter(s => s.kind === "wc26_match" && s.wc26);
           surveys.sort((a, b) => (wc26Kickoff(a) || 0) - (wc26Kickoff(b) || 0));
 
@@ -4146,6 +4243,62 @@
               block.appendChild(buildWC26Card(s, () => { _wc26NavBack = true; navigateToSurvey(s.id); refreshLoopOnce(); }));
             });
             content.appendChild(block);
+          });
+        }
+
+        function renderWC26Standings() {
+          const content = $("wc26StandingsContent");
+          if (!content) return;
+          content.innerHTML = "";
+
+          const rows = [];
+          WC26_STANDINGS_MAP.forEach((acc, pubkey) => {
+            if (acc.predicted <= 0) return;
+            rows.push({
+              pubkey,
+              username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
+              predicted: acc.predicted,
+              correct: acc.correct,
+              accuracy: acc.correct / acc.predicted,
+            });
+          });
+
+          if (!rows.length) {
+            const p = document.createElement("p");
+            p.className = "wc26-empty";
+            p.textContent = "Standings appear once WC26 matches have settled.";
+            content.appendChild(p);
+            return;
+          }
+
+          rows.sort((a, b) => {
+            if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
+            if (b.predicted !== a.predicted) return b.predicted - a.predicted;
+            return a.username.localeCompare(b.username);
+          });
+
+          // Column header
+          const header = document.createElement("div");
+          header.className = "leaderRow leaderHeader";
+          const hRank = document.createElement("div"); hRank.className = "leaderRank"; hRank.textContent = "#";
+          const hName = document.createElement("div"); hName.className = "leaderName"; hName.textContent = "Player";
+          const hScore = document.createElement("div"); hScore.className = "leaderStat"; hScore.textContent = "Correct/Total";
+          const hAcc = document.createElement("div"); hAcc.className = "leaderStat"; hAcc.style.minWidth = "60px"; hAcc.textContent = "Accuracy";
+          header.appendChild(hRank); header.appendChild(hName); header.appendChild(hScore); header.appendChild(hAcc);
+          content.appendChild(header);
+
+          rows.forEach((entry, i) => {
+            const row = document.createElement("div");
+            row.className = "leaderRow";
+            if (entry.pubkey === me) row.style.fontWeight = "700";
+
+            const rank = document.createElement("div"); rank.className = "leaderRank"; rank.textContent = String(i + 1);
+            const name = document.createElement("div"); name.className = "leaderName"; name.textContent = entry.username;
+            const score = document.createElement("div"); score.className = "leaderStat"; score.textContent = entry.correct + "/" + entry.predicted;
+            const acc = document.createElement("div"); acc.className = "leaderStat"; acc.style.minWidth = "60px"; acc.textContent = Math.round(entry.accuracy * 100) + "%";
+
+            row.appendChild(rank); row.appendChild(name); row.appendChild(score); row.appendChild(acc);
+            content.appendChild(row);
           });
         }
 
@@ -4481,7 +4634,8 @@
             && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
             && (!$("screenInfo") || $("screenInfo").classList.contains("hide"))
             && (!$("screenWC26Hub") || $("screenWC26Hub").classList.contains("hide"))
-            && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"));
+            && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"))
+            && (!$("screenWC26Standings") || $("screenWC26Standings").classList.contains("hide"));
           if (onList) show($("screenArchivedList"), _joined && archived.length > 0);
 
           if (!active.length) {
@@ -4750,7 +4904,7 @@
               btn.disabled = sending || notJoined || !!notGenesis;
               btn.addEventListener("click", async () => {
                 try { await upvoteProposalFlow(pr.id); }
-                catch (e) { showInlineError(e.message || String(e)); setSending(false); }
+                catch (e) { showInlineError(friendlyTxError(e)); setSending(false); }
               });
             }
             card.appendChild(btn);
@@ -5250,7 +5404,7 @@
             // Hard failure only — voteFlow returns (does not throw) on a
             // timeout, so anything caught here is a genuine rejection.
             if (errEl) {
-              errEl.textContent = (e && e.message) || String(e);
+              errEl.textContent = friendlyTxError(e);
               errEl.style.display = "block";
             }
           } finally {
@@ -6119,7 +6273,8 @@
               && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
               && (!$("screenInfo") || $("screenInfo").classList.contains("hide"))
               && (!$("screenWC26Hub") || $("screenWC26Hub").classList.contains("hide"))
-              && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"));
+              && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"))
+              && (!$("screenWC26Standings") || $("screenWC26Standings").classList.contains("hide"));
             if (onList) {
               show($("screenActiveList"), joined);
               show($("screenProposals"), joined);
@@ -6138,6 +6293,7 @@
             if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) renderHistoryPanel();
             if ($("screenWC26Hub") && !$("screenWC26Hub").classList.contains("hide")) renderWC26Hub();
             if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) renderWC26Schedule();
+            if ($("screenWC26Standings") && !$("screenWC26Standings").classList.contains("hide")) renderWC26Standings();
 
             mySurveyCreationTimes = getMySurveyCreationsInWindow(txs, me);
             updateSurveyCooldownUi();
@@ -6260,6 +6416,7 @@
             if (h === "#info") { navigateToInfo(); return; }
             if (h === "#wc26") { navigateToWC26Hub(); return; }
             if (h === "#wc26/schedule") { navigateToWC26Schedule(); return; }
+            if (h === "#wc26/standings") { navigateToWC26Standings(); return; }
             const m = h.match(/^#survey\/(.+)$/);
             if (m) {
               const id = decodeURIComponent(m[1]);
@@ -6271,6 +6428,8 @@
 
           $("backBtn").addEventListener("click", () => {
             if (_wc26NavBack) { _wc26NavBack = false; navigateToWC26Hub(); }
+            else if ($("screenWC26Standings") && !$("screenWC26Standings").classList.contains("hide")) navigateToWC26Hub();
+            else if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) navigateToWC26Hub();
             else navigateToList();
           });
           $("allMarketsBtn").addEventListener("click", navigateToList);
@@ -6302,7 +6461,7 @@
               await setUsernameFlow(($("usernameInput") || {}).value || "");
               setSending(false, true);
               closeUsernameSheet();
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           window.addEventListener("keydown", (e) => {
@@ -6312,7 +6471,7 @@
 
           $("joinBtn").addEventListener("click", async () => {
             try { await joinFlow(); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("menuBtn").addEventListener("click", openMenuSheet);
@@ -6323,6 +6482,7 @@
           $("infoBtn").addEventListener("click", () => { closeMenuSheet(); navigateToInfo(); });
           $("wcBtn").addEventListener("click", () => { closeMenuSheet(); navigateToWC26Hub(); });
           $("wcScheduleBtn").addEventListener("click", navigateToWC26Schedule);
+          $("wcStandingsBtn").addEventListener("click", navigateToWC26Standings);
 
           // --- Light/dark theme toggle ---------------------------------
           // The theme is driven by the data-theme attribute on <html> (set
@@ -6387,7 +6547,7 @@
             clearTimeout(_resolveConfirmTimer);
             if (btn) { btn.textContent = "\u23F1 Resolve early (testing)"; btn.style.background = ""; }
             try { await resolveEarlyFlow(s.id); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("deleteSurveyBtn").addEventListener("click", async () => {
@@ -6395,7 +6555,7 @@
             if (!s || sending || !isAdmin) return;
             if (_deleteConfirmId !== s.id) { requestDeleteConfirm(s.id); return; }
             try { await executeDeleteSurvey(s.id); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("addOptionToggleBtn").addEventListener("click", () => {
@@ -6418,7 +6578,7 @@
               show($("addOptionPanel"), false);
               const inp = $("newOptionInput"); if (inp) inp.value = "";
               setSending(false, true);
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("addSurveyOptionBtn").addEventListener("click", () => addSurveyOptionField(""));
@@ -6443,7 +6603,7 @@
               show($("addSurveyPanel"), false);
               clearAddSurveyForm();
               setSending(false, true);
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           initSurveyOptionFields();
@@ -6482,7 +6642,7 @@
               setSending(false, false);
               // A user-initiated cancel is not an error: drop back to the
               // editable form (inputs preserved) with no error toast.
-              if (!isAbortError(e)) showInlineError(e.message || e);
+              if (!isAbortError(e)) showInlineError(friendlyTxError(e));
             }
           });
 
@@ -6534,7 +6694,7 @@
               closeBottomSheet();
             } catch (e) {
               setSending(false, false);
-              setText($("bsBuyError"), e.message || String(e));
+              setText($("bsBuyError"), friendlyTxError(e));
             }
           });
           $("bsSellAction").addEventListener("click", async () => {
@@ -6554,7 +6714,7 @@
               closeBottomSheet();
             } catch (e) {
               setSending(false, false);
-              setText($("bsSellError"), e.message || String(e));
+              setText($("bsSellError"), friendlyTxError(e));
             }
           });
 
