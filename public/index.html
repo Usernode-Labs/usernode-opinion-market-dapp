@@ -1421,6 +1421,20 @@
               </div>
               <p style="margin: 2px 0 0;">Vote on what you think, bet on what others will choose.</p>
 
+              <!-- First-run welcome card — shown once after joining, dismissed via localStorage -->
+              <div class="panel hide" id="welcomePanel" style="margin-top: 10px; border-left: 3px solid var(--accent); padding: 14px 16px;">
+                <strong style="font-size: 14px;">Here's how to get started</strong>
+                <ul style="font-size: 13px; line-height: 1.7; margin: 8px 0 0; padding-left: 18px;">
+                  <li>Open a question and <strong>Vote</strong> for free &mdash; share your honest opinion.</li>
+                  <li><strong>Bet</strong> credits on what you think the crowd will choose. The buy form shows your exact payout before you confirm.</li>
+                  <li>When the question ends the crowd's most popular answer wins. Bettors on the winner share the pool.</li>
+                </ul>
+                <div class="row" style="margin-top: 12px; gap: 8px;">
+                  <button class="btn small" id="welcomeLearnMore" type="button">Learn more</button>
+                  <button class="btn small primary" id="welcomeDismiss" type="button">Got it</button>
+                </div>
+              </div>
+
               <div class="panel hide" id="addSurveyPanel" style="margin-top: 10px;">
                 <h3>Create question</h3>
                 <div id="surveyCooldownHint" class="muted hide" style="font-size: 12px; margin-bottom: 8px;"></div>
@@ -4297,6 +4311,15 @@
             }
             b.appendChild(statsEl);
 
+            // Position badge: show user's total bet when they have skin in the game
+            const myGrossBet = hasMarket && mkt.grossBetsByUser && me ? (mkt.grossBetsByUser[me] || 0) : 0;
+            if (myGrossBet > 0) {
+              const posEl = document.createElement("div");
+              posEl.style.cssText = "font-size:var(--fs-xs);color:var(--accent);font-variant-numeric:tabular-nums;";
+              posEl.textContent = "Your bet: " + formatCredits(myGrossBet) + "c";
+              b.appendChild(posEl);
+            }
+
             b.addEventListener("click", () => { navigateToSurvey(s.id); refreshLoopOnce(); });
             return b;
           }
@@ -4947,14 +4970,21 @@
               : (CPMM.cpmmBuyYes ? CPMM.cpmmBuyYes(pool, net) : 0);
           }
           if (simShares <= 0) { setText(preview, ""); return; }
-          const mult = simShares / c;
           const pricePerShare = (c / simShares).toFixed(2);
           preview.innerHTML = "";
-          const sp = document.createElement("span");
-          sp.className = _bsSide === "no" ? "err" : "ok";
-          sp.textContent = `~${simShares.toFixed(1)} ${_bsSide} shares`;
-          preview.appendChild(sp);
-          preview.appendChild(document.createTextNode(` @ ${pricePerShare}c/share (${mult.toFixed(2)}x) \u00B7 Fee: ${formatCredits(fee)} (${(FEE_RATE * 100).toFixed(0)}%) \u2014 goes to voter rewards + question creator`));
+          // Primary callout: explicit payout if the option wins/loses
+          const payoutLine = document.createElement("div");
+          const payoutLabel = _bsSide === "no" ? "Payout if loses" : "Payout if wins";
+          const payoutSp = document.createElement("strong");
+          payoutSp.className = _bsSide === "no" ? "err" : "ok";
+          payoutSp.textContent = `${payoutLabel}: ~${formatCredits(simShares)}c`;
+          payoutLine.appendChild(payoutSp);
+          preview.appendChild(payoutLine);
+          // Secondary line: share count + fee breakdown
+          const detailLine = document.createElement("div");
+          detailLine.style.cssText = "font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;";
+          detailLine.textContent = `~${simShares.toFixed(1)} ${_bsSide} shares \u00B7 ${pricePerShare}c/share \u00B7 Fee: ${formatCredits(fee)} (${(FEE_RATE * 100).toFixed(0)}%) \u2014 goes to voter rewards + question creator`;
+          preview.appendChild(detailLine);
         }
 
         function updateSellPreview() {
@@ -5723,6 +5753,11 @@
               show($("screenActiveList"), joined);
               show($("screenProposals"), joined);
               show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
+              // First-run welcome card: show once after join, never again once dismissed
+              try {
+                const seen = localStorage.getItem("om:welcomeSeen:v1");
+                show($("welcomePanel"), joined && !seen);
+              } catch (_) {}
             }
 
             // Reconcile outstanding sends against the freshly-rebuilt feed:
@@ -5915,6 +5950,11 @@
           $("historyBtn").addEventListener("click", navigateToHistory);
           $("leaderboardBtn").addEventListener("click", navigateToLeaderboard);
           $("infoBtn").addEventListener("click", navigateToInfo);
+          $("welcomeLearnMore").addEventListener("click", navigateToInfo);
+          $("welcomeDismiss").addEventListener("click", () => {
+            try { localStorage.setItem("om:welcomeSeen:v1", "1"); } catch (_) {}
+            show($("welcomePanel"), false);
+          });
           $("wcBtn").addEventListener("click", navigateToWC26Hub);
           $("wcScheduleBtn").addEventListener("click", navigateToWC26Schedule);
 
