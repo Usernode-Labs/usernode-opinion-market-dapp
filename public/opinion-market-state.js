@@ -537,7 +537,8 @@
       var txId = raw.tx_id || raw.id || raw.txid || raw.hash || null;
       if (cache && txId && cache.has(txId)) { result.push(cache.get(txId)); continue; }
       var pp = parseAppTx(raw);
-      if (!pp || pp.memo.type !== "vote" || !pp.memo.ev || pp.memo.ki == null) {
+      // Pass through memos that already carry a decrypted choice (e.g. staging seed votes).
+      if (!pp || pp.memo.type !== "vote" || pp.memo.choice != null || !pp.memo.ev || pp.memo.ki == null) {
         if (cache && txId) cache.set(txId, raw);
         result.push(raw);
         continue;
@@ -1634,6 +1635,30 @@
       vmNext = vmIter.next();
     }
 
+    /* --- Phase 8c: WC26 prediction accuracy per user --- */
+    var wc26StandingsMap = new Map(); // Map<pubkey, { predicted, correct }>
+    for (var wci = 0; wci < SURVEYS.length; wci++) {
+      var svWc = SURVEYS[wci];
+      if (svWc.kind !== "wc26_match" || !svWc.archived) continue;
+      var stWc = SETTLEMENTS.get(svWc.id);
+      if (!stWc || stWc.pending || !stWc.winner || stWc.winner === "void") continue;
+      var winnerKey = stWc.winner;
+      // Iterate voteMap for this survey.
+      var vmWcIter = voteMap.entries();
+      var vmWcNext = vmWcIter.next();
+      while (!vmWcNext.done) {
+        var wvEntry = vmWcNext.value[1];
+        if (wvEntry.survey && wvEntry.survey.id === svWc.id && wvEntry.choice != null) {
+          var wvPubkey = wvEntry.from;
+          var wvAcc = wc26StandingsMap.get(wvPubkey);
+          if (!wvAcc) { wvAcc = { predicted: 0, correct: 0 }; wc26StandingsMap.set(wvPubkey, wvAcc); }
+          wvAcc.predicted++;
+          if (wvEntry.choice === winnerKey) wvAcc.correct++;
+        }
+        vmWcNext = vmWcIter.next();
+      }
+    }
+
     // Open proposals = not promoted and not expired as of `now`, newest-first.
     var openProposals = [];
     PROPOSALS.forEach(function (pr) {
@@ -1654,6 +1679,7 @@
       voteMap: voteMap,
       firstJoiner: firstJoiner,
       earningsMap: earningsMap,
+      wc26StandingsMap: wc26StandingsMap,
       rejectedSends: REJECTED_SENDS,
       PROPOSALS: PROPOSALS,
       openProposals: openProposals,
