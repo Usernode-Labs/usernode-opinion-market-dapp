@@ -530,7 +530,7 @@
       var txId = raw.tx_id || raw.id || raw.txid || raw.hash || null;
       if (cache && txId && cache.has(txId)) { result.push(cache.get(txId)); continue; }
       var pp = parseAppTx(raw);
-      if (!pp || pp.memo.type !== "vote" || !pp.memo.ev || pp.memo.ki == null) {
+      if (!pp || pp.memo.type !== "vote" || pp.memo.choice != null || !pp.memo.ev || pp.memo.ki == null) {
         if (cache && txId) cache.set(txId, raw);
         result.push(raw);
         continue;
@@ -1627,6 +1627,28 @@
       vmNext = vmIter.next();
     }
 
+    /* --- Phase 8c: WC26 prediction standings --- */
+    var wc26StandingsMap = new Map();
+    var vmIter2 = voteMap.entries();
+    var vmNext2 = vmIter2.next();
+    while (!vmNext2.done) {
+      var ve = vmNext2.value[1];
+      vmNext2 = vmIter2.next();
+      if (!ve || ve.choice == null) continue;
+      var sv8c = SURVEYS_BY_ID.get(ve.survey);
+      if (!sv8c || sv8c.kind !== "wc26_match") continue;
+      if (!sv8c.archived) continue;
+      var set8c = SETTLEMENTS.get(sv8c.id);
+      if (!set8c || set8c.pending) continue;
+      var winnerKey8c = set8c.wcWinner;
+      if (!winnerKey8c || winnerKey8c === "void") continue;
+      var pk8c = ve.from;
+      var rec8c = wc26StandingsMap.get(pk8c);
+      if (!rec8c) { rec8c = { predicted: 0, correct: 0 }; wc26StandingsMap.set(pk8c, rec8c); }
+      rec8c.predicted++;
+      if (ve.choice === winnerKey8c) rec8c.correct++;
+    }
+
     // Open proposals = not promoted and not expired as of `now`, newest-first.
     var openProposals = [];
     PROPOSALS.forEach(function (pr) {
@@ -1652,6 +1674,7 @@
       openProposals: openProposals,
       parsedTxs: parsed,
       decryptedTxs: decryptedTxs,
+      wc26StandingsMap: wc26StandingsMap,
     };
   }
 

@@ -1765,7 +1765,10 @@
             <div class="panel hide" id="screenWC26Hub">
               <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <h2 style="margin: 0;">&#x26BD; World Cup 2026</h2>
-                <button class="btn small" id="wcScheduleBtn" type="button">Schedule</button>
+                <div style="display:flex;gap:6px;">
+                  <button class="btn small" id="wcScheduleBtn" type="button">Schedule</button>
+                  <button class="btn small" id="wcStandingsBtn" type="button">Standings</button>
+                </div>
               </div>
               <div id="wc26HubContent"></div>
             </div>
@@ -1776,6 +1779,14 @@
                 <h2 style="margin: 0; flex: 1;">&#x26BD; Group Stage Schedule</h2>
               </div>
               <div id="wc26ScheduleContent"></div>
+            </div>
+
+            <!-- World Cup 2026 — prediction standings -->
+            <div class="panel hide" id="screenWC26Standings">
+              <div class="row" style="align-items: center; margin-bottom: 12px; gap: 8px;">
+                <h2 style="margin: 0; flex: 1;">&#x26BD; WC26 Prediction Standings</h2>
+              </div>
+              <div id="wc26StandingsContent"></div>
             </div>
 
             <!-- How it works -->
@@ -2481,6 +2492,7 @@
         let _seenPromotedIds = new Set();
         let _proposalsBootstrapped = false;
         let LEADERBOARD = [];
+        let WC26_STANDINGS_MAP = new Map();
         let latestTxs = [];
         let me = null;
         let myUsername = null;
@@ -2618,6 +2630,7 @@
           VOTE_MAP = state.voteMap;
           PARSED_TXS = state.parsedTxs || [];
           EARNINGS_MAP = state.earningsMap;
+          WC26_STANDINGS_MAP = state.wc26StandingsMap || new Map();
 
           // Proposals + promotion. The shared module decides promotion
           // deterministically; here we just surface open proposals and
@@ -3617,6 +3630,7 @@
           else if ($("screenInfo") && !$("screenInfo").classList.contains("hide")) history.replaceState(null, "", "#info");
           else if ($("screenWC26Hub") && !$("screenWC26Hub").classList.contains("hide")) history.replaceState(null, "", "#wc26");
           else if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) history.replaceState(null, "", "#wc26/schedule");
+          else if ($("screenWC26Standings") && !$("screenWC26Standings").classList.contains("hide")) history.replaceState(null, "", "#wc26/standings");
           else if (location.hash) history.replaceState(null, "", location.pathname + location.search);
         }
 
@@ -3636,6 +3650,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "none";
           renderProposalList();
           updateCreditsDisplay();
@@ -3657,6 +3672,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           setText($("surveyTitle"), s.title);
           setText($("surveyQuestion"), s.question);
@@ -3768,6 +3784,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderLeaderboard();
           syncHash();
@@ -3785,6 +3802,7 @@
           show($("screenInfo"), true);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           syncHash();
         }
@@ -3802,6 +3820,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderHistoryPanel();
           syncHash();
@@ -3824,6 +3843,7 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), true);
           show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderWC26Hub();
           syncHash();
@@ -3841,8 +3861,27 @@
           show($("screenInfo"), false);
           show($("screenWC26Hub"), false);
           show($("screenWC26Schedule"), true);
+          show($("screenWC26Standings"), false);
           const bb = $("backBtn"); if (bb) bb.style.display = "";
           renderWC26Schedule();
+          syncHash();
+        }
+
+        function navigateToWC26Standings() {
+          currentSurveyId = null;
+          show($("myStatsPanel"), false);
+          show($("screenActiveList"), false);
+          show($("screenProposals"), false);
+          show($("screenArchivedList"), false);
+          show($("screenSurvey"), false);
+          show($("screenHistory"), false);
+          show($("screenLeaderboard"), false);
+          show($("screenInfo"), false);
+          show($("screenWC26Hub"), false);
+          show($("screenWC26Schedule"), false);
+          show($("screenWC26Standings"), true);
+          const bb = $("backBtn"); if (bb) bb.style.display = "";
+          renderWC26Standings();
           syncHash();
         }
 
@@ -3905,6 +3944,21 @@
               wr.className = "wc26-result-key";
               wr.textContent = "Result: " + wl;
               meta.appendChild(wr);
+            }
+            if (me) {
+              const vEntry = VOTE_MAP.get(me + ":" + survey.id);
+              if (vEntry && vEntry.choice != null) {
+                const winnerKey = settlement.wcWinner || settlement.winner;
+                const badge = document.createElement("span");
+                if (vEntry.choice === winnerKey) {
+                  badge.textContent = "✅ Your pick";
+                } else {
+                  const pickedOpt = survey.options.find(function (o) { return o.key === vEntry.choice; });
+                  badge.textContent = "❌ Your pick: " + (pickedOpt ? pickedOpt.label : vEntry.choice);
+                }
+                badge.style.cssText = "font-size:11px;";
+                meta.appendChild(badge);
+              }
             }
           }
           if (meta.children.length) card.appendChild(meta);
@@ -3970,6 +4024,18 @@
             content.appendChild(sec);
           }
 
+          if (me) {
+            const myRecord = WC26_STANDINGS_MAP.get(me);
+            if (myRecord && myRecord.predicted > 0) {
+              const rec = document.createElement("p");
+              rec.className = "wc26-section-title";
+              rec.style.cssText = "background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:12px;";
+              const pct = Math.round(myRecord.correct / myRecord.predicted * 100);
+              rec.textContent = "Your predictions: " + myRecord.correct + " correct / " + myRecord.predicted + " total · " + pct + "%";
+              content.appendChild(rec);
+            }
+          }
+
           addSection("Live Now", liveNow);
           addSection("Today's Matches", todayLeft);
           addSection("Coming Up", comingUp);
@@ -4016,6 +4082,66 @@
               block.appendChild(buildWC26Card(s, () => { _wc26NavBack = true; navigateToSurvey(s.id); refreshLoopOnce(); }));
             });
             content.appendChild(block);
+          });
+        }
+
+        function renderWC26Standings() {
+          const content = $("wc26StandingsContent");
+          if (!content) return;
+          content.innerHTML = "";
+
+          const entries = [];
+          WC26_STANDINGS_MAP.forEach(function (rec, pubkey) {
+            if (rec.predicted <= 0) return;
+            const username = GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey);
+            const accuracy = rec.predicted > 0 ? rec.correct / rec.predicted : 0;
+            entries.push({ pubkey, username, correct: rec.correct, predicted: rec.predicted, accuracy });
+          });
+
+          if (!entries.length) {
+            const p = document.createElement("p");
+            p.className = "wc26-empty";
+            p.textContent = "Standings will appear here once at least one match has settled.";
+            content.appendChild(p);
+            return;
+          }
+
+          entries.sort(function (a, b) {
+            if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
+            if (b.predicted !== a.predicted) return b.predicted - a.predicted;
+            return a.username.localeCompare(b.username);
+          });
+
+          const header = document.createElement("div");
+          header.className = "leaderHeader";
+          header.innerHTML = '<span class="leaderRank">#</span><span class="leaderName">Player</span><span class="leaderStat">Correct</span><span class="leaderStat">Total</span><span class="leaderStat">Accuracy</span>';
+          content.appendChild(header);
+
+          entries.forEach(function (e, i) {
+            const row = document.createElement("div");
+            row.className = "leaderRow";
+            if (e.pubkey === me) row.style.fontWeight = "700";
+            const rank = document.createElement("span");
+            rank.className = "leaderRank";
+            rank.textContent = String(i + 1);
+            const name = document.createElement("span");
+            name.className = "leaderName";
+            name.textContent = e.username;
+            const correct = document.createElement("span");
+            correct.className = "leaderStat";
+            correct.textContent = String(e.correct);
+            const total = document.createElement("span");
+            total.className = "leaderStat";
+            total.textContent = String(e.predicted);
+            const pct = document.createElement("span");
+            pct.className = "leaderStat";
+            pct.textContent = Math.round(e.accuracy * 100) + "%";
+            row.appendChild(rank);
+            row.appendChild(name);
+            row.appendChild(correct);
+            row.appendChild(total);
+            row.appendChild(pct);
+            content.appendChild(row);
           });
         }
 
@@ -4351,7 +4477,8 @@
             && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
             && (!$("screenInfo") || $("screenInfo").classList.contains("hide"))
             && (!$("screenWC26Hub") || $("screenWC26Hub").classList.contains("hide"))
-            && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"));
+            && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"))
+            && (!$("screenWC26Standings") || $("screenWC26Standings").classList.contains("hide"));
           if (onList) show($("screenArchivedList"), _joined && archived.length > 0);
 
           if (!active.length) {
@@ -5989,7 +6116,8 @@
               && (!$("screenLeaderboard") || $("screenLeaderboard").classList.contains("hide"))
               && (!$("screenInfo") || $("screenInfo").classList.contains("hide"))
               && (!$("screenWC26Hub") || $("screenWC26Hub").classList.contains("hide"))
-              && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"));
+              && (!$("screenWC26Schedule") || $("screenWC26Schedule").classList.contains("hide"))
+              && (!$("screenWC26Standings") || $("screenWC26Standings").classList.contains("hide"));
             if (onList) {
               show($("screenActiveList"), joined);
               show($("screenProposals"), joined);
@@ -6008,6 +6136,7 @@
             if ($("screenHistory") && !$("screenHistory").classList.contains("hide")) renderHistoryPanel();
             if ($("screenWC26Hub") && !$("screenWC26Hub").classList.contains("hide")) renderWC26Hub();
             if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) renderWC26Schedule();
+            if ($("screenWC26Standings") && !$("screenWC26Standings").classList.contains("hide")) renderWC26Standings();
 
             mySurveyCreationTimes = getMySurveyCreationsInWindow(txs, me);
             updateSurveyCooldownUi();
@@ -6130,6 +6259,7 @@
             if (h === "#info") { navigateToInfo(); return; }
             if (h === "#wc26") { navigateToWC26Hub(); return; }
             if (h === "#wc26/schedule") { navigateToWC26Schedule(); return; }
+            if (h === "#wc26/standings") { navigateToWC26Standings(); return; }
             const m = h.match(/^#survey\/(.+)$/);
             if (m) {
               const id = decodeURIComponent(m[1]);
@@ -6141,6 +6271,7 @@
 
           $("backBtn").addEventListener("click", () => {
             if (_wc26NavBack) { _wc26NavBack = false; navigateToWC26Hub(); }
+            else if ($("screenWC26Standings") && !$("screenWC26Standings").classList.contains("hide")) navigateToWC26Hub();
             else navigateToList();
           });
           $("allMarketsBtn").addEventListener("click", navigateToList);
@@ -6193,6 +6324,7 @@
           $("infoBtn").addEventListener("click", () => { closeMenuSheet(); navigateToInfo(); });
           $("wcBtn").addEventListener("click", () => { closeMenuSheet(); navigateToWC26Hub(); });
           $("wcScheduleBtn").addEventListener("click", navigateToWC26Schedule);
+          $("wcStandingsBtn").addEventListener("click", navigateToWC26Standings);
 
           // --- Light/dark theme toggle ---------------------------------
           // The theme is driven by the data-theme attribute on <html> (set

@@ -487,15 +487,33 @@ function createWorldCup2026(opts) {
   // Inject every group fixture directly into the cache so the preview renders
   // the whole schedule. Idempotent: deterministic per-match tx ids let the
   // cache dedup re-injections. Re-run on a cadence so it survives a chain reset.
+  // Deterministically pick a winner option from the given option array using
+  // a simple hash of the matchId. Stable across server restarts.
+  function deterministicWinner(matchId, options) {
+    let h = 0;
+    for (let i = 0; i < matchId.length; i++) h = ((h * 31) + matchId.charCodeAt(i)) & 0x7fffffff;
+    return options[h % options.length];
+  }
+
+  const STAGING_PREDICTORS = [
+    { pubkey: "staging-predictor-1", username: "staging-demo-alfie" },
+    { pubkey: "staging-predictor-2", username: "staging-demo-billie" },
+    { pubkey: "staging-predictor-3", username: "staging-demo-callum" },
+    { pubkey: "staging-predictor-4", username: "staging-demo-dana" },
+    { pubkey: "staging-predictor-5", username: "staging-demo-emery" },
+  ];
+
   async function seedStaging() {
     if (!seedTransaction || !fixtures.length) return getStatus();
     const now = nowFn();
-    let created;
-    try { created = parseExisting(getRawTransactions, appPubkey).created; }
-    catch (_) { created = new Map(); }
+
+    // ── Pass 1: Seed create_wc26_match for all group fixtures ──────────
+    let existing;
+    try { existing = parseExisting(getRawTransactions, appPubkey); }
+    catch (_) { existing = { created: new Map(), resolved: new Set() }; }
     let injected = 0;
     for (const fx of fixtures) {
-      if (created.has(fx.matchId)) continue;
+      if (existing.created.has(fx.matchId)) continue;
       const memo = buildCreateMemo(fx, now);
       const seedTxId = "staging-seed-" + fx.matchId;
       const tx = {
@@ -514,6 +532,96 @@ function createWorldCup2026(opts) {
       status.lastSeedAt = now;
       console.log(`[wc26] staging-seeded ${injected} group fixtures`);
     }
+
+    // ── Pass 2: Resolve past fixtures deterministically ─────────────────
+    // Re-parse so pass 1 creates are visible.
+    try { existing = parseExisting(getRawTransactions, appPubkey); }
+    catch (_) { /* keep previous */ }
+    let resolved2 = 0;
+    for (const fx of fixtures) {
+      if (fx.kickoffMs >= now) continue;
+      if (!existing.created.has(fx.matchId)) continue;
+      if (existing.resolved.has(fx.matchId)) continue;
+      const entry = existing.created.get(fx.matchId);
+      const opts = Array.isArray(entry.options) && entry.options.length
+        ? entry.options
+        : (fx.stage === "group" ? ["home_win", "draw", "away_win"] : ["home_win", "away_win"]);
+      const winnerKey = deterministicWinner(fx.matchId, opts);
+      const resolveTxId = "staging-seed-resolve-" + fx.matchId;
+      const resolveMemo = {
+        app: APP_ID,
+        type: "resolve_wc26_match",
+        matchId: fx.matchId,
+        winnerKey: winnerKey,
+        source: "staging-deterministic",
+        resolved_at: fx.kickoffMs + 8 * HOUR_MS,
+      };
+      const resolveTx = {
+        tx_id: resolveTxId,
+        id: resolveTxId,
+        from_pubkey: senderPubkey,
+        destination_pubkey: appPubkey,
+        amount: 1,
+        memo: JSON.stringify(resolveMemo),
+        created_at: new Date(fx.kickoffMs + 8 * HOUR_MS).toISOString(),
+      };
+      try { seedTransaction(resolveTx); resolved2++; existing.resolved.add(fx.matchId); }
+      catch (e) { console.error(`[wc26] staging resolve seed error (${fx.matchId}): ${e.message}`); }
+    }
+    if (resolved2 > 0) console.log(`[wc26] staging-resolved ${resolved2} past fixtures`);
+
+    // ── Pass 3: Staging predictor join/username/votes ────────────────────
+    const thirtyDaysAgo = now - 30 * 24 * 3600 * 1000;
+    // Inject join and set_username memos for staging predictors.
+    for (let pi = 0; pi < STAGING_PREDICTORS.length; pi++) {
+      const p = STAGING_PREDICTORS[pi];
+      const joinTxId = "staging-seed-join-" + p.pubkey;
+      const joinTx = {
+        tx_id: joinTxId, id: joinTxId,
+        from_pubkey: p.pubkey, destination_pubkey: appPubkey, amount: 1,
+        memo: JSON.stringify({ app: APP_ID, type: "join" }),
+        created_at: new Date(thirtyDaysAgo).toISOString(),
+      };
+      try { seedTransaction(joinTx); } catch (_) {}
+      const usernameTxId = "staging-seed-username-" + p.pubkey;
+      const usernameTx = {
+        tx_id: usernameTxId, id: usernameTxId,
+        from_pubkey: p.pubkey, destination_pubkey: appPubkey, amount: 1,
+        memo: JSON.stringify({ app: APP_ID, type: "set_username", username: p.username }),
+        created_at: new Date(thirtyDaysAgo + 1000).toISOString(),
+      };
+      try { seedTransaction(usernameTx); } catch (_) {}
+    }
+    // Inject vote memos for up to 8 resolved past fixtures.
+    const pastResolved = fixtures.filter(function (fx) {
+      return fx.kickoffMs < now && existing.resolved.has(fx.matchId);
+    }).slice(0, 8);
+    let votes3 = 0;
+    for (let mi = 0; mi < pastResolved.length; mi++) {
+      const fx = pastResolved[mi];
+      const entry = existing.created.get(fx.matchId);
+      const opts = Array.isArray(entry && entry.options) && entry.options.length
+        ? entry.options
+        : (fx.stage === "group" ? ["home_win", "draw", "away_win"] : ["home_win", "away_win"]);
+      const winnerKey = deterministicWinner(fx.matchId, opts);
+      const voteTs = fx.kickoffMs - HOUR_MS; // one hour before kickoff
+      for (let pi = 0; pi < STAGING_PREDICTORS.length; pi++) {
+        const p = STAGING_PREDICTORS[pi];
+        const choice = pi < 2
+          ? winnerKey
+          : opts[(mi + pi * 2) % opts.length];
+        const voteTxId = "staging-seed-vote-" + fx.matchId + "-" + p.pubkey;
+        const voteTx = {
+          tx_id: voteTxId, id: voteTxId,
+          from_pubkey: p.pubkey, destination_pubkey: appPubkey, amount: 1,
+          memo: JSON.stringify({ app: APP_ID, type: "vote", survey: fx.matchId, choice: choice, ki: 0 }),
+          created_at: new Date(voteTs).toISOString(),
+        };
+        try { seedTransaction(voteTx); votes3++; } catch (_) {}
+      }
+    }
+    if (votes3 > 0) console.log(`[wc26] staging-seeded ${votes3} predictor votes across ${pastResolved.length} matches`);
+
     return getStatus();
   }
 
