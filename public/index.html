@@ -1683,11 +1683,7 @@
                   <span class="muted" style="font-size: 13px;">Question</span>
                   <input id="newSurveyQuestion" class="input" maxlength="160" />
                 </label>
-                <div style="display: grid; gap: 6px; margin-top: 8px;">
-                  <span class="muted" style="font-size: 13px;">Options</span>
-                  <div id="surveyOptionsList" style="display: grid; gap: 6px;"></div>
-                  <button class="btn small" id="addSurveyOptionBtn" type="button">+ Add option</button>
-                </div>
+                <div class="muted" style="font-size: 12px; margin-top: 8px;">Answers are always <strong>Yes</strong> and <strong>No</strong>.</div>
                 <label style="display: grid; gap: 6px; margin-top: 8px;">
                   <span class="muted" style="font-size: 13px;">Active for</span>
                   <select id="newSurveyDuration" class="input">
@@ -1714,13 +1710,6 @@
                     <option value="604800000">Every 7 days</option>
                   </select>
                 </label>
-                <div class="toggleRow" style="margin-top: 10px;">
-                  <span class="muted" style="font-size: 13px;">Allow custom options</span>
-                  <label class="toggle">
-                    <input type="checkbox" id="newSurveyAllowCustom" />
-                    <span class="slider"></span>
-                  </label>
-                </div>
                 <div class="row" style="margin-top: 10px;">
                   <button class="btn primary" id="saveSurveyBtn" type="button">Save question</button>
                   <button class="btn" id="cancelSurveyBtn" type="button">Cancel</button>
@@ -1759,18 +1748,7 @@
                   <span class="muted" style="font-size: 13px;">Question</span>
                   <input id="newProposalQuestion" class="input" maxlength="160" />
                 </label>
-                <div style="display: grid; gap: 6px; margin-top: 8px;">
-                  <span class="muted" style="font-size: 13px;">Options</span>
-                  <div id="proposalOptionsList" style="display: grid; gap: 6px;"></div>
-                  <button class="btn small" id="addProposalOptionBtn" type="button">+ Add option</button>
-                </div>
-                <div class="toggleRow" style="margin-top: 10px;">
-                  <span class="muted" style="font-size: 13px;">Allow custom options</span>
-                  <label class="toggle">
-                    <input type="checkbox" id="newProposalAllowCustom" />
-                    <span class="slider"></span>
-                  </label>
-                </div>
+                <div class="muted" style="font-size: 12px; margin-top: 8px;">Answers are always <strong>Yes</strong> and <strong>No</strong>.</div>
                 <div class="row" style="margin-top: 10px;">
                   <button class="btn primary" id="saveProposalBtn" type="button">Submit proposal</button>
                   <button class="btn" id="cancelProposalBtn" type="button">Cancel</button>
@@ -1830,23 +1808,9 @@
 
               <!-- Vote / Options section (unified layout for active surveys) -->
               <div id="voteSection">
-                <div class="row" style="justify-content: flex-end; align-items: center;">
-                  <button class="btn small" id="addOptionToggleBtn" type="button">Add option</button>
-                </div>
                 <div id="votePending" class="tx-progress hide" role="status" aria-live="polite">
                   <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
                   <div class="tx-progress-label">Registering vote...</div>
-                </div>
-                <div class="hide" id="addOptionPanel" style="margin-top: 8px;">
-                  <div class="muted" style="font-size: 13px; margin-bottom: 8px;">You can add up to one custom option.</div>
-                  <div id="addOptionHint" class="muted" style="font-size: 12px; margin-bottom: 8px;"></div>
-                  <div class="row">
-                    <input id="newOptionInput" class="input" maxlength="80" placeholder="Add your own option" style="flex: 1 1 240px;" />
-                  </div>
-                  <div class="row" style="margin-top: 8px;">
-                    <button class="btn primary" id="saveOptionBtn" type="button">Save option</button>
-                    <button class="btn" id="cancelOptionBtn" type="button">Cancel</button>
-                  </div>
                 </div>
                 <div id="voteOptionsList" style="margin-top: 10px;"></div>
               </div>
@@ -2633,7 +2597,6 @@
         let GENESIS_ACCOUNTS = new Set();
         let currentSurveyId = null;
         let currentOptionByKey = new Map();
-        let myAddedOptionBySurvey = {};
         let mySurveyCreationTimes = [];
         let PUBKEY_MAP = new Map();
         let PRIVKEY_MAP = new Map();
@@ -3328,98 +3291,31 @@
         /* ================================================================
          *  SURVEY FORM HELPERS
          * ================================================================ */
-        function addSurveyOptionField(value) {
-          const list = $("surveyOptionsList");
-          if (!list) return;
-          const row = document.createElement("div");
-          row.style.cssText = "display:flex;gap:6px;align-items:center;";
-          const inp = document.createElement("input");
-          inp.className = "input";
-          inp.maxLength = 80;
-          inp.placeholder = "Option " + (list.children.length + 1);
-          inp.value = value || "";
-          const rm = document.createElement("button");
-          rm.type = "button";
-          rm.className = "btn small";
-          rm.style.cssText = "padding:4px 8px;flex:0 0 auto;";
-          rm.textContent = "\u2715";
-          rm.addEventListener("click", () => { row.remove(); reindexOptionPlaceholders(); });
-          row.appendChild(inp);
-          row.appendChild(rm);
-          list.appendChild(row);
-        }
-
-        function reindexOptionPlaceholders() {
-          const list = $("surveyOptionsList");
-          if (!list) return;
-          Array.from(list.children).forEach((row, i) => {
-            const inp = row.querySelector("input");
-            if (inp) inp.placeholder = "Option " + (i + 1);
-          });
-        }
-
-        function getSurveyOptionInputs() {
-          const list = $("surveyOptionsList");
-          return list ? Array.from(list.querySelectorAll("input")) : [];
-        }
-
-        function initSurveyOptionFields() {
-          const list = $("surveyOptionsList");
-          if (list) list.innerHTML = "";
-          addSurveyOptionField("");
-          addSurveyOptionField("");
-        }
-
-        function addProposalOptionField(value) {
-          const list = $("proposalOptionsList");
-          if (!list) return;
-          const row = document.createElement("div");
-          row.style.cssText = "display:flex;gap:6px;align-items:center;";
-          const inp = document.createElement("input");
-          inp.className = "input";
-          inp.maxLength = 80;
-          inp.placeholder = "Option " + (list.children.length + 1);
-          inp.value = value || "";
-          const rm = document.createElement("button");
-          rm.type = "button";
-          rm.className = "btn small";
-          rm.style.cssText = "padding:4px 8px;flex:0 0 auto;";
-          rm.textContent = "✕";
-          rm.addEventListener("click", () => {
-            row.remove();
-            Array.from(list.children).forEach((r, i) => { const inp2 = r.querySelector("input"); if (inp2) inp2.placeholder = "Option " + (i + 1); });
-          });
-          row.appendChild(inp);
-          row.appendChild(rm);
-          list.appendChild(row);
-        }
-
-        function getProposalOptionInputs() {
-          const list = $("proposalOptionsList");
-          return list ? Array.from(list.querySelectorAll("input")) : [];
-        }
-
-        function initProposalOptionFields() {
-          const list = $("proposalOptionsList");
-          if (list) list.innerHTML = "";
-          addProposalOptionField("");
-          addProposalOptionField("");
+        // Every newly-created poll/proposal is a fixed binary Yes/No question
+        // (issue #33). Creators no longer enter, name, or count outcomes \u2014
+        // these two options are stamped onto every create_survey /
+        // propose_question memo. The replay engine and CPMM math remain
+        // generic over N outcomes so historical multi-option surveys (and the
+        // built-in World Cup markets) keep replaying unchanged.
+        const BINARY_OPTIONS = [
+          { key: "yes", label: "Yes" },
+          { key: "no", label: "No" },
+        ];
+        function binaryOptions() {
+          // Fresh copies so callers can't mutate the shared constant.
+          return BINARY_OPTIONS.map(o => ({ key: o.key, label: o.label }));
         }
 
         function clearAddProposalForm() {
           const t = $("newProposalTitle"); if (t) t.value = "";
           const q = $("newProposalQuestion"); if (q) q.value = "";
-          initProposalOptionFields();
-          const c = $("newProposalAllowCustom"); if (c) c.checked = false;
         }
 
         function clearAddSurveyForm() {
           const t = $("newSurveyTitle"); if (t) t.value = "";
           const q = $("newSurveyQuestion"); if (q) q.value = "";
-          initSurveyOptionFields();
           const d = $("newSurveyDuration"); if (d) d.value = String(DEFAULT_SURVEY_DURATION_MS);
           const r = $("newSurveyRevealInterval"); if (r) r.value = "";
-          const c = $("newSurveyAllowCustom"); if (c) c.checked = false;
         }
 
         function clearUsernameForm() {
@@ -3438,12 +3334,12 @@
           const question = String(($("newSurveyQuestion") || {}).value || "").trim();
           if (!title) throw new Error("Title is required");
           if (!question) throw new Error("Question is required");
-          const labels = getSurveyOptionInputs().map(i => i.value.trim()).filter(Boolean);
-          const options = labels.map((label, i) => ({ key: slugify(label) || `opt_${i + 1}`, label }));
+          // Fixed binary Yes/No outcomes; custom options are disabled (#33).
+          const options = binaryOptions();
           const activeDurationMs = normalizeSurveyDurationMs(($("newSurveyDuration") || {}).value || DEFAULT_SURVEY_DURATION_MS);
           const revealRaw = ($("newSurveyRevealInterval") || {}).value;
           const revealIntervalMs = revealRaw ? Number(revealRaw) : null;
-          const allowCustomOptions = ($("newSurveyAllowCustom") || {}).checked !== false;
+          const allowCustomOptions = false;
           const id = `custom_${slugify(title) || "survey"}_${Date.now().toString(36)}`;
           return { id, title, question, options, activeDurationMs, revealIntervalMs, allowCustomOptions };
         }
@@ -3490,11 +3386,8 @@
           setDisabled($("saveSurveyBtn"), blocked);
           setDisabled($("newSurveyTitle"), blocked);
           setDisabled($("newSurveyQuestion"), blocked);
-          getSurveyOptionInputs().forEach(i => setDisabled(i, blocked));
-          setDisabled($("addSurveyOptionBtn"), blocked);
           setDisabled($("newSurveyDuration"), blocked);
           setDisabled($("newSurveyRevealInterval"), blocked);
-          setDisabled($("newSurveyAllowCustom"), blocked);
         }
 
         /* ================================================================
@@ -3577,22 +3470,10 @@
           return { status: "confirmed", action };
         }
 
-        async function addOptionFlow(labelRaw) {
-          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can add options");
-          const s = currentSurvey();
-          if (!s) throw new Error("No question selected");
-          if (s.archived) throw new Error("Archived questions are read-only");
-          if (!s.allowCustomOptions) throw new Error("Custom options not allowed");
-          const label = String(labelRaw || "").trim();
-          if (!label) throw new Error("Option text is required");
-          if (myAddedOptionBySurvey[s.id]) throw new Error("You can only add one option per question");
-          setSending(true);
-          showPending("votePending", "Adding option...");
-          const key = slugify(label) || `opt_${Date.now().toString(36)}`;
-          const memo = makeMemo({ app: "opinion-market", type: "add_option", survey: s.id, option: { key, label } });
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Add option", confirmSubtitle: "Opinion Market — Add a custom option to this question." });
-          await postActionRefresh();
-        }
+        // addOptionFlow was removed in #33 — every poll is a fixed binary
+        // Yes/No question, so users can no longer add custom outcomes. The
+        // replay engine still merges historical add_option memos for
+        // backward compatibility (see opinion-market-state.js Phase 4).
 
         async function setUsernameFlow(raw) {
           if (!raw || !String(raw).trim()) throw new Error("Username is required");
@@ -3691,13 +3572,12 @@
           const question = String(($("newProposalQuestion") || {}).value || "").trim();
           if (!title) throw new Error("Title is required");
           if (!question) throw new Error("Question is required");
-          const labels = getProposalOptionInputs().map(i => i.value.trim()).filter(Boolean);
-          const options = labels.map((label, i) => ({ key: slugify(label) || `opt_${i + 1}`, label }));
-          const allowCustomOptions = ($("newProposalAllowCustom") || {}).checked !== false;
+          // Fixed binary Yes/No outcomes; custom options are disabled (#33).
+          const options = binaryOptions();
           const memo = makeMemo({
             app: "opinion-market",
             type: "propose_question",
-            proposal: { title, question, options, allow_custom_options: allowCustomOptions },
+            proposal: { title, question, options, allow_custom_options: false },
           });
           if (memo.length > 1024) throw new Error("Proposal payload too large — please shorten your title, question, or option labels.");
           setSending(true);
@@ -3911,16 +3791,7 @@
             }
           }
 
-          // Add option button
-          const addOptBtn = $("addOptionToggleBtn");
-          if (addOptBtn) {
-            addOptBtn.style.display = (s.archived || !s.allowCustomOptions) ? "none" : "";
-            setDisabled(addOptBtn, s.archived || !s.allowCustomOptions);
-          }
-          show($("addOptionPanel"), false);
-          const optInp = $("newOptionInput");
-          if (optInp) { optInp.value = ""; setDisabled(optInp, s.archived); }
-          setDisabled($("saveOptionBtn"), s.archived);
+          // Custom options were removed in #33 — every poll is binary Yes/No.
 
           updateCreditsDisplay();
           syncHash();
@@ -6048,20 +5919,7 @@
             }
           }
 
-          // Update add-option state
-          const addOptBtn = $("addOptionToggleBtn");
-          if (addOptBtn) {
-            addOptBtn.style.display = (s.archived || !s.allowCustomOptions) ? "none" : "";
-            setDisabled(addOptBtn, !!res.myAddedOption || sending || s.archived || !s.allowCustomOptions);
-          }
-          myAddedOptionBySurvey[s.id] = res.myAddedOption || null;
-          const addOptHint = $("addOptionHint");
-          if (addOptHint) {
-            setText(addOptHint, res.myAddedOption ? `You already added: "${res.myAddedOption.label}"` : "You can add one option.");
-          }
-          const optInp = $("newOptionInput");
-          if (optInp) setDisabled(optInp, !!res.myAddedOption || sending || s.archived);
-          setDisabled($("saveOptionBtn"), !!res.myAddedOption || sending || s.archived);
+          // Custom-option UI was removed in #33 (every poll is binary Yes/No).
 
           if (_scrollEl) _scrollEl.scrollTop = _scrollY;
         }
@@ -6558,30 +6416,7 @@
             catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
-          $("addOptionToggleBtn").addEventListener("click", () => {
-            if (sending || !currentSurveyId) return;
-            const panel = $("addOptionPanel");
-            const opening = panel && panel.classList.contains("hide");
-            show(panel, !!opening);
-            if (!opening) { const inp = $("newOptionInput"); if (inp) inp.value = ""; }
-          });
-
-          $("cancelOptionBtn").addEventListener("click", () => {
-            show($("addOptionPanel"), false);
-            const inp = $("newOptionInput"); if (inp) inp.value = "";
-          });
-
-          $("saveOptionBtn").addEventListener("click", async () => {
-            if (sending || !currentSurveyId) return;
-            try {
-              await addOptionFlow(($("newOptionInput") || {}).value || "");
-              show($("addOptionPanel"), false);
-              const inp = $("newOptionInput"); if (inp) inp.value = "";
-              setSending(false, true);
-            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
-          });
-
-          $("addSurveyOptionBtn").addEventListener("click", () => addSurveyOptionField(""));
+          // Custom-option add/save/cancel listeners removed in #33.
 
           $("addSurveyBtn").addEventListener("click", () => {
             if (!isAdmin) { showInlineError("Only admins can create questions for now"); return; }
@@ -6606,10 +6441,7 @@
             } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
-          initSurveyOptionFields();
-
           // --- Question proposal event listeners ---
-          $("addProposalOptionBtn").addEventListener("click", () => addProposalOptionField(""));
 
           $("addProposalBtn").addEventListener("click", () => {
             if (me && !JOINED.has(me)) { showInlineError("Join first to propose questions"); return; }
@@ -6645,8 +6477,6 @@
               if (!isAbortError(e)) showInlineError(friendlyTxError(e));
             }
           });
-
-          initProposalOptionFields();
 
           // --- Vote bottom sheet event listeners ---
           $("voteSurveyBtn").addEventListener("click", () => {

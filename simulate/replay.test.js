@@ -941,4 +941,76 @@ test("WC26: replay deterministic under duplicate create+resolve memos", async ()
   assert.strictEqual(sa.payouts[USER_A], sb.payouts[USER_A], "deterministic payout");
 });
 
+/* ── #33: binary (Yes/No) authoring + multi-option backward compat ──── */
+
+test("#33: a binary Yes/No survey seeds a two-pool market and settles", async () => {
+  // Mirrors what the client create form now always emits (#33): exactly two
+  // fixed options with custom options disabled. The market must seed two
+  // pools, the winning YES bet must pay out, and the survey must settle.
+  nextTxId = 1;
+  const survey = {
+    id: "bin1", title: "T", question: "Q?",
+    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
+    active_duration_ms: 60000, allow_custom_options: false,
+  };
+  const txs = [
+    tx(ADMIN, "join", null, 0),
+    tx(USER_A, "join", null, 1000),
+    tx(ADMIN, "create_survey", { survey }, 2000),
+    tx(USER_A, "place_bet", { survey: "bin1", option: "yes", credits: 100, side: "yes" }, 3000),
+    tx(USER_A, "vote", { survey: "bin1", choice: "yes" }, 4000),
+  ];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
+    now: 1700000000000 + 120000, // past the 60s window → expired + settled
+  });
+  const sv = state.SURVEYS_BY_ID.get("bin1");
+  assert(sv, "binary survey exists");
+  assert.deepStrictEqual(sv.options.map(o => o.key), ["yes", "no"], "exactly the two fixed options");
+  const mkt = state.MARKETS.get("bin1");
+  assert(mkt && Object.keys(mkt.pools).length === 2, "market seeded with exactly two pools");
+  assert(state.SETTLEMENTS.has("bin1"), "binary survey settled");
+  assert(state.CREDIT_FLOWS.get(USER_A).payouts > 0, "winning YES bet paid out");
+});
+
+test("#33 regression: legacy multi-option surveys (3 base + add_option) still replay", async () => {
+  // The authoring restriction is client-side only; the replay engine stays
+  // generic over N outcomes so historical surveys — and any custom options
+  // already added on-chain via add_option — keep seeding pools and settling.
+  // If Phase 4's add_option merge or the N-outcome market math regressed,
+  // this fails.
+  nextTxId = 1;
+  const survey = {
+    id: "multi1", title: "T", question: "Q?",
+    options: [
+      { key: "red", label: "Red" },
+      { key: "green", label: "Green" },
+      { key: "blue", label: "Blue" },
+    ],
+    active_duration_ms: 60000, allow_custom_options: true,
+  };
+  const txs = [
+    tx(ADMIN, "join", null, 0),
+    tx(USER_A, "join", null, 1000),
+    tx(ADMIN, "create_survey", { survey }, 2000),
+    tx(USER_A, "add_option", { survey: "multi1", option: { key: "yellow", label: "Yellow" } }, 2500),
+    tx(USER_A, "place_bet", { survey: "multi1", option: "red", credits: 100, side: "yes" }, 3000),
+    tx(USER_A, "vote", { survey: "multi1", choice: "red" }, 4000),
+  ];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
+    now: 1700000000000 + 120000,
+  });
+  const sv = state.SURVEYS_BY_ID.get("multi1");
+  assert(sv, "legacy multi-option survey exists");
+  assert.strictEqual(sv.options.length, 4, "3 base options + 1 custom option preserved");
+  assert(sv.options.some(o => o.key === "yellow"), "add_option merged (Phase 4 intact)");
+  const mkt = state.MARKETS.get("multi1");
+  assert(mkt && Object.keys(mkt.pools).length === 4, "market seeded with all four option pools");
+  assert(state.SETTLEMENTS.has("multi1"), "multi-option survey settles");
+  assert(state.CREDIT_FLOWS.get(USER_A).payouts > 0, "winning bet on a multi-option market paid out");
+});
+
 run();

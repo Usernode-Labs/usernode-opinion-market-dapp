@@ -179,6 +179,13 @@
     var activeDurationMs = normalizeSurveyDurationMs(
       rawSurvey.active_duration_ms != null ? rawSurvey.active_duration_ms : rawSurvey.duration_ms
     );
+    // Issue #33: new polls are authored with exactly two fixed options
+    // (Yes/No) and custom options are disabled. This normalizer stays
+    // PERMISSIVE on option count on purpose — historical surveys created
+    // before #33 (and the built-in World Cup group markets) carry 3+ options,
+    // and every balance/pool/settlement derived from them must keep replaying.
+    // The binary constraint is enforced at the authoring surface (the client
+    // create/propose forms), not here.
     var optionsRaw = Array.isArray(rawSurvey.options) ? rawSurvey.options : [];
     var options = [];
     for (var i = 0; i < optionsRaw.length; i++) {
