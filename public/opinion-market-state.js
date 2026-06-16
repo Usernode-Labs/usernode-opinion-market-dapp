@@ -179,6 +179,13 @@
     var activeDurationMs = normalizeSurveyDurationMs(
       rawSurvey.active_duration_ms != null ? rawSurvey.active_duration_ms : rawSurvey.duration_ms
     );
+    // Issue #33: new polls are authored with exactly two fixed options
+    // (Yes/No) and custom options are disabled. This normalizer stays
+    // PERMISSIVE on option count on purpose — historical surveys created
+    // before #33 (and the built-in World Cup group markets) carry 3+ options,
+    // and every balance/pool/settlement derived from them must keep replaying.
+    // The binary constraint is enforced at the authoring surface (the client
+    // create/propose forms), not here.
     var optionsRaw = Array.isArray(rawSurvey.options) ? rawSurvey.options : [];
     var options = [];
     for (var i = 0; i < optionsRaw.length; i++) {
@@ -530,6 +537,7 @@
       var txId = raw.tx_id || raw.id || raw.txid || raw.hash || null;
       if (cache && txId && cache.has(txId)) { result.push(cache.get(txId)); continue; }
       var pp = parseAppTx(raw);
+      // Pass through memos that already carry a decrypted choice (e.g. staging seed votes).
       if (!pp || pp.memo.type !== "vote" || pp.memo.choice != null || !pp.memo.ev || pp.memo.ki == null) {
         if (cache && txId) cache.set(txId, raw);
         result.push(raw);
@@ -1628,7 +1636,7 @@
     }
 
     /* --- Phase 8c: WC26 prediction standings --- */
-    var wc26StandingsMap = new Map();
+    var wc26StandingsMap = new Map(); // Map<pubkey, { predicted, correct }>
     var vmIter2 = voteMap.entries();
     var vmNext2 = vmIter2.next();
     while (!vmNext2.done) {
@@ -1669,12 +1677,12 @@
       voteMap: voteMap,
       firstJoiner: firstJoiner,
       earningsMap: earningsMap,
+      wc26StandingsMap: wc26StandingsMap,
       rejectedSends: REJECTED_SENDS,
       PROPOSALS: PROPOSALS,
       openProposals: openProposals,
       parsedTxs: parsed,
       decryptedTxs: decryptedTxs,
-      wc26StandingsMap: wc26StandingsMap,
     };
   }
 

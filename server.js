@@ -68,6 +68,7 @@ const {
 const createVoteEncryption = require("./vote-encryption");
 const createDailyBtc = require("./daily-btc");
 const createWorldCup2026 = require("./world-cup-2026");
+const createStagingPolls = require("./staging-polls");
 const createDailyNews = require("./daily-news");
 const { buildLeaderboard } = require("./lib/leaderboard");
 
@@ -218,6 +219,20 @@ const worldCup2026 = createWorldCup2026({
   seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
 });
 worldCup2026.start();
+
+// ── Staging-only binary (Yes/No) poll seeder ─────────────────────────────────
+// Issue #33: every newly-created poll is a fixed two-outcome Yes/No question.
+// Staging needs a few such polls present so the survey list, trading UI, and
+// vote sheet can be tested without hand-crafting transactions. Injects
+// create_survey memos straight into the cache (no signer needed). Strictly a
+// no-op in production — seedTransaction is null unless USERNODE_ENV=staging.
+const stagingPolls = createStagingPolls({
+  appPubkey: APP_PUBKEY,
+  adminPubkey: ADMIN_PUBKEY || null,
+  getRawTransactions: () => omCache.getRawTransactions(),
+  seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
+});
+stagingPolls.start();
 
 // ── Daily Hot News Poll scheduler ─────────────────────────────────────────────
 // Fetches a trending headline from NewsAPI.org, generates a binary yes/no poll

@@ -1553,11 +1553,7 @@
                   <span class="muted" style="font-size: 13px;">Question</span>
                   <input id="newSurveyQuestion" class="input" maxlength="160" />
                 </label>
-                <div style="display: grid; gap: 6px; margin-top: 8px;">
-                  <span class="muted" style="font-size: 13px;">Options</span>
-                  <div id="surveyOptionsList" style="display: grid; gap: 6px;"></div>
-                  <button class="btn small" id="addSurveyOptionBtn" type="button">+ Add option</button>
-                </div>
+                <div class="muted" style="font-size: 12px; margin-top: 8px;">Answers are always <strong>Yes</strong> and <strong>No</strong>.</div>
                 <label style="display: grid; gap: 6px; margin-top: 8px;">
                   <span class="muted" style="font-size: 13px;">Active for</span>
                   <select id="newSurveyDuration" class="input">
@@ -1584,13 +1580,6 @@
                     <option value="604800000">Every 7 days</option>
                   </select>
                 </label>
-                <div class="toggleRow" style="margin-top: 10px;">
-                  <span class="muted" style="font-size: 13px;">Allow custom options</span>
-                  <label class="toggle">
-                    <input type="checkbox" id="newSurveyAllowCustom" />
-                    <span class="slider"></span>
-                  </label>
-                </div>
                 <div class="row" style="margin-top: 10px;">
                   <button class="btn primary" id="saveSurveyBtn" type="button">Save question</button>
                   <button class="btn" id="cancelSurveyBtn" type="button">Cancel</button>
@@ -1629,18 +1618,7 @@
                   <span class="muted" style="font-size: 13px;">Question</span>
                   <input id="newProposalQuestion" class="input" maxlength="160" />
                 </label>
-                <div style="display: grid; gap: 6px; margin-top: 8px;">
-                  <span class="muted" style="font-size: 13px;">Options</span>
-                  <div id="proposalOptionsList" style="display: grid; gap: 6px;"></div>
-                  <button class="btn small" id="addProposalOptionBtn" type="button">+ Add option</button>
-                </div>
-                <div class="toggleRow" style="margin-top: 10px;">
-                  <span class="muted" style="font-size: 13px;">Allow custom options</span>
-                  <label class="toggle">
-                    <input type="checkbox" id="newProposalAllowCustom" />
-                    <span class="slider"></span>
-                  </label>
-                </div>
+                <div class="muted" style="font-size: 12px; margin-top: 8px;">Answers are always <strong>Yes</strong> and <strong>No</strong>.</div>
                 <div class="row" style="margin-top: 10px;">
                   <button class="btn primary" id="saveProposalBtn" type="button">Submit proposal</button>
                   <button class="btn" id="cancelProposalBtn" type="button">Cancel</button>
@@ -1700,23 +1678,9 @@
 
               <!-- Vote / Options section (unified layout for active surveys) -->
               <div id="voteSection">
-                <div class="row" style="justify-content: flex-end; align-items: center;">
-                  <button class="btn small" id="addOptionToggleBtn" type="button">Add option</button>
-                </div>
                 <div id="votePending" class="tx-progress hide" role="status" aria-live="polite">
                   <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
                   <div class="tx-progress-label">Registering vote...</div>
-                </div>
-                <div class="hide" id="addOptionPanel" style="margin-top: 8px;">
-                  <div class="muted" style="font-size: 13px; margin-bottom: 8px;">You can add up to one custom option.</div>
-                  <div id="addOptionHint" class="muted" style="font-size: 12px; margin-bottom: 8px;"></div>
-                  <div class="row">
-                    <input id="newOptionInput" class="input" maxlength="80" placeholder="Add your own option" style="flex: 1 1 240px;" />
-                  </div>
-                  <div class="row" style="margin-top: 8px;">
-                    <button class="btn primary" id="saveOptionBtn" type="button">Save option</button>
-                    <button class="btn" id="cancelOptionBtn" type="button">Cancel</button>
-                  </div>
                 </div>
                 <div id="voteOptionsList" style="margin-top: 10px;"></div>
               </div>
@@ -1764,7 +1728,7 @@
             <!-- World Cup 2026 — hub screen (live, today, coming up, results) -->
             <div class="panel hide" id="screenWC26Hub">
               <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h2 style="margin: 0;">&#x26BD; World Cup 2026</h2>
+                <h2 style="margin: 0;"><span class="icon icon-md" aria-hidden="true">&#x26BD;</span> World Cup 2026</h2>
                 <div style="display:flex;gap:6px;">
                   <button class="btn small" id="wcScheduleBtn" type="button">Schedule</button>
                   <button class="btn small" id="wcStandingsBtn" type="button">Standings</button>
@@ -1781,10 +1745,10 @@
               <div id="wc26ScheduleContent"></div>
             </div>
 
-            <!-- World Cup 2026 — prediction standings -->
+            <!-- World Cup 2026 — prediction accuracy standings -->
             <div class="panel hide" id="screenWC26Standings">
               <div class="row" style="align-items: center; margin-bottom: 12px; gap: 8px;">
-                <h2 style="margin: 0; flex: 1;">&#x26BD; WC26 Prediction Standings</h2>
+                <h2 style="margin: 0; flex: 1;"><span class="icon icon-md" aria-hidden="true">&#x26BD;</span> WC26 Prediction Standings</h2>
               </div>
               <div id="wc26StandingsContent"></div>
             </div>
@@ -2485,6 +2449,7 @@
         let VOTE_MAP = new Map();
         let PARSED_TXS = [];
         let EARNINGS_MAP = new Map();
+        let WC26_STANDINGS_MAP = new Map();
         let OPEN_PROPOSALS = [];
         let PROPOSALS = new Map();
         // Set of proposal ids already promoted as of the last rebuild, so we
@@ -2503,7 +2468,6 @@
         let GENESIS_ACCOUNTS = new Set();
         let currentSurveyId = null;
         let currentOptionByKey = new Map();
-        let myAddedOptionBySurvey = {};
         let mySurveyCreationTimes = [];
         let PUBKEY_MAP = new Map();
         let PRIVKEY_MAP = new Map();
@@ -3045,6 +3009,34 @@
           if (label) label.textContent = labelText;
         }
 
+        // Map a caught sendTransaction failure to a user-friendly message.
+        // The node/bridge rejects an on-chain send when the linked wallet
+        // owns no spendable base-currency UTXO to cover the 1-unit transfer
+        // plus the network fee. That surfaces as a raw string like "no
+        // eligibility base currency UTXO owner" / "no UTXO for owner". We
+        // detect that class of error and explain it in plain language,
+        // making clear it's about the on-chain wallet (not in-app credits)
+        // and that nothing was recorded. All other errors (and timeout/abort
+        // errors, which have their own lifecycle handling) pass through with
+        // their original message.
+        function friendlyTxError(e) {
+          if (e && (e.isTimeout || e.__omAborted || e.name === "AbortError")) {
+            return (e && e.message) || String(e);
+          }
+          const raw = (e && e.message) || String(e);
+          const low = String(raw).toLowerCase();
+          const isUtxoError =
+            low.includes("base currency utxo") ||
+            low.includes("eligibility base currency") ||
+            low.includes("no eligibility") ||
+            low.includes("no utxo for owner") ||
+            (low.includes("utxo") && low.includes("owner"));
+          if (isUtxoError) {
+            return "Your Usernode wallet has no base currency to cover the network fee for this action. Add funds to your linked wallet (separate from your in-app credits) and try again — nothing was recorded.";
+          }
+          return raw;
+        }
+
         let _toastTimer = null;
         function showInlineError(msg) {
           const el = $("inlineToast");
@@ -3170,98 +3162,31 @@
         /* ================================================================
          *  SURVEY FORM HELPERS
          * ================================================================ */
-        function addSurveyOptionField(value) {
-          const list = $("surveyOptionsList");
-          if (!list) return;
-          const row = document.createElement("div");
-          row.style.cssText = "display:flex;gap:6px;align-items:center;";
-          const inp = document.createElement("input");
-          inp.className = "input";
-          inp.maxLength = 80;
-          inp.placeholder = "Option " + (list.children.length + 1);
-          inp.value = value || "";
-          const rm = document.createElement("button");
-          rm.type = "button";
-          rm.className = "btn small";
-          rm.style.cssText = "padding:4px 8px;flex:0 0 auto;";
-          rm.textContent = "\u2715";
-          rm.addEventListener("click", () => { row.remove(); reindexOptionPlaceholders(); });
-          row.appendChild(inp);
-          row.appendChild(rm);
-          list.appendChild(row);
-        }
-
-        function reindexOptionPlaceholders() {
-          const list = $("surveyOptionsList");
-          if (!list) return;
-          Array.from(list.children).forEach((row, i) => {
-            const inp = row.querySelector("input");
-            if (inp) inp.placeholder = "Option " + (i + 1);
-          });
-        }
-
-        function getSurveyOptionInputs() {
-          const list = $("surveyOptionsList");
-          return list ? Array.from(list.querySelectorAll("input")) : [];
-        }
-
-        function initSurveyOptionFields() {
-          const list = $("surveyOptionsList");
-          if (list) list.innerHTML = "";
-          addSurveyOptionField("");
-          addSurveyOptionField("");
-        }
-
-        function addProposalOptionField(value) {
-          const list = $("proposalOptionsList");
-          if (!list) return;
-          const row = document.createElement("div");
-          row.style.cssText = "display:flex;gap:6px;align-items:center;";
-          const inp = document.createElement("input");
-          inp.className = "input";
-          inp.maxLength = 80;
-          inp.placeholder = "Option " + (list.children.length + 1);
-          inp.value = value || "";
-          const rm = document.createElement("button");
-          rm.type = "button";
-          rm.className = "btn small";
-          rm.style.cssText = "padding:4px 8px;flex:0 0 auto;";
-          rm.textContent = "✕";
-          rm.addEventListener("click", () => {
-            row.remove();
-            Array.from(list.children).forEach((r, i) => { const inp2 = r.querySelector("input"); if (inp2) inp2.placeholder = "Option " + (i + 1); });
-          });
-          row.appendChild(inp);
-          row.appendChild(rm);
-          list.appendChild(row);
-        }
-
-        function getProposalOptionInputs() {
-          const list = $("proposalOptionsList");
-          return list ? Array.from(list.querySelectorAll("input")) : [];
-        }
-
-        function initProposalOptionFields() {
-          const list = $("proposalOptionsList");
-          if (list) list.innerHTML = "";
-          addProposalOptionField("");
-          addProposalOptionField("");
+        // Every newly-created poll/proposal is a fixed binary Yes/No question
+        // (issue #33). Creators no longer enter, name, or count outcomes \u2014
+        // these two options are stamped onto every create_survey /
+        // propose_question memo. The replay engine and CPMM math remain
+        // generic over N outcomes so historical multi-option surveys (and the
+        // built-in World Cup markets) keep replaying unchanged.
+        const BINARY_OPTIONS = [
+          { key: "yes", label: "Yes" },
+          { key: "no", label: "No" },
+        ];
+        function binaryOptions() {
+          // Fresh copies so callers can't mutate the shared constant.
+          return BINARY_OPTIONS.map(o => ({ key: o.key, label: o.label }));
         }
 
         function clearAddProposalForm() {
           const t = $("newProposalTitle"); if (t) t.value = "";
           const q = $("newProposalQuestion"); if (q) q.value = "";
-          initProposalOptionFields();
-          const c = $("newProposalAllowCustom"); if (c) c.checked = false;
         }
 
         function clearAddSurveyForm() {
           const t = $("newSurveyTitle"); if (t) t.value = "";
           const q = $("newSurveyQuestion"); if (q) q.value = "";
-          initSurveyOptionFields();
           const d = $("newSurveyDuration"); if (d) d.value = String(DEFAULT_SURVEY_DURATION_MS);
           const r = $("newSurveyRevealInterval"); if (r) r.value = "";
-          const c = $("newSurveyAllowCustom"); if (c) c.checked = false;
         }
 
         function clearUsernameForm() {
@@ -3280,12 +3205,12 @@
           const question = String(($("newSurveyQuestion") || {}).value || "").trim();
           if (!title) throw new Error("Title is required");
           if (!question) throw new Error("Question is required");
-          const labels = getSurveyOptionInputs().map(i => i.value.trim()).filter(Boolean);
-          const options = labels.map((label, i) => ({ key: slugify(label) || `opt_${i + 1}`, label }));
+          // Fixed binary Yes/No outcomes; custom options are disabled (#33).
+          const options = binaryOptions();
           const activeDurationMs = normalizeSurveyDurationMs(($("newSurveyDuration") || {}).value || DEFAULT_SURVEY_DURATION_MS);
           const revealRaw = ($("newSurveyRevealInterval") || {}).value;
           const revealIntervalMs = revealRaw ? Number(revealRaw) : null;
-          const allowCustomOptions = ($("newSurveyAllowCustom") || {}).checked !== false;
+          const allowCustomOptions = false;
           const id = `custom_${slugify(title) || "survey"}_${Date.now().toString(36)}`;
           return { id, title, question, options, activeDurationMs, revealIntervalMs, allowCustomOptions };
         }
@@ -3332,11 +3257,8 @@
           setDisabled($("saveSurveyBtn"), blocked);
           setDisabled($("newSurveyTitle"), blocked);
           setDisabled($("newSurveyQuestion"), blocked);
-          getSurveyOptionInputs().forEach(i => setDisabled(i, blocked));
-          setDisabled($("addSurveyOptionBtn"), blocked);
           setDisabled($("newSurveyDuration"), blocked);
           setDisabled($("newSurveyRevealInterval"), blocked);
-          setDisabled($("newSurveyAllowCustom"), blocked);
         }
 
         /* ================================================================
@@ -3419,22 +3341,10 @@
           return { status: "confirmed", action };
         }
 
-        async function addOptionFlow(labelRaw) {
-          if (isGenesisGated() && me && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can add options");
-          const s = currentSurvey();
-          if (!s) throw new Error("No question selected");
-          if (s.archived) throw new Error("Archived questions are read-only");
-          if (!s.allowCustomOptions) throw new Error("Custom options not allowed");
-          const label = String(labelRaw || "").trim();
-          if (!label) throw new Error("Option text is required");
-          if (myAddedOptionBySurvey[s.id]) throw new Error("You can only add one option per question");
-          setSending(true);
-          showPending("votePending", "Adding option...");
-          const key = slugify(label) || `opt_${Date.now().toString(36)}`;
-          const memo = makeMemo({ app: "opinion-market", type: "add_option", survey: s.id, option: { key, label } });
-          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Add option", confirmSubtitle: "Opinion Market — Add a custom option to this question." });
-          await postActionRefresh();
-        }
+        // addOptionFlow was removed in #33 — every poll is a fixed binary
+        // Yes/No question, so users can no longer add custom outcomes. The
+        // replay engine still merges historical add_option memos for
+        // backward compatibility (see opinion-market-state.js Phase 4).
 
         async function setUsernameFlow(raw) {
           if (!raw || !String(raw).trim()) throw new Error("Username is required");
@@ -3533,13 +3443,12 @@
           const question = String(($("newProposalQuestion") || {}).value || "").trim();
           if (!title) throw new Error("Title is required");
           if (!question) throw new Error("Question is required");
-          const labels = getProposalOptionInputs().map(i => i.value.trim()).filter(Boolean);
-          const options = labels.map((label, i) => ({ key: slugify(label) || `opt_${i + 1}`, label }));
-          const allowCustomOptions = ($("newProposalAllowCustom") || {}).checked !== false;
+          // Fixed binary Yes/No outcomes; custom options are disabled (#33).
+          const options = binaryOptions();
           const memo = makeMemo({
             app: "opinion-market",
             type: "propose_question",
-            proposal: { title, question, options, allow_custom_options: allowCustomOptions },
+            proposal: { title, question, options, allow_custom_options: false },
           });
           if (memo.length > 1024) throw new Error("Proposal payload too large — please shorten your title, question, or option labels.");
           setSending(true);
@@ -3753,16 +3662,7 @@
             }
           }
 
-          // Add option button
-          const addOptBtn = $("addOptionToggleBtn");
-          if (addOptBtn) {
-            addOptBtn.style.display = (s.archived || !s.allowCustomOptions) ? "none" : "";
-            setDisabled(addOptBtn, s.archived || !s.allowCustomOptions);
-          }
-          show($("addOptionPanel"), false);
-          const optInp = $("newOptionInput");
-          if (optInp) { optInp.value = ""; setDisabled(optInp, s.archived); }
-          setDisabled($("saveOptionBtn"), s.archived);
+          // Custom options were removed in #33 — every poll is binary Yes/No.
 
           updateCreditsDisplay();
           syncHash();
@@ -3961,6 +3861,22 @@
               }
             }
           }
+          // Vote outcome badge for settled matches where the user cast a prediction.
+          if (isDone && me) {
+            const myVote = VOTE_MAP.get(me + ":" + survey.id);
+            if (myVote && myVote.choice != null) {
+              const winKey = settlement && settlement.winner;
+              const correct = winKey && myVote.choice === winKey;
+              const pickSpan = document.createElement("span");
+              if (correct) {
+                pickSpan.textContent = "✅ Your pick";
+              } else {
+                const wrongOpt = survey.options && survey.options.find(o => o.key === myVote.choice);
+                pickSpan.textContent = "❌ Your pick: " + (wrongOpt ? wrongOpt.label : myVote.choice);
+              }
+              meta.appendChild(pickSpan);
+            }
+          }
           if (meta.children.length) card.appendChild(meta);
 
           // Odds bars for markets with liquidity (skip live/settled)
@@ -3989,6 +3905,20 @@
           if (!content) return;
           content.innerHTML = "";
           const now = Date.now();
+
+          // Personal prediction record (only when user has settled predictions).
+          if (me) {
+            const myAcc = WC26_STANDINGS_MAP.get(me);
+            if (myAcc && myAcc.predicted > 0) {
+              const pct = Math.round((myAcc.correct / myAcc.predicted) * 100);
+              const rec = document.createElement("p");
+              rec.className = "wc26-section-title";
+              rec.style.cssText = "padding:8px 10px;border-radius:8px;background:var(--card);border:1px solid var(--border);margin:0 0 12px;";
+              rec.textContent = "Your predictions: " + myAcc.correct + " correct / " + myAcc.predicted + " total · " + pct + "%";
+              content.appendChild(rec);
+            }
+          }
+
           const surveys = SURVEYS.filter(s => s.kind === "wc26_match" && s.wc26);
           surveys.sort((a, b) => (wc26Kickoff(a) || 0) - (wc26Kickoff(b) || 0));
 
@@ -4090,57 +4020,53 @@
           if (!content) return;
           content.innerHTML = "";
 
-          const entries = [];
-          WC26_STANDINGS_MAP.forEach(function (rec, pubkey) {
-            if (rec.predicted <= 0) return;
-            const username = GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey);
-            const accuracy = rec.predicted > 0 ? rec.correct / rec.predicted : 0;
-            entries.push({ pubkey, username, correct: rec.correct, predicted: rec.predicted, accuracy });
+          const rows = [];
+          WC26_STANDINGS_MAP.forEach((acc, pubkey) => {
+            if (acc.predicted <= 0) return;
+            rows.push({
+              pubkey,
+              username: GLOBAL_USERNAMES.get(pubkey) || deriveDefaultUsername(pubkey),
+              predicted: acc.predicted,
+              correct: acc.correct,
+              accuracy: acc.correct / acc.predicted,
+            });
           });
 
-          if (!entries.length) {
+          if (!rows.length) {
             const p = document.createElement("p");
             p.className = "wc26-empty";
-            p.textContent = "Standings will appear here once at least one match has settled.";
+            p.textContent = "Standings appear once WC26 matches have settled.";
             content.appendChild(p);
             return;
           }
 
-          entries.sort(function (a, b) {
+          rows.sort((a, b) => {
             if (b.accuracy !== a.accuracy) return b.accuracy - a.accuracy;
             if (b.predicted !== a.predicted) return b.predicted - a.predicted;
             return a.username.localeCompare(b.username);
           });
 
+          // Column header
           const header = document.createElement("div");
-          header.className = "leaderHeader";
-          header.innerHTML = '<span class="leaderRank">#</span><span class="leaderName">Player</span><span class="leaderStat">Correct</span><span class="leaderStat">Total</span><span class="leaderStat">Accuracy</span>';
+          header.className = "leaderRow leaderHeader";
+          const hRank = document.createElement("div"); hRank.className = "leaderRank"; hRank.textContent = "#";
+          const hName = document.createElement("div"); hName.className = "leaderName"; hName.textContent = "Player";
+          const hScore = document.createElement("div"); hScore.className = "leaderStat"; hScore.textContent = "Correct/Total";
+          const hAcc = document.createElement("div"); hAcc.className = "leaderStat"; hAcc.style.minWidth = "60px"; hAcc.textContent = "Accuracy";
+          header.appendChild(hRank); header.appendChild(hName); header.appendChild(hScore); header.appendChild(hAcc);
           content.appendChild(header);
 
-          entries.forEach(function (e, i) {
+          rows.forEach((entry, i) => {
             const row = document.createElement("div");
             row.className = "leaderRow";
-            if (e.pubkey === me) row.style.fontWeight = "700";
-            const rank = document.createElement("span");
-            rank.className = "leaderRank";
-            rank.textContent = String(i + 1);
-            const name = document.createElement("span");
-            name.className = "leaderName";
-            name.textContent = e.username;
-            const correct = document.createElement("span");
-            correct.className = "leaderStat";
-            correct.textContent = String(e.correct);
-            const total = document.createElement("span");
-            total.className = "leaderStat";
-            total.textContent = String(e.predicted);
-            const pct = document.createElement("span");
-            pct.className = "leaderStat";
-            pct.textContent = Math.round(e.accuracy * 100) + "%";
-            row.appendChild(rank);
-            row.appendChild(name);
-            row.appendChild(correct);
-            row.appendChild(total);
-            row.appendChild(pct);
+            if (entry.pubkey === me) row.style.fontWeight = "700";
+
+            const rank = document.createElement("div"); rank.className = "leaderRank"; rank.textContent = String(i + 1);
+            const name = document.createElement("div"); name.className = "leaderName"; name.textContent = entry.username;
+            const score = document.createElement("div"); score.className = "leaderStat"; score.textContent = entry.correct + "/" + entry.predicted;
+            const acc = document.createElement("div"); acc.className = "leaderStat"; acc.style.minWidth = "60px"; acc.textContent = Math.round(entry.accuracy * 100) + "%";
+
+            row.appendChild(rank); row.appendChild(name); row.appendChild(score); row.appendChild(acc);
             content.appendChild(row);
           });
         }
@@ -4747,7 +4673,7 @@
               btn.disabled = sending || notJoined || !!notGenesis;
               btn.addEventListener("click", async () => {
                 try { await upvoteProposalFlow(pr.id); }
-                catch (e) { showInlineError(e.message || String(e)); setSending(false); }
+                catch (e) { showInlineError(friendlyTxError(e)); setSending(false); }
               });
             }
             card.appendChild(btn);
@@ -5247,7 +5173,7 @@
             // Hard failure only — voteFlow returns (does not throw) on a
             // timeout, so anything caught here is a genuine rejection.
             if (errEl) {
-              errEl.textContent = (e && e.message) || String(e);
+              errEl.textContent = friendlyTxError(e);
               errEl.style.display = "block";
             }
           } finally {
@@ -5891,20 +5817,7 @@
             }
           }
 
-          // Update add-option state
-          const addOptBtn = $("addOptionToggleBtn");
-          if (addOptBtn) {
-            addOptBtn.style.display = (s.archived || !s.allowCustomOptions) ? "none" : "";
-            setDisabled(addOptBtn, !!res.myAddedOption || sending || s.archived || !s.allowCustomOptions);
-          }
-          myAddedOptionBySurvey[s.id] = res.myAddedOption || null;
-          const addOptHint = $("addOptionHint");
-          if (addOptHint) {
-            setText(addOptHint, res.myAddedOption ? `You already added: "${res.myAddedOption.label}"` : "You can add one option.");
-          }
-          const optInp = $("newOptionInput");
-          if (optInp) setDisabled(optInp, !!res.myAddedOption || sending || s.archived);
-          setDisabled($("saveOptionBtn"), !!res.myAddedOption || sending || s.archived);
+          // Custom-option UI was removed in #33 (every poll is binary Yes/No).
 
           if (_scrollEl) _scrollEl.scrollTop = _scrollY;
         }
@@ -6272,6 +6185,7 @@
           $("backBtn").addEventListener("click", () => {
             if (_wc26NavBack) { _wc26NavBack = false; navigateToWC26Hub(); }
             else if ($("screenWC26Standings") && !$("screenWC26Standings").classList.contains("hide")) navigateToWC26Hub();
+            else if ($("screenWC26Schedule") && !$("screenWC26Schedule").classList.contains("hide")) navigateToWC26Hub();
             else navigateToList();
           });
           $("allMarketsBtn").addEventListener("click", navigateToList);
@@ -6303,7 +6217,7 @@
               await setUsernameFlow(($("usernameInput") || {}).value || "");
               setSending(false, true);
               closeUsernameSheet();
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           window.addEventListener("keydown", (e) => {
@@ -6313,7 +6227,7 @@
 
           $("joinBtn").addEventListener("click", async () => {
             try { await joinFlow(); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("menuBtn").addEventListener("click", openMenuSheet);
@@ -6389,7 +6303,7 @@
             clearTimeout(_resolveConfirmTimer);
             if (btn) { btn.textContent = "\u23F1 Resolve early (testing)"; btn.style.background = ""; }
             try { await resolveEarlyFlow(s.id); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("deleteSurveyBtn").addEventListener("click", async () => {
@@ -6397,33 +6311,10 @@
             if (!s || sending || !isAdmin) return;
             if (_deleteConfirmId !== s.id) { requestDeleteConfirm(s.id); return; }
             try { await executeDeleteSurvey(s.id); setSending(false, true); }
-            catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
-          $("addOptionToggleBtn").addEventListener("click", () => {
-            if (sending || !currentSurveyId) return;
-            const panel = $("addOptionPanel");
-            const opening = panel && panel.classList.contains("hide");
-            show(panel, !!opening);
-            if (!opening) { const inp = $("newOptionInput"); if (inp) inp.value = ""; }
-          });
-
-          $("cancelOptionBtn").addEventListener("click", () => {
-            show($("addOptionPanel"), false);
-            const inp = $("newOptionInput"); if (inp) inp.value = "";
-          });
-
-          $("saveOptionBtn").addEventListener("click", async () => {
-            if (sending || !currentSurveyId) return;
-            try {
-              await addOptionFlow(($("newOptionInput") || {}).value || "");
-              show($("addOptionPanel"), false);
-              const inp = $("newOptionInput"); if (inp) inp.value = "";
-              setSending(false, true);
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
-          });
-
-          $("addSurveyOptionBtn").addEventListener("click", () => addSurveyOptionField(""));
+          // Custom-option add/save/cancel listeners removed in #33.
 
           $("addSurveyBtn").addEventListener("click", () => {
             if (!isAdmin) { showInlineError("Only admins can create questions for now"); return; }
@@ -6445,13 +6336,10 @@
               show($("addSurveyPanel"), false);
               clearAddSurveyForm();
               setSending(false, true);
-            } catch (e) { setSending(false, false); showInlineError(e.message || e); }
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
-          initSurveyOptionFields();
-
           // --- Question proposal event listeners ---
-          $("addProposalOptionBtn").addEventListener("click", () => addProposalOptionField(""));
 
           $("addProposalBtn").addEventListener("click", () => {
             if (me && !JOINED.has(me)) { showInlineError("Join first to propose questions"); return; }
@@ -6484,11 +6372,9 @@
               setSending(false, false);
               // A user-initiated cancel is not an error: drop back to the
               // editable form (inputs preserved) with no error toast.
-              if (!isAbortError(e)) showInlineError(e.message || e);
+              if (!isAbortError(e)) showInlineError(friendlyTxError(e));
             }
           });
-
-          initProposalOptionFields();
 
           // --- Vote bottom sheet event listeners ---
           $("voteSurveyBtn").addEventListener("click", () => {
@@ -6536,7 +6422,7 @@
               closeBottomSheet();
             } catch (e) {
               setSending(false, false);
-              setText($("bsBuyError"), e.message || String(e));
+              setText($("bsBuyError"), friendlyTxError(e));
             }
           });
           $("bsSellAction").addEventListener("click", async () => {
@@ -6556,7 +6442,7 @@
               closeBottomSheet();
             } catch (e) {
               setSending(false, false);
-              setText($("bsSellError"), e.message || String(e));
+              setText($("bsSellError"), friendlyTxError(e));
             }
           });
 
