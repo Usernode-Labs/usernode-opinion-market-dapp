@@ -1,4 +1,8 @@
 {
+  "llm": {
+    "purpose": "Generates a neutral binary poll question each day from a trending news headline",
+    "suggested_daily_cap_cents": 5
+  },
   "secrets": [
     {
       "key": "APP_PUBKEY",
@@ -43,6 +47,6 @@
       "required": false,
       "private": true,
       "staging_default": ""
-    }
+    },
   ]
 }

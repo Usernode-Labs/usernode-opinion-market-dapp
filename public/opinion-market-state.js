@@ -200,10 +200,19 @@
     var kind = typeof rawSurvey.kind === "string" && rawSurvey.kind ? rawSurvey.kind : null;
     var strikeUsd = pickNumber(rawSurvey.strike_usd, rawSurvey.strikeUsd);
     var pricedAt = pickNumber(rawSurvey.priced_at, rawSurvey.pricedAt);
+    // News-poll marker fields. Ride inside the survey definition so a
+    // server-authored `create_daily_news` memo carries source attribution
+    // through replay untouched. Plain surveys leave these null.
+    var headline = typeof rawSurvey.headline === "string" ? rawSurvey.headline.trim() || null : null;
+    var sourceUrl = typeof rawSurvey.source_url === "string" ? rawSurvey.source_url.trim() || null
+      : (typeof rawSurvey.sourceUrl === "string" ? rawSurvey.sourceUrl.trim() || null : null);
+    var sourceName = typeof rawSurvey.source_name === "string" ? rawSurvey.source_name.trim() || null
+      : (typeof rawSurvey.sourceName === "string" ? rawSurvey.sourceName.trim() || null : null);
     return {
       id: idBase, title: title, question: question, activeDurationMs: activeDurationMs,
       options: options, revealIntervalMs: revealIntervalMs, allowCustomOptions: allowCustomOptions,
       kind: kind, strikeUsd: strikeUsd, pricedAt: pricedAt,
+      headline: headline, sourceUrl: sourceUrl, sourceName: sourceName,
     };
   }
 
@@ -924,6 +933,25 @@
       }
     }
 
+    /* --- Phase 3d: Daily News polls ---
+     *
+     * `create_daily_news` is a server-authored memo (see daily-news.js). Like
+     * daily-BTC it bypasses the admin gate, uses deterministic per-day ids
+     * (news-daily-YYYY-MM-DD), and is reconciled by EARLIEST-memo-wins so two
+     * parallel deploys that generate slightly different questions both resolve
+     * to the same canonical question once either tx lands on-chain. */
+    var NEWS_CREATIONS = new Map(); // surveyId -> { survey, ts, from, txId }
+    for (var ixn = 0; ixn < parsed.length; ixn++) {
+      var Pn = parsed[ixn];
+      if (Pn.memo.type !== "create_daily_news") continue;
+      var svn = normalizeSurveyDefinition(Pn.memo.survey);
+      if (!svn || svn.kind !== "news_poll") continue;
+      var prevN = NEWS_CREATIONS.get(svn.id);
+      if (earlierWins(prevN, Pn.tx.ts, Pn.tx.id)) {
+        NEWS_CREATIONS.set(svn.id, { survey: svn, ts: Pn.tx.ts, from: Pn.tx.from, txId: Pn.tx.id });
+      }
+    }
+
     /* --- Phase 3: Surveys (admin-only, rate-limited, with delete/resolve_early) --- */
     var effectiveAdmin = adminPubkey || firstJoiner;
     var allCreations = [];
@@ -977,6 +1005,10 @@
     // lazily from platform liquidity on the first bet.
     WC26_CREATIONS.forEach(function (w) {
       latestCreated.set(w.survey.id, { survey: w.survey, ts: w.ts, from: null });
+    });
+    // Merge daily-news polls, same bypass as daily-BTC: `from` is null.
+    NEWS_CREATIONS.forEach(function (n) {
+      latestCreated.set(n.survey.id, { survey: n.survey, ts: n.ts, from: null });
     });
     var earlyResolves = new Map();
     for (var ie = 0; ie < parsed.length; ie++) {

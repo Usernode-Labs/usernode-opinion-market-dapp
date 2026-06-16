@@ -138,6 +138,7 @@ Memos are JSON. OM only acts on these:
 - `client → OM (upvote)`:        `{"app":"opinion-market","type":"upvote_proposal","proposal":"<proposalId>"}`
 - `server → OM (pubkeys)`:       `{"app":"opinion-market","type":"publish_pubkeys","survey":"<id>","batch":<n>,"pubkeys":[…]}`
 - `server → OM (reveal)`:        `{"app":"opinion-market","type":"reveal_key","survey":"<id>","interval":<i>,"jwk":{…}}`
+- `server → OM (daily news)`:    `{"app":"opinion-market","type":"create_daily_news","survey":{"id":"news-daily-YYYY-MM-DD","kind":"news_poll","headline":"…","source_url":"…","source_name":"…",…}}`
 
 The server is a no-op consumer for `vote`, `add_option`,
 `propose_question`, and `upvote_proposal` memos — it just keeps them in
