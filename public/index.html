@@ -871,6 +871,57 @@
       .chartTimeControls button.active {
         background: var(--accent); color: #fff; border-color: var(--accent);
       }
+      /* Analytics panel (question detail) */
+      .analyticsPanel {
+        margin: 8px 0; padding: 12px; border-radius: 10px;
+        background: var(--card); border: 1px solid var(--border);
+      }
+      .analyticsPanel-title, .aiPanel-title {
+        font-size: 12px; font-weight: 600; letter-spacing: .03em;
+        text-transform: uppercase; color: var(--muted); margin: 0 0 8px;
+        display: flex; align-items: center; gap: 6px;
+      }
+      .analyticsGrid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;
+      }
+      .analyticsStat { display: flex; flex-direction: column; gap: 2px; }
+      .analyticsStat-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .analyticsStat-label { font-size: 11px; color: var(--muted); }
+      .analyticsStat-sub { font-size: 11px; color: var(--muted); }
+      .momentum-up { color: var(--ok); }
+      .momentum-down { color: var(--danger); }
+      .momentum-flat { color: var(--muted); }
+      .splitBar {
+        display: flex; width: 100%; height: 18px; border-radius: 6px;
+        overflow: hidden; margin-top: 4px; background: var(--border);
+      }
+      .splitBar-seg { height: 100%; min-width: 2px; }
+      .splitLegend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 12px; }
+      .splitLegend-item { display: flex; align-items: center; gap: 5px; }
+      .voteTrendChart { width: 100%; height: 90px; margin-top: 4px; }
+      .voteTrendChart svg { width: 100%; height: 100%; display: block; }
+      .analyticsEmpty { font-size: 12px; color: var(--muted); padding: 4px 0; }
+      /* AI insights panel (production only) */
+      .aiPanel {
+        margin: 8px 0; padding: 12px; border-radius: 10px;
+        background: var(--card); border: 1px solid var(--border);
+      }
+      .aiPanel-badge {
+        font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 6px;
+        background: color-mix(in oklab, var(--accent) 18%, transparent);
+        color: var(--accent); text-transform: uppercase; letter-spacing: .04em;
+      }
+      .aiSides { display: flex; flex-direction: column; gap: 10px; }
+      .aiSide { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+      .aiSide-head { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+      .aiSide-group { margin: 4px 0; }
+      .aiSide-groupLabel { font-size: 11px; font-weight: 600; color: var(--muted); }
+      .aiSide ul { margin: 2px 0 0; padding-left: 18px; }
+      .aiSide li { font-size: 12px; line-height: 1.45; margin: 1px 0; }
+      .aiPanel-pro { color: var(--ok); }
+      .aiPanel-con { color: var(--danger); }
+      .aiDisclaimer { font-size: 10px; color: var(--muted); margin-top: 8px; font-style: italic; }
+      .aiLoading { font-size: 12px; color: var(--muted); padding: 4px 0; }
       .voteStatus {
         font-size: 13px;
         padding: 8px 12px;
@@ -1792,6 +1843,13 @@
                 <div id="surveyVoterCount" class="muted" style="font-size: 11px;"></div>
               </div>
               <div id="surveyRevealInfo" class="revealNotice hide" style="margin: 8px 0;"></div>
+              <!-- Analytics panel: split / participants / vote trend / momentum.
+                   Populated by renderAnalyticsPanel() in renderSurveyDetail. -->
+              <div id="surveyAnalytics" class="analyticsPanel hide"></div>
+              <!-- AI pros/cons insights (production only — hidden when the
+                   platform LLM proxy isn't configured). Populated by
+                   renderAiInsights() / fetchAiSummary(). -->
+              <div id="surveyAiInsights" class="aiPanel hide"></div>
               <!-- Primary vote CTA. Visible to everyone for active questions;
                    label flips to "Change vote" after the user has voted.
                    Shares the same vertical-stack styling as the admin
@@ -4803,6 +4861,312 @@
         ];
         let _chartRangeMs = 0;
 
+        /* ================================================================
+         *  ANALYTICS PANEL (question detail) — split / participants /
+         *  vote-trend / momentum. Metric math lives in the shared
+         *  opinion-market-state.js (computeMarketAnalytics) so the client
+         *  and any server consumer agree; this only draws the result.
+         * ================================================================ */
+        function renderVoteTrendChart(container, voteTrend) {
+          container.textContent = "";
+          if (!voteTrend || voteTrend.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "analyticsEmpty";
+            empty.textContent = "No votes yet";
+            container.appendChild(empty);
+            return;
+          }
+          // Extend the step line to "now" so a flat tail is visible.
+          const pts = [...voteTrend];
+          const last = pts[pts.length - 1];
+          pts.push({ ts: Date.now(), count: last.count });
+
+          const measuredW = container.clientWidth || 320;
+          const W = Math.max(measuredW, 200), H = 90, PAD_L = 24, PAD_R = 6, PAD_T = 6, PAD_B = 14;
+          const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B;
+          const tMin = pts[0].ts, tMax = pts[pts.length - 1].ts;
+          const tRange = Math.max(tMax - tMin, 1);
+          const maxCount = Math.max(last.count, 1);
+          const tx = (t) => PAD_L + ((t - tMin) / tRange) * cw;
+          const ty = (c) => PAD_T + (1 - c / maxCount) * ch;
+
+          const ns = "http://www.w3.org/2000/svg";
+          const svg = document.createElementNS(ns, "svg");
+          svg.setAttribute("width", W);
+          svg.setAttribute("height", H);
+          svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+          svg.setAttribute("preserveAspectRatio", "none");
+
+          // baseline
+          const base = document.createElementNS(ns, "line");
+          base.setAttribute("x1", PAD_L); base.setAttribute("x2", W - PAD_R);
+          base.setAttribute("y1", ty(0)); base.setAttribute("y2", ty(0));
+          base.setAttribute("stroke", "var(--border)"); base.setAttribute("stroke-width", "1");
+          svg.appendChild(base);
+
+          // step path
+          let d = `M ${tx(pts[0].ts)} ${ty(pts[0].count)}`;
+          for (let i = 1; i < pts.length; i++) {
+            d += ` L ${tx(pts[i].ts)} ${ty(pts[i - 1].count)} L ${tx(pts[i].ts)} ${ty(pts[i].count)}`;
+          }
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", d);
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke", "var(--accent)");
+          path.setAttribute("stroke-width", "2");
+          svg.appendChild(path);
+
+          // max-count label
+          const lbl = document.createElementNS(ns, "text");
+          lbl.setAttribute("x", "2"); lbl.setAttribute("y", ty(maxCount) + 4);
+          lbl.setAttribute("font-size", "9"); lbl.setAttribute("fill", "var(--muted)");
+          lbl.textContent = String(maxCount);
+          svg.appendChild(lbl);
+
+          container.appendChild(svg);
+        }
+
+        function renderAnalyticsPanel(container, analytics, options) {
+          container.textContent = "";
+          if (!analytics) { show(container, false); return; }
+
+          const title = document.createElement("div");
+          title.className = "analyticsPanel-title";
+          title.textContent = "📊 Analytics";
+          container.appendChild(title);
+
+          // --- Current split (bar + legend) ---
+          const splitWrap = document.createElement("div");
+          splitWrap.style.marginBottom = "10px";
+          const splitLabel = document.createElement("div");
+          splitLabel.className = "analyticsStat-label";
+          splitLabel.textContent = analytics.split.source === "votes"
+            ? "Final vote split"
+            : "Current split (market-implied)";
+          splitWrap.appendChild(splitLabel);
+
+          if (analytics.split.hasData && analytics.split.entries.length) {
+            const bar = document.createElement("div");
+            bar.className = "splitBar";
+            const legend = document.createElement("div");
+            legend.className = "splitLegend";
+            analytics.split.entries.forEach((e, i) => {
+              const seg = document.createElement("div");
+              seg.className = "splitBar-seg";
+              seg.style.width = (e.pct * 100).toFixed(2) + "%";
+              seg.style.background = optionColor(i, e.label);
+              bar.appendChild(seg);
+
+              const li = document.createElement("span");
+              li.className = "splitLegend-item";
+              const dot = document.createElement("span");
+              dot.className = "optDot";
+              dot.style.background = optionColor(i, e.label);
+              const txt = document.createElement("span");
+              const parsed = parseOptionLabel(e.label);
+              txt.textContent = (parsed.text || e.key) + " " + formatPct(e.pct);
+              li.appendChild(dot); li.appendChild(txt);
+              legend.appendChild(li);
+            });
+            splitWrap.appendChild(bar);
+            splitWrap.appendChild(legend);
+          } else {
+            const empty = document.createElement("div");
+            empty.className = "analyticsEmpty";
+            empty.textContent = "No bets yet";
+            splitWrap.appendChild(empty);
+          }
+          container.appendChild(splitWrap);
+
+          // --- Stat grid: participants + momentum ---
+          const grid = document.createElement("div");
+          grid.className = "analyticsGrid";
+
+          const partStat = document.createElement("div");
+          partStat.className = "analyticsStat";
+          const partVal = document.createElement("div");
+          partVal.className = "analyticsStat-value";
+          partVal.textContent = String(analytics.participants);
+          const partLbl = document.createElement("div");
+          partLbl.className = "analyticsStat-label";
+          partLbl.textContent = "Participants";
+          const partSub = document.createElement("div");
+          partSub.className = "analyticsStat-sub";
+          partSub.textContent = `${analytics.voterCount} voted · ${analytics.bettorCount} bet`;
+          partStat.appendChild(partVal); partStat.appendChild(partLbl); partStat.appendChild(partSub);
+          grid.appendChild(partStat);
+
+          const momStat = document.createElement("div");
+          momStat.className = "analyticsStat";
+          const momVal = document.createElement("div");
+          momVal.className = "analyticsStat-value";
+          const m = analytics.momentum;
+          if (!m || !m.available) {
+            momVal.classList.add("momentum-flat");
+            momVal.textContent = "—";
+          } else if (m.label === "heating") {
+            momVal.classList.add("momentum-up");
+            momVal.textContent = "▲ +" + Math.round(m.deltaPts) + " pts";
+          } else if (m.label === "cooling") {
+            momVal.classList.add("momentum-down");
+            momVal.textContent = "▼ " + Math.round(m.deltaPts) + " pts";
+          } else {
+            momVal.classList.add("momentum-flat");
+            momVal.textContent = "▬ steady";
+          }
+          const momLbl = document.createElement("div");
+          momLbl.className = "analyticsStat-label";
+          momLbl.textContent = "Momentum";
+          const momSub = document.createElement("div");
+          momSub.className = "analyticsStat-sub";
+          if (!m || !m.available) {
+            momSub.textContent = "Not enough recent activity";
+          } else {
+            const lead = m.leaderLabel ? (parseOptionLabel(m.leaderLabel).text || m.leaderKey) : m.leaderKey;
+            const word = m.label === "heating" ? "Heating up" : m.label === "cooling" ? "Cooling off" : "Steady";
+            momSub.textContent = `${word} · ${lead} leading (last hour)`;
+          }
+          momStat.appendChild(momVal); momStat.appendChild(momLbl); momStat.appendChild(momSub);
+          grid.appendChild(momStat);
+
+          container.appendChild(grid);
+
+          // --- Vote trend over time ---
+          const trendLabel = document.createElement("div");
+          trendLabel.className = "analyticsStat-label";
+          trendLabel.textContent = "Participation over time";
+          container.appendChild(trendLabel);
+          const trendWrap = document.createElement("div");
+          trendWrap.className = "voteTrendChart";
+          container.appendChild(trendWrap);
+          renderVoteTrendChart(trendWrap, analytics.voteTrend);
+
+          show(container, true);
+        }
+
+        /* ================================================================
+         *  AI INSIGHTS (production only) — fetched from the server-side
+         *  /__om/ai-summary/:surveyId endpoint, which gates on the platform
+         *  LLM proxy token. When unavailable (staging/standalone) the panel
+         *  is simply hidden. Cached per survey id so reopening is instant.
+         * ================================================================ */
+        const _aiSummaryCache = new Map(); // surveyId -> { enabled, sides, ... } | "loading"
+
+        function renderAiInsights(container, surveyId, options) {
+          const cached = _aiSummaryCache.get(surveyId);
+          // Not enabled, errored, or no data → hide the card entirely.
+          if (!cached || cached === "error" || (cached !== "loading" && !cached.enabled)) {
+            show(container, false);
+            return;
+          }
+          container.textContent = "";
+
+          const title = document.createElement("div");
+          title.className = "aiPanel-title";
+          const tspan = document.createElement("span");
+          tspan.textContent = "AI insights";
+          const badge = document.createElement("span");
+          badge.className = "aiPanel-badge";
+          badge.textContent = "AI";
+          title.appendChild(tspan); title.appendChild(badge);
+          container.appendChild(title);
+
+          if (cached === "loading") {
+            const loading = document.createElement("div");
+            loading.className = "aiLoading";
+            loading.textContent = "Generating a balanced pros/cons summary…";
+            container.appendChild(loading);
+            show(container, true);
+            return;
+          }
+
+          const sides = Array.isArray(cached.sides) ? cached.sides : [];
+          if (!sides.length) { show(container, false); return; }
+
+          const sidesWrap = document.createElement("div");
+          sidesWrap.className = "aiSides";
+          sides.forEach((side) => {
+            const opt = (options || []).find(o => o.key === side.key);
+            const label = opt ? (parseOptionLabel(opt.label).text || opt.key) : (side.label || side.key);
+            const idx = (options || []).findIndex(o => o.key === side.key);
+
+            const card = document.createElement("div");
+            card.className = "aiSide";
+            const head = document.createElement("div");
+            head.className = "aiSide-head";
+            const dot = document.createElement("span");
+            dot.className = "optDot";
+            dot.style.background = optionColor(idx < 0 ? 0 : idx, label);
+            const name = document.createElement("span");
+            name.textContent = label;
+            head.appendChild(dot); head.appendChild(name);
+            card.appendChild(head);
+
+            const mkGroup = (groupLabel, items, cls) => {
+              if (!Array.isArray(items) || !items.length) return;
+              const g = document.createElement("div");
+              g.className = "aiSide-group";
+              const gl = document.createElement("div");
+              gl.className = "aiSide-groupLabel " + cls;
+              gl.textContent = groupLabel;
+              g.appendChild(gl);
+              const ul = document.createElement("ul");
+              items.slice(0, 3).forEach((t) => {
+                const li = document.createElement("li");
+                li.textContent = String(t);
+                ul.appendChild(li);
+              });
+              g.appendChild(ul);
+              card.appendChild(g);
+            };
+            mkGroup("Pros", side.pros, "aiPanel-pro");
+            mkGroup("Cons", side.cons, "aiPanel-con");
+            sidesWrap.appendChild(card);
+          });
+          container.appendChild(sidesWrap);
+
+          const disc = document.createElement("div");
+          disc.className = "aiDisclaimer";
+          disc.textContent = "AI-generated · informational only, not financial advice.";
+          container.appendChild(disc);
+
+          show(container, true);
+        }
+
+        // Fetch (once per survey id) the AI summary, then re-render the card.
+        // Failures degrade silently — the card just stays hidden.
+        function fetchAiSummary(surveyId) {
+          if (!surveyId) return;
+          const existing = _aiSummaryCache.get(surveyId);
+          if (existing !== undefined) {
+            // Already loading or resolved — just (re)render with what we have.
+            const c = $("surveyAiInsights");
+            const sv = SURVEYS_BY_ID.get(surveyId);
+            if (c && sv) renderAiInsights(c, surveyId, sv.options);
+            return;
+          }
+          _aiSummaryCache.set(surveyId, "loading");
+          const c0 = $("surveyAiInsights");
+          const sv0 = SURVEYS_BY_ID.get(surveyId);
+          if (c0 && sv0) renderAiInsights(c0, surveyId, sv0.options);
+
+          fetchWithTimeout(`/__om/ai-summary/${encodeURIComponent(surveyId)}`, undefined, 35000)
+            .then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+            .then((data) => {
+              _aiSummaryCache.set(surveyId, data || { enabled: false });
+            })
+            .catch(() => {
+              _aiSummaryCache.set(surveyId, "error");
+            })
+            .finally(() => {
+              // Only re-render if the user is still on this survey.
+              if (currentSurveyId !== surveyId) return;
+              const c = $("surveyAiInsights");
+              const sv = SURVEYS_BY_ID.get(surveyId);
+              if (c && sv) renderAiInsights(c, surveyId, sv.options);
+            });
+        }
+
         function renderOddsChart(container, history, options) {
           container.textContent = "";
           if (!history || history.length === 0) return;
@@ -5546,6 +5910,23 @@
           // --- Header area: volume + votes ---
           const totalVolume = (hasMarket && mkt.optionVolume) ? Object.values(mkt.optionVolume).reduce((a, b) => a + b, 0) : 0;
           setText($("surveyVoterCount"), `${formatCredits(totalVolume)}c total volume \u00B7 ${vc} vote${vc !== 1 ? "s" : ""}`);
+
+          // --- Analytics panel: split / participants / vote trend / momentum ---
+          const analyticsEl = $("surveyAnalytics");
+          if (analyticsEl && window.OpinionMarketState && window.OpinionMarketState.computeMarketAnalytics) {
+            try {
+              const analytics = window.OpinionMarketState.computeMarketAnalytics(
+                s, mkt, latestTxs, settlement, { appPubkey: APP_PUBKEY, now: Date.now() }
+              );
+              renderAnalyticsPanel(analyticsEl, analytics, s.options);
+            } catch (e) {
+              show(analyticsEl, false);
+            }
+          }
+
+          // --- AI insights (production only; hidden in staging/standalone) ---
+          const aiEl = $("surveyAiInsights");
+          if (aiEl) fetchAiSummary(s.id);
 
           // Vote button label/visibility — kept in sync with the latest
           // computed previous vote so the button flips to "Change vote"

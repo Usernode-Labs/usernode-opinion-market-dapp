@@ -1767,6 +1767,152 @@
     return out;
   }
 
+  /* ── Market analytics (detail-view panel) ─────────────────────────────
+   * Pure, side-effect-free derivation of the four analytics metrics shown
+   * in the question-detail "Analytics" panel:
+   *   - split        — current per-option share (market-implied while active;
+   *                     final decrypted vote tally once settled)
+   *   - participants — distinct accounts that voted and/or bet
+   *   - voteTrend    — cumulative distinct-voter count over time (built from
+   *                     the PLAINTEXT vote envelopes; works pre-reveal)
+   *   - momentum     — recent move of the leading option's implied odds
+   *
+   * Importable in Node (unit-tested) and the browser (renderSurveyDetail).
+   * Reads only what computeFullState already produced (`mkt.history`,
+   * `mkt.pools`) plus the raw tx feed; never mutates its inputs.
+   *
+   * Args:
+   *   survey     — normalized survey ({ id, options, archived, kind, ... })
+   *   mkt        — MARKETS.get(survey.id) or null
+   *   rawTxs     — raw chain txs (vote/place_bet envelopes; plaintext)
+   *   settlement — SETTLEMENTS.get(survey.id) or null
+   *   opts       — { appPubkey, now, momentumWindowMs }
+   */
+  var DEFAULT_MOMENTUM_WINDOW_MS = 60 * 60 * 1000; // 1h
+  var MOMENTUM_STEADY_PTS = 2; // |delta| < 2pts reads as "steady"
+
+  function computeMarketAnalytics(survey, mkt, rawTxs, settlement, opts) {
+    opts = opts || {};
+    var appPubkey = opts.appPubkey;
+    var now = typeof opts.now === "number" ? opts.now : Date.now();
+    var windowMs = typeof opts.momentumWindowMs === "number" && opts.momentumWindowMs > 0
+      ? opts.momentumWindowMs
+      : DEFAULT_MOMENTUM_WINDOW_MS;
+
+    var options = (survey && survey.options) || [];
+    var parseAppTx = makeParseAppTx(appPubkey);
+
+    // --- Pass over the raw feed: voters (first-seen ts) + bettors ---
+    var voterFirstTs = {};   // pubkey -> earliest vote ts
+    var bettors = {};        // pubkey -> true
+    var txs = rawTxs || [];
+    for (var i = 0; i < txs.length; i++) {
+      var P = parseAppTx(txs[i]);
+      if (!P) continue;
+      if (P.memo.survey == null || String(P.memo.survey) !== String(survey.id)) continue;
+      if (P.memo.type === "vote") {
+        var vf = P.tx.from;
+        if (vf && (voterFirstTs[vf] == null || P.tx.ts < voterFirstTs[vf])) voterFirstTs[vf] = P.tx.ts;
+      } else if (P.memo.type === "place_bet") {
+        if (P.tx.from) bettors[P.tx.from] = true;
+      }
+    }
+
+    var voterKeys = Object.keys(voterFirstTs);
+    var participantSet = {};
+    for (var vk = 0; vk < voterKeys.length; vk++) participantSet[voterKeys[vk]] = true;
+    var betKeys = Object.keys(bettors);
+    for (var bk = 0; bk < betKeys.length; bk++) participantSet[betKeys[bk]] = true;
+    var participants = Object.keys(participantSet).length;
+    var voterCount = voterKeys.length;
+    var bettorCount = betKeys.length;
+
+    // --- Vote trend: cumulative distinct voters over time ---
+    var firstTimes = [];
+    for (var ft = 0; ft < voterKeys.length; ft++) firstTimes.push(voterFirstTs[voterKeys[ft]]);
+    firstTimes.sort(function (a, b) { return a - b; });
+    var voteTrend = [];
+    for (var tt = 0; tt < firstTimes.length; tt++) {
+      voteTrend.push({ ts: firstTimes[tt], count: tt + 1 });
+    }
+
+    // --- Split: final decrypted votes when settled, else market-implied ---
+    var split = { source: "market", entries: [], hasData: false };
+    var settledVoteCounts = settlement && settlement.voteCounts ? settlement.voteCounts : null;
+    var settledTotal = 0;
+    if (settledVoteCounts) {
+      var scKeys = Object.keys(settledVoteCounts);
+      for (var sc = 0; sc < scKeys.length; sc++) settledTotal += settledVoteCounts[scKeys[sc]] || 0;
+    }
+    if (survey && survey.archived && settledTotal > 0) {
+      split.source = "votes";
+      for (var so = 0; so < options.length; so++) {
+        var ok = options[so].key;
+        var cnt = settledVoteCounts[ok] || 0;
+        split.entries.push({ key: ok, label: options[so].label, pct: cnt / settledTotal, count: cnt });
+      }
+      split.hasData = true;
+    } else if (mkt && mkt.pools && CPMM.cpmmProb) {
+      var hasLiquidity = cpmmTotalLiquidity(mkt) > 0;
+      for (var mo = 0; mo < options.length; mo++) {
+        var mk = options[mo].key;
+        var pool = mkt.pools[mk];
+        var prob = pool ? CPMM.cpmmProb(pool) : 0;
+        split.entries.push({ key: mk, label: options[mo].label, pct: prob });
+      }
+      split.hasData = hasLiquidity;
+    } else {
+      for (var eo = 0; eo < options.length; eo++) {
+        split.entries.push({ key: options[eo].key, label: options[eo].label, pct: 0 });
+      }
+      split.hasData = false;
+    }
+
+    // --- Momentum: recent move of the leading option's implied odds ---
+    var momentum = { available: false, label: "steady", deltaPts: 0, windowMs: windowMs, leaderKey: null, leaderLabel: null };
+    var history = (mkt && mkt.history) || [];
+    // Momentum is only meaningful for a live market with at least two points.
+    if (!survey.archived && history.length >= 2) {
+      var latest = history[history.length - 1];
+      var latestProbs = latest.probs || {};
+      // Leader = option with the highest current implied probability.
+      var leaderKey = null, leaderProb = -1;
+      for (var lo = 0; lo < options.length; lo++) {
+        var lk = options[lo].key;
+        var lp = typeof latestProbs[lk] === "number" ? latestProbs[lk] : 0;
+        if (lp > leaderProb) { leaderProb = lp; leaderKey = lk; }
+      }
+      if (leaderKey != null) {
+        // Find the probability at the start of the trailing window: the last
+        // history point at or before the cutoff, else the earliest point.
+        var cutoff = now - windowMs;
+        var pastPoint = history[0];
+        for (var hp = 0; hp < history.length; hp++) {
+          if (history[hp].ts <= cutoff) pastPoint = history[hp];
+          else break;
+        }
+        var pastProb = pastPoint.probs && typeof pastPoint.probs[leaderKey] === "number" ? pastPoint.probs[leaderKey] : 0;
+        var deltaPts = (leaderProb - pastProb) * 100;
+        var leaderLabel = null;
+        for (var ll = 0; ll < options.length; ll++) { if (options[ll].key === leaderKey) leaderLabel = options[ll].label; }
+        momentum.available = true;
+        momentum.leaderKey = leaderKey;
+        momentum.leaderLabel = leaderLabel;
+        momentum.deltaPts = deltaPts;
+        momentum.label = Math.abs(deltaPts) < MOMENTUM_STEADY_PTS ? "steady" : (deltaPts > 0 ? "heating" : "cooling");
+      }
+    }
+
+    return {
+      split: split,
+      participants: participants,
+      voterCount: voterCount,
+      bettorCount: bettorCount,
+      voteTrend: voteTrend,
+      momentum: momentum,
+    };
+  }
+
   var api = {
     // Constants
     INITIAL_CREDITS: INITIAL_CREDITS,
@@ -1817,6 +1963,7 @@
     userShareValue: userShareValue,
     validatePlaceBet: validatePlaceBet,
     findRejectedSends: findRejectedSends,
+    computeMarketAnalytics: computeMarketAnalytics,
   };
 
   if (typeof module !== "undefined" && module.exports) {

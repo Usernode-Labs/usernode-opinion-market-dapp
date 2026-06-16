@@ -1013,4 +1013,123 @@ test("#33 regression: legacy multi-option surveys (3 base + add_option) still re
   assert(state.CREDIT_FLOWS.get(USER_A).payouts > 0, "winning bet on a multi-option market paid out");
 });
 
+/* ── computeMarketAnalytics (detail-view Analytics panel) ──────────── */
+
+// Helper: build a state + survey + market for an active binary survey with
+// some votes and bets, then derive analytics from it.
+async function analyticsFixture(now) {
+  nextTxId = 1;
+  const survey = {
+    id: "anly1", title: "T", question: "Q?",
+    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
+    active_duration_ms: 30 * 86400000,
+  };
+  const base = 1700000000000;
+  // NOTE: tx()'s 4th arg is a RELATIVE offset; it adds `base` internally.
+  const txs = [
+    tx(ADMIN, "join", null, 0),
+    tx(USER_A, "join", null, 1000),
+    tx(USER_B, "join", null, 2000),
+    tx(USER_C, "join", null, 3000),
+    tx(ADMIN, "create_survey", { survey }, 4000),
+    // Votes (plaintext choice passes through decryptVoteMemos) spaced in time.
+    tx(USER_A, "vote", { survey: "anly1", choice: "yes" }, 10000),
+    tx(USER_B, "vote", { survey: "anly1", choice: "no" }, 20000),
+    tx(USER_C, "vote", { survey: "anly1", choice: "yes" }, 30000),
+    // Bets pushing the "yes" option's implied prob up over time.
+    tx(USER_A, "place_bet", { survey: "anly1", option: "yes", side: "yes", credits: 50 }, 11000),
+    tx(USER_B, "place_bet", { survey: "anly1", option: "yes", side: "yes", credits: 80 }, 25000),
+  ];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
+    now: now,
+  });
+  return { state, survey: state.SURVEYS_BY_ID.get("anly1"), rawTxs: txs, base };
+}
+
+test("computeMarketAnalytics: participant union counts voters + bettors", async () => {
+  const now = 1700000000000 + 40000;
+  const { state, survey, rawTxs } = await analyticsFixture(now);
+  const a = OMS.computeMarketAnalytics(survey, state.MARKETS.get("anly1"), rawTxs, null, { appPubkey: APP_PUBKEY, now });
+  // Voters: A, B, C. Bettors: A, B. Union = {A,B,C} = 3.
+  assert.strictEqual(a.voterCount, 3, "three distinct voters");
+  assert.strictEqual(a.bettorCount, 2, "two distinct bettors");
+  assert.strictEqual(a.participants, 3, "participant union dedups A/B who both voted and bet");
+});
+
+test("computeMarketAnalytics: vote trend is a cumulative, time-ordered curve", async () => {
+  const now = 1700000000000 + 40000;
+  const { state, survey, rawTxs } = await analyticsFixture(now);
+  const a = OMS.computeMarketAnalytics(survey, state.MARKETS.get("anly1"), rawTxs, null, { appPubkey: APP_PUBKEY, now });
+  assert.strictEqual(a.voteTrend.length, 3, "one point per distinct voter");
+  assert.deepStrictEqual(a.voteTrend.map(p => p.count), [1, 2, 3], "monotonically increasing count");
+  for (let i = 1; i < a.voteTrend.length; i++) {
+    assert(a.voteTrend[i].ts >= a.voteTrend[i - 1].ts, "timestamps non-decreasing");
+  }
+});
+
+test("computeMarketAnalytics: momentum reports an upward move on the rising leader", async () => {
+  const now = 1700000000000 + 40000;
+  const { state, survey, rawTxs } = await analyticsFixture(now);
+  // Window large enough to span both bets so the past reference predates them.
+  const a = OMS.computeMarketAnalytics(survey, state.MARKETS.get("anly1"), rawTxs, null, { appPubkey: APP_PUBKEY, now, momentumWindowMs: 60000 });
+  assert(a.momentum.available, "momentum available with >= 2 history points");
+  assert.strictEqual(a.momentum.leaderKey, "yes", "yes is leading after the yes-side bets");
+  assert(a.momentum.deltaPts > 0, "leader probability rose over the window");
+  assert.strictEqual(a.momentum.label, "heating", "rising leader reads as heating up");
+});
+
+test("computeMarketAnalytics: split is market-implied while active", async () => {
+  const now = 1700000000000 + 40000;
+  const { state, survey, rawTxs } = await analyticsFixture(now);
+  const a = OMS.computeMarketAnalytics(survey, state.MARKETS.get("anly1"), rawTxs, null, { appPubkey: APP_PUBKEY, now });
+  assert.strictEqual(a.split.source, "market", "active survey uses market-implied split");
+  assert(a.split.hasData, "split has data once the market has liquidity");
+  const yes = a.split.entries.find(e => e.key === "yes");
+  const no = a.split.entries.find(e => e.key === "no");
+  assert(yes && no, "both sides present");
+  assert(yes.pct > no.pct, "yes leads after yes-side bets");
+  assert(Math.abs((yes.pct + no.pct) - 1) < 0.02, "binary split sums to ~1");
+});
+
+test("computeMarketAnalytics: split switches to final vote tally once settled", async () => {
+  // Short survey so it archives; oracle-free binary settles on the vote map.
+  nextTxId = 1;
+  const survey = {
+    id: "anly2", title: "T", question: "Q?",
+    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
+    active_duration_ms: 60000,
+  };
+  const base = 1700000000000;
+  // NOTE: tx()'s 4th arg is a RELATIVE offset; it adds `base` internally.
+  const txs = [
+    tx(ADMIN, "join", null, 0),
+    tx(USER_A, "join", null, 1000),
+    tx(USER_B, "join", null, 2000),
+    tx(USER_C, "join", null, 3000),
+    tx(ADMIN, "create_survey", { survey }, 4000),
+    tx(USER_A, "vote", { survey: "anly2", choice: "yes" }, 10000),
+    tx(USER_B, "vote", { survey: "anly2", choice: "yes" }, 11000),
+    tx(USER_C, "vote", { survey: "anly2", choice: "no" }, 12000),
+  ];
+  const now = base + 5 * 60000; // well past the 60s active window
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
+    now: now,
+  });
+  const sv = state.SURVEYS_BY_ID.get("anly2");
+  assert(sv.archived, "survey archived after active window");
+  const a = OMS.computeMarketAnalytics(sv, state.MARKETS.get("anly2"), txs, state.SETTLEMENTS.get("anly2"), { appPubkey: APP_PUBKEY, now });
+  assert.strictEqual(a.split.source, "votes", "settled survey uses final vote tally");
+  const yes = a.split.entries.find(e => e.key === "yes");
+  const no = a.split.entries.find(e => e.key === "no");
+  assert.strictEqual(yes.count, 2, "two yes votes");
+  assert.strictEqual(no.count, 1, "one no vote");
+  assert(Math.abs(yes.pct - 2 / 3) < 0.001, "yes share = 2/3");
+  // Momentum is hidden for archived markets.
+  assert.strictEqual(a.momentum.available, false, "no momentum once archived");
+});
+
 run();

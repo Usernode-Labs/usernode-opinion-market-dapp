@@ -51,6 +51,38 @@ const BINARY_OPTIONS = [
   { key: "no", label: "No" },
 ];
 
+// Which seeded poll gets a populated analytics panel (votes + bets so the
+// detail-view Analytics card has a non-trivial split, participant count,
+// vote-trend curve, and momentum). Obviously-fake synthetic accounts.
+const ANALYTICS_POLL_ID = "staging-demo-rain";
+const ANALYTICS_VOTERS = [
+  "ut1stagingdemovoter01000000000000000000000000",
+  "ut1stagingdemovoter02000000000000000000000000",
+  "ut1stagingdemovoter03000000000000000000000000",
+  "ut1stagingdemovoter04000000000000000000000000",
+  "ut1stagingdemovoter05000000000000000000000000",
+  "ut1stagingdemovoter06000000000000000000000000",
+];
+const MIN_MS = 60 * 1000;
+// Synthetic activity for the analytics poll. `ago` = minutes before "now"
+// so the vote-trend curve builds over time and momentum (1h window) sees a
+// recent move. Bets alternate sides so the split bar isn't 50/50.
+const ANALYTICS_VOTES = [
+  { voter: 0, choice: "yes", agoMin: 175 },
+  { voter: 1, choice: "yes", agoMin: 150 },
+  { voter: 2, choice: "no", agoMin: 120 },
+  { voter: 3, choice: "yes", agoMin: 90 },
+  { voter: 4, choice: "no", agoMin: 55 },
+  { voter: 5, choice: "yes", agoMin: 20 },
+];
+const ANALYTICS_BETS = [
+  { bettor: 0, side: "yes", credits: 40, agoMin: 170 },
+  { bettor: 1, side: "yes", credits: 60, agoMin: 140 },
+  { bettor: 2, side: "no", credits: 35, agoMin: 110 },
+  { bettor: 3, side: "yes", credits: 80, agoMin: 50 },
+  { bettor: 4, side: "yes", credits: 55, agoMin: 25 },
+];
+
 function txTimestampMs(tx) {
   if (typeof tx.timestamp_ms === "number") return tx.timestamp_ms;
   if (typeof tx.created_at === "number") return tx.created_at;
@@ -109,6 +141,17 @@ function buildCreateMemo(poll) {
   };
 }
 
+// Plaintext vote memo — staging seeds carry the decrypted `choice` directly
+// so opinion-market-state.js's decryptVoteMemos passes them through unchanged
+// (no per-survey key derivation needed for the preview).
+function buildVoteMemo(surveyId, choice) {
+  return { app: APP_ID, type: "vote", survey: surveyId, choice: choice };
+}
+
+function buildBetMemo(surveyId, optKey, side, credits) {
+  return { app: APP_ID, type: "place_bet", survey: surveyId, option: optKey, side: side, credits: credits };
+}
+
 function createStagingPolls(opts) {
   const appPubkey = opts.appPubkey;
   const adminPubkey = opts.adminPubkey || null;
@@ -145,9 +188,11 @@ function createStagingPolls(opts) {
     const sender = adminPubkey || existing.firstJoiner || STAGING_DEMO_SENDER;
 
     // Ensure the sender is joined so it can be the firstJoiner/admin in an
-    // empty cache (and so the surveys have a valid creator). Idempotent.
+    // empty cache (and so the surveys have a valid creator). Joined earlier
+    // than every synthetic analytics account below so the sender always wins
+    // the earliest-joiner (admin) tie-break in an empty cache. Idempotent.
     if (!existing.joined.has(sender)) {
-      try { injectTx(buildJoinMemo(), "staging-seed-join-" + sender.slice(-8), sender, now); }
+      try { injectTx(buildJoinMemo(), "staging-seed-join-" + sender.slice(-8), sender, now - 240 * MIN_MS); }
       catch (e) { console.error(`[staging-polls] join seed error: ${e.message}`); }
     }
 
@@ -155,7 +200,10 @@ function createStagingPolls(opts) {
     for (const poll of DEMO_POLLS) {
       if (existing.createdIds.has(poll.id)) continue;
       try {
-        injectTx(buildCreateMemo(poll), "staging-seed-" + poll.id, sender, now);
+        // The analytics poll is created earlier than its synthetic votes/bets
+        // so the rebuilt market history stays in chronological order.
+        const createTs = poll.id === ANALYTICS_POLL_ID ? now - 210 * MIN_MS : now;
+        injectTx(buildCreateMemo(poll), "staging-seed-" + poll.id, sender, createTs);
         injected++;
       } catch (e) {
         status.lastError = `seed ${poll.id}: ${e.message}`;
@@ -168,6 +216,40 @@ function createStagingPolls(opts) {
       status.lastError = null;
       console.log(`[staging-polls] staging-seeded ${injected} binary Yes/No poll(s) from ${sender.slice(0, 12)}…`);
     }
+
+    // Populate the analytics poll with synthetic votes + bets so the
+    // detail-view Analytics panel (split / participants / trend / momentum)
+    // has real data to render in the preview. Idempotent: fixed tx ids
+    // collapse on re-seed. Only meaningful once the poll itself exists.
+    try {
+      // Join each synthetic account first so bettors have credits and the
+      // accounts count as participants. Idempotent.
+      for (let vi = 0; vi < ANALYTICS_VOTERS.length; vi++) {
+        const acct = ANALYTICS_VOTERS[vi];
+        if (existing.joined && existing.joined.has(acct)) continue;
+        injectTx(buildJoinMemo(), "staging-seed-join-analytics-" + vi, acct, now - 200 * MIN_MS);
+      }
+      for (const v of ANALYTICS_VOTES) {
+        injectTx(
+          buildVoteMemo(ANALYTICS_POLL_ID, v.choice),
+          "staging-seed-vote-" + ANALYTICS_POLL_ID + "-" + v.voter,
+          ANALYTICS_VOTERS[v.voter],
+          now - v.agoMin * MIN_MS
+        );
+      }
+      for (let bi = 0; bi < ANALYTICS_BETS.length; bi++) {
+        const b = ANALYTICS_BETS[bi];
+        injectTx(
+          buildBetMemo(ANALYTICS_POLL_ID, "yes", b.side, b.credits),
+          "staging-seed-bet-" + ANALYTICS_POLL_ID + "-" + bi,
+          ANALYTICS_VOTERS[b.bettor],
+          now - b.agoMin * MIN_MS
+        );
+      }
+    } catch (e) {
+      console.error(`[staging-polls] analytics seed error: ${e.message}`);
+    }
+
     return getStatus();
   }
 
