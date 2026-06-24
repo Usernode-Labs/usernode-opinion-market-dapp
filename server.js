@@ -70,6 +70,7 @@ const createDailyBtc = require("./daily-btc");
 const createWorldCup2026 = require("./world-cup-2026");
 const createStagingPolls = require("./staging-polls");
 const createDailyNews = require("./daily-news");
+const createAiSummary = require("./ai-summary");
 const { buildLeaderboard } = require("./lib/leaderboard");
 
 loadEnvFile();
@@ -249,6 +250,18 @@ const dailyNews = createDailyNews({
 });
 dailyNews.start();
 
+// ── AI pros/cons insights (production-only) ───────────────────────────────────
+// Serves GET /__om/ai-summary/:surveyId. Gated on the platform LLM proxy token
+// (USERNODE_LLM_PROXY_TOKEN) — absent in staging/standalone, where it returns
+// { enabled: false } and the client hides the card. Caches per survey id.
+const aiSummary = createAiSummary({
+  appPubkey: APP_PUBKEY,
+  adminPubkey: ADMIN_PUBKEY || null,
+  genesisAccounts: omGenesisAccounts,
+  getRawTransactions: () => omCache.getRawTransactions(),
+});
+console.log(`[ai-summary] AI insights ${aiSummary.isEnabled() ? "enabled" : "disabled (LLM proxy not configured)"}`);
+
 // Structured schedule derived from the raw-tx cache (created matches +
 // resolutions, group + knockout), sorted by kickoff. A convenience for the
 // schedule screen's initial render — not authoritative (the client can fully
@@ -323,6 +336,12 @@ app.use((req, res, next) => {
 // on-chain `publish_pubkeys` tx lands. Routes: /__om/pubkeys/:surveyId
 app.use((req, res, next) => {
   if (voteEncryption.handleRequest(req, res, req.path)) return;
+  next();
+});
+
+// AI pros/cons insights. Route: GET /__om/ai-summary/:surveyId
+app.use((req, res, next) => {
+  if (req.method === "GET" && aiSummary.handleRequest(req, res, req.path)) return;
   next();
 });
 
