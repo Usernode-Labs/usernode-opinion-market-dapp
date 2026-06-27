@@ -43,7 +43,7 @@
         --muted: #a8b3c7;
         --card: #141b26;
         --border: rgba(255, 255, 255, 0.12);
-        --accent: #6ea8fe;
+        --accent: #ff6b35;
         --danger: #ff6b6b;
         --ok: #5dd39e;
         --warn: #e6a817;
@@ -57,7 +57,7 @@
         --muted: #4b5568;
         --card: #ffffff;
         --border: rgba(15, 23, 42, 0.12);
-        --accent: #2563eb;
+        --accent: #ff6b35;
         --danger: #c81e1e;
         --ok: #0f766e;
         --warn: #b45309;
@@ -70,7 +70,7 @@
           --muted: #4b5568;
           --card: #ffffff;
           --border: rgba(15, 23, 42, 0.12);
-          --accent: #2563eb;
+          --accent: #ff6b35;
           --danger: #c81e1e;
           --ok: #0f766e;
           --warn: #b45309;
@@ -691,8 +691,8 @@
         margin: 0 auto; max-width: 720px;
         padding: 10px 14px;
         display: flex; align-items: center; gap: 10px;
-        background: rgba(110,168,254,0.12);
-        border: 1px solid var(--accent, #6ea8fe);
+        background: rgba(255,107,53,0.12);
+        border: 1px solid var(--accent, #ff6b35);
         border-radius: 8px;
         color: var(--fg);
         font-size: 13px; line-height: 1.4;
@@ -701,8 +701,8 @@
       .pending-banner.hide { display: none; }
       .pending-banner-spinner {
         width: 14px; height: 14px; flex-shrink: 0;
-        border: 2px solid rgba(110,168,254,0.35);
-        border-top-color: var(--accent, #6ea8fe);
+        border: 2px solid rgba(255,107,53,0.35);
+        border-top-color: var(--accent, #ff6b35);
         border-radius: 50%;
         animation: pendingSpin 0.8s linear infinite;
       }
@@ -2004,8 +2004,8 @@
         // button. Null whenever no proposal submit is running.
         let _proposalAbort = null;
 
-        const OPTION_COLORS = ['#6ea8fe','#ff6b6b','#5dd39e','#e6a817','#c084fc','#f472b6','#22d3ee','#fb923c'];
-        const COLOR_NAME_MAP = {red:'#ff6b6b',blue:'#6ea8fe',green:'#5dd39e',yellow:'#e6a817',gold:'#e6a817',purple:'#c084fc',violet:'#c084fc',pink:'#f472b6',cyan:'#22d3ee',teal:'#22d3ee',orange:'#fb923c',black:'#888888',white:'#e0e0e0',brown:'#a0522d',gray:'#9ca3af',grey:'#9ca3af'};
+        const OPTION_COLORS = ['#ff6b35','#ff6b6b','#5dd39e','#e6a817','#c084fc','#f472b6','#22d3ee','#fb923c'];
+        const COLOR_NAME_MAP = {red:'#ff6b6b',blue:'#ff6b35',green:'#5dd39e',yellow:'#e6a817',gold:'#e6a817',purple:'#c084fc',violet:'#c084fc',pink:'#f472b6',cyan:'#22d3ee',teal:'#22d3ee',orange:'#fb923c',black:'#888888',white:'#e0e0e0',brown:'#a0522d',gray:'#9ca3af',grey:'#9ca3af'};
         const COLOR_NAME_RES = Object.keys(COLOR_NAME_MAP).map(k => [new RegExp('\\b' + k + '\\b', 'i'), COLOR_NAME_MAP[k]]);
         function detectColorInLabel(label) {
           if (!label) return null;
@@ -3946,7 +3946,7 @@
               survey.options.forEach(opt => {
                 const pool = mkt.pools[opt.key];
                 const bar = document.createElement("div");
-                bar.style.cssText = "flex:1;text-align:center;font-size:11px;padding:2px 3px;border-radius:5px;background:rgba(110,168,254,0.1);color:var(--accent);";
+                bar.style.cssText = "flex:1;text-align:center;font-size:11px;padding:2px 3px;border-radius:5px;background:rgba(255,107,53,0.1);color:var(--accent);";
                 bar.textContent = opt.label + " " + formatPct(pool ? CPMM.cpmmProb(pool) : 0);
                 oddsRow.appendChild(bar);
               });
