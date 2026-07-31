@@ -128,6 +128,11 @@ const app = express();
 // One hop (Caddy) in front of us.
 app.set("trust proxy", 1);
 
+// Favicon — browsers request /favicon.ico on every page load. There is no icon
+// asset in public/, so without this the request falls through to the `app.get("*")`
+// HTML shell and logs a console error. Answer 204 No Content instead.
+app.get("/favicon.ico", (_req, res) => res.status(204).end());
+
 // Health check — used by Docker healthcheck and platform polling. Includes a
 // daily-BTC and WC26 status block so missing questions are observable without
 // log-diving (modules are constructed below; guard for boot ordering).
