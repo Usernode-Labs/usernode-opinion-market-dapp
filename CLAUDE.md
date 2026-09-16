@@ -70,7 +70,7 @@ conventions win.
     `public/index.html` calls it before `sendTransaction`.
   Also includes the shared `usernode-usernames.js` and
   `usernode-loading.js`. The bridge is loaded from
-  `https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js` —
+  `/usernode-bridge/v1/bridge.js` (relative: the platform serves it on the app's own origin) —
   canonical source lives in the social-vibecoding repo at
   `public/usernode-bridge/v1/bridge.js`. Never vendor it per-app; bridge
   fixes ship from one SV redeploy, fleet-wide. The loader is still
