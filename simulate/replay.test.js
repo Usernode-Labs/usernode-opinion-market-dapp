@@ -1013,4 +1013,107 @@ test("#33 regression: legacy multi-option surveys (3 base + add_option) still re
   assert(state.CREDIT_FLOWS.get(USER_A).payouts > 0, "winning bet on a multi-option market paid out");
 });
 
+/* ── Comments (Phase 9) ───────────────────────────────────────────── */
+
+function commentSurvey() {
+  return {
+    id: "talk1", title: "Talk", question: "Discuss?",
+    options: [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }],
+    active_duration_ms: 7 * 86400000, allow_custom_options: false,
+  };
+}
+
+test("comments group by survey, sort by ts, resolve usernames, and reject bad text", async () => {
+  nextTxId = 1;
+  const other = Object.assign(commentSurvey(), { id: "talk2", title: "Other" });
+  const txs = [
+    tx(ADMIN, "join", null, 0),
+    tx(USER_A, "join", null, 100),
+    tx(ADMIN, "create_survey", { survey: commentSurvey() }, 200),
+    tx(ADMIN, "create_survey", { survey: other }, 300),
+    tx(USER_A, "set_username", { username: "alice" }, 400),
+    // Deliberately out of chronological order in the input array.
+    tx(USER_B, "comment", { survey: "talk1", text: "second" }, 3000),
+    tx(USER_A, "comment", { survey: "talk1", text: "  first  " }, 2000),
+    tx(USER_A, "comment", { survey: "talk2", text: "elsewhere" }, 2500),
+    tx(USER_A, "comment", { survey: "talk1", text: "   " }, 3100),               // whitespace-only
+    tx(USER_A, "comment", { survey: "talk1", text: "" }, 3200),                  // empty
+    tx(USER_A, "comment", { survey: "talk1", text: "x".repeat(281) }, 3300),     // over the cap
+    tx(USER_A, "comment", { survey: "talk1", text: 42 }, 3400),                  // not a string
+    tx(USER_A, "comment", { survey: "nope", text: "unknown survey" }, 3500),     // unknown survey
+  ];
+  const state = await OMS.computeFullState({
+    rawTxs: txs, decryptedTxs: txs, appPubkey: APP_PUBKEY,
+    adminPubkey: ADMIN, genesisAccounts: [], globalUsernames: {},
+    now: 1700000000000 + 10000,
+  });
+  const t1 = state.COMMENTS.get("talk1");
+  assert(t1, "talk1 has comments");
+  assert.deepStrictEqual(t1.map(c => c.text), ["first", "second"], "trimmed, sorted oldest-first, bad text dropped");
+  assert.strictEqual(t1[0].username, OMS.normalizeUsername("alice", OMS.deriveDefaultUsername(USER_A), USER_A), "set_username resolves the author name");
+  assert.strictEqual(t1[1].username, OMS.deriveDefaultUsername(USER_B), "no name falls back to user_xxxxxx");
+  assert.deepStrictEqual(state.COMMENTS.get("talk2").map(c => c.text), ["elsewhere"], "grouped per survey");
+  assert(!state.COMMENTS.has("nope"), "comments on unknown surveys are ignored");
+  assert.strictEqual(OMS.normalizeCommentText("x".repeat(280)).length, 280, "280 chars is allowed");
+});
+
+test("duplicate comment txs collapse by txId", async () => {
+  nextTxId = 1;
+  const c = tx(USER_A, "comment", { survey: "talk1", text: "hello" }, 2000);
+  const txs = [
+    tx(ADMIN, "join", null, 0),
+    tx(ADMIN, "create_survey", { survey: commentSurvey() }, 200),
+    c, Object.assign({}, c),
+  ];
+  const state = await build(txs, 1700000000000 + 10000);
+  assert.strictEqual(state.COMMENTS.get("talk1").length, 1);
+});
+
+test("comments do not affect credits or balances", async () => {
+  nextTxId = 1;
+  const base = [
+    tx(ADMIN, "join", null, 0),
+    tx(USER_A, "join", null, 100),
+    tx(ADMIN, "create_survey", { survey: commentSurvey() }, 200),
+  ];
+  const withComments = base.concat([tx(USER_A, "comment", { survey: "talk1", text: "hi" }, 300)]);
+  const a = await build(base, 1700000000000 + 10000);
+  const b = await build(withComments, 1700000000000 + 10000);
+  assert.strictEqual(OMS.userBalance(b, USER_A), OMS.userBalance(a, USER_A));
+});
+
+test("ACTIVITY_TYPES invariant: comments never count toward proposal-promotion quorum", async () => {
+  assert(!OMS.ACTIVITY_TYPES.has("comment"), "comment must not be an activity type");
+  nextTxId = 1;
+  const D = "ut1zuserddddddddddddddddddddddddddddddddddddddddddddd1ddddd";
+  const E = "ut1zucommenteeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1eeeee";
+  const F = "ut1zucommentfffffffffffffffffffffffffffffffffffffffff1fffff";
+  const pid = proposalId(USER_A);
+  // 3 active users (A, B, C) → threshold ceil(3/2) = 2. A proposes (1), B upvotes (2) → promotes.
+  const head = [
+    tx(ADMIN, "create_survey", { survey: commentSurvey() }, 0),
+    tx(USER_A, "join", null, 100), tx(USER_B, "join", null, 200), tx(USER_C, "join", null, 300),
+    propose(USER_A, 1000),
+  ];
+  // Three extra accounts that only comment. If comments counted, active = 6
+  // and threshold = 3, so B's upvote would NOT promote.
+  const comments = [
+    tx(D, "comment", { survey: "talk1", text: "d" }, 1500),
+    tx(E, "comment", { survey: "talk1", text: "e" }, 1600),
+    tx(F, "comment", { survey: "talk1", text: "f" }, 1700),
+  ];
+  const tail = [upvote(USER_B, pid, 2000)];
+  const plain = await build(head.concat(tail), 1700000000000 + 5000);
+  const noisy = await build(head.concat(comments, tail), 1700000000000 + 5000);
+  assert(plain.PROPOSALS.get(pid).promoted, "baseline promotes");
+  assert(noisy.PROPOSALS.get(pid).promoted, "comments from extra accounts do not raise the threshold");
+  assert.strictEqual(noisy.PROPOSALS.get(pid).promotedAtMs, plain.PROPOSALS.get(pid).promotedAtMs);
+  const ref = 1700000000000 + 2000;
+  assert.strictEqual(
+    OMS.activeUsersInWindow(noisy.parsedTxs, ref).size,
+    OMS.activeUsersInWindow(plain.parsedTxs, ref).size,
+    "activeUsersInWindow ignores comment txs",
+  );
+});
+
 run();

@@ -71,6 +71,28 @@
     "join", "create_survey", "add_option", "vote", "place_bet",
     "sell_shares", "propose_question", "upvote_proposal",
   ]);
+  // NOTE: `comment` is deliberately NOT an activity type. ACTIVITY_TYPES
+  // sizes the proposal-promotion electorate, which is consensus-critical;
+  // counting a 1-token comment would let anyone cheaply inflate (or, by
+  // spamming from many accounts, distort) promotion quorum. Comments are
+  // tracked only in their own phase (Phase 9, `COMMENTS`).
+
+  /* ── Comments (per-market discussion) ─────────────────────────────── */
+
+  // Hard cap on a comment's length after trimming. The client enforces the
+  // same cap before sending; replay re-applies it because any client can
+  // post a raw memo.
+  var MAX_COMMENT_LENGTH = 280;
+
+  // Trim and cap a comment body. Returns null for anything that should be
+  // dropped (non-string, empty or whitespace-only, over the cap).
+  function normalizeCommentText(text) {
+    if (typeof text !== "string") return null;
+    var t = text.replace(/[\r\n\t]+/g, " ").trim();
+    if (!t) return null;
+    if (Array.from(t).length > MAX_COMMENT_LENGTH) return null;
+    return t;
+  }
 
   /* ── Tx normalization & parsing ───────────────────────────────────── */
 
@@ -661,6 +683,7 @@
    *     voteMap              — Map<"pubkey:surveyId", { from, survey, choice, ts }>
    *     firstJoiner          — pubkey (or null)
    *     earningsMap          — Map<pubkey, { totalEarnings, marketsBetOn, marketsVotedOn, marketsWon }>
+   *     COMMENTS             — Map<surveyId, [{ txId, from, username, text, ts }]> oldest-first
    *     parsedTxs            — chronologically-sorted [{ tx, memo }] for downstream UI use
    *     decryptedTxs         — the (possibly-decrypted) tx feed; pass back next round
    */
@@ -1591,6 +1614,38 @@
       }
     }
 
+    /* --- Phase 9: Comments (flat public thread per survey) ---
+     *
+     * Plaintext `comment` memos. Grouped by survey, oldest-first (callers
+     * reverse for newest-first display), keyed by txId so duplicate txs
+     * collapse. Comments on unknown surveys and empty/overlong text are
+     * dropped. No balance or activity effect (see ACTIVITY_TYPES note).
+     */
+    var COMMENTS = new Map();
+    var seenCommentIds = new Set();
+    for (var ci = 0; ci < parsed.length; ci++) {
+      var Pc = parsed[ci];
+      if (Pc.memo.type !== "comment") continue;
+      if (!isGenesisAccount(Pc.tx.from)) continue;
+      var cSurvey = Pc.memo.survey == null ? "" : String(Pc.memo.survey);
+      if (!cSurvey || !SURVEYS_BY_ID.has(cSurvey)) continue;
+      var cText = normalizeCommentText(Pc.memo.text);
+      if (cText == null) continue;
+      var cId = Pc.tx.id || (Pc.tx.from + ":" + Pc.tx.ts + ":" + cText);
+      if (seenCommentIds.has(cId)) continue;
+      seenCommentIds.add(cId);
+      var cList = COMMENTS.get(cSurvey);
+      if (!cList) { cList = []; COMMENTS.set(cSurvey, cList); }
+      cList.push({
+        txId: cId,
+        from: Pc.tx.from,
+        username: GLOBAL_USERNAMES.get(Pc.tx.from) || deriveDefaultUsername(Pc.tx.from),
+        text: cText,
+        ts: Pc.tx.ts,
+      });
+    }
+    COMMENTS.forEach(function (list) { list.sort(function (a, b) { return a.ts - b.ts; }); });
+
     /* --- Phase 8: Earnings (Bet P&L) per archived market --- */
     var earningsMap = new Map();
     for (var ei = 0; ei < SURVEYS.length; ei++) {
@@ -1681,6 +1736,7 @@
       rejectedSends: REJECTED_SENDS,
       PROPOSALS: PROPOSALS,
       openProposals: openProposals,
+      COMMENTS: COMMENTS,
       parsedTxs: parsed,
       decryptedTxs: decryptedTxs,
     };
@@ -1784,6 +1840,7 @@
     PROPOSAL_EXPIRY_MS: PROPOSAL_EXPIRY_MS,
     MAX_OPEN_PROPOSALS_PER_USER: MAX_OPEN_PROPOSALS_PER_USER,
     ACTIVITY_TYPES: ACTIVITY_TYPES,
+    MAX_COMMENT_LENGTH: MAX_COMMENT_LENGTH,
 
     // Pure helpers
     parseMemo: parseMemo,
@@ -1794,6 +1851,7 @@
     usernameSuffix: usernameSuffix,
     deriveDefaultUsername: deriveDefaultUsername,
     normalizeUsername: normalizeUsername,
+    normalizeCommentText: normalizeCommentText,
     normalizeSurveyDurationMs: normalizeSurveyDurationMs,
     normalizeSurveyDefinition: normalizeSurveyDefinition,
     normalizeWc26Definition: normalizeWc26Definition,

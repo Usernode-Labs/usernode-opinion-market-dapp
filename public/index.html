@@ -11,7 +11,7 @@
          Cache-Control: no-cache, must-revalidate so each page load
          revalidates via 304. Major-version bumps move to /v2/, segregating
          cache state naturally. -->
-    <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
+    <script src="/usernode-bridge/v1/bridge.js"></script>
     <script src="/usernode-usernames.js"></script>
     <script src="/usernode-loading.js"></script>
     <script>UsernodeLoading.init({ appName: "Opinion Market", streamKey: "om" });</script>
@@ -987,6 +987,21 @@
         font-variant-numeric: tabular-nums;
       }
       .bottomSheet-preview .ok { color: var(--ok); }
+      .feeBreakdown { display: grid; gap: 2px; margin-top: 6px; }
+      .feeBreakdown-row { display: flex; justify-content: space-between; gap: 8px; }
+      .feeBreakdown-row.sub { padding-left: 12px; font-size: 12px; }
+      .feeBreakdown-row.total { color: var(--fg); font-weight: 600; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px; }
+      .infoLink { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; font-size: 12px; cursor: pointer; }
+      .discussion-composer textarea { width: 100%; box-sizing: border-box; min-height: 64px; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: 14px; resize: vertical; }
+      .discussion-composer textarea:focus { border-color: var(--accent); outline: none; }
+      .discussion-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; }
+      .comment-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+      .comment-item:last-child { border-bottom: none; }
+      .comment-head { display: flex; gap: 6px; align-items: baseline; font-size: 12px; }
+      .comment-author { font-weight: 600; color: var(--fg); }
+      .comment-text { margin-top: 2px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .onboard-note { font-size: 12px; color: var(--muted); padding: 6px 10px; border-radius: 8px; background: var(--border); margin: 6px 0; display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+      .onboard-note button.dismiss { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 2px; line-height: 1; }
       .bottomSheet-action {
         width: 100%;
         min-height: 56px;
@@ -1350,6 +1365,9 @@
         </div>
         <div class="bottomSheet-preview" id="bsBuyPreview"></div>
         <button class="bottomSheet-action" id="bsBuyAction" type="button">Buy</button>
+        <div style="text-align:center;margin-top:8px;">
+          <button class="infoLink" id="bsHowItWorks" type="button">How does this work?</button>
+        </div>
         <div class="bottomSheet-error" id="bsBuyError"></div>
         <div id="bsBuyProgress" class="tx-progress hide" style="margin-top:8px;">
           <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
@@ -1512,11 +1530,33 @@
                 </div>
               </div>
               <button class="onboarding-join-btn" id="joinBtn" type="button">Join &amp; Get 1,000 Credits</button>
-              <p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:center;">Credits are for this dapp only &mdash; no real money involved.</p>
+              <p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:center;">Credits are play money for this app only. No real money involved.</p>
               <div id="joinPending" class="tx-progress hide" role="status" aria-live="polite">
                 <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
                 <div class="tx-progress-label">Joining...</div>
               </div>
+            </div>
+
+            <!-- Post-join welcome: shown once after a confirmed join -->
+            <div class="panel hide" id="welcomeCard" role="status">
+              <div class="row" style="justify-content: space-between; align-items: flex-start; gap: 8px;">
+                <h3 style="margin: 0;">You're in. 1,000 credits added.</h3>
+                <button class="btn small" id="welcomeDismissBtn" type="button" aria-label="Dismiss" style="padding: 2px 8px;">&times;</button>
+              </div>
+              <p class="muted" style="font-size: 13px; margin: 6px 0 10px;">Credits are play money for this app only. No real money involved. Here is a good place to start:</p>
+              <div style="display: grid; gap: 8px;">
+                <button class="btn primary small" id="welcomeVoteBtn" type="button">Cast your first free vote</button>
+                <button class="btn small" id="welcomeNameBtn" type="button">Set a display name</button>
+              </div>
+              <div style="margin-top: 10px;">
+                <button class="infoLink" id="welcomeInfoBtn" type="button">How does this work?</button>
+              </div>
+            </div>
+
+            <!-- One-time display-name nudge (after the welcome card is gone) -->
+            <div class="onboard-note hide" id="nameNudge" role="status">
+              <span>Pick a display name so others recognise your predictions and comments. <button class="infoLink" id="nameNudgeBtn" type="button">Set a display name</button></span>
+              <button class="dismiss" id="nameNudgeDismiss" type="button" aria-label="Dismiss">&times;</button>
             </div>
 
             <!-- My stats -->
@@ -1661,12 +1701,17 @@
                 <div id="surveyCreatedBy" class="muted" style="font-size: 11px;"></div>
                 <div id="surveyVoterCount" class="muted" style="font-size: 11px;"></div>
               </div>
+              <div id="surveyResolution" class="muted" style="font-size: 11px;"></div>
               <div id="surveyRevealInfo" class="revealNotice hide" style="margin: 8px 0;"></div>
               <!-- Primary vote CTA. Visible to everyone for active questions;
                    label flips to "Change vote" after the user has voted.
                    Shares the same vertical-stack styling as the admin
                    resolve/delete buttons below. -->
               <button class="btn primary small hide" id="voteSurveyBtn" type="button" style="margin-top: 8px;">Vote</button>
+              <div id="freeVoteNote" class="onboard-note hide" role="note">
+                <span>Voting is always free. It costs no credits, and voters share the fee pool when the market settles.</span>
+                <button class="dismiss" id="freeVoteNoteDismiss" type="button" aria-label="Dismiss">&times;</button>
+              </div>
               <button class="btn small hide" id="resolveEarlyBtn" type="button" style="margin-top: 8px; color: var(--warn); border-color: var(--warn);">&#x23F1; Resolve early (testing)</button>
               <button class="btn small hide" id="deleteSurveyBtn" type="button" style="margin-top: 8px; color: var(--danger); border-color: var(--danger);">&#x1F5D1; Delete question</button>
               <div id="deletePending" class="tx-progress hide" role="status" aria-live="polite">
@@ -1675,6 +1720,12 @@
               </div>
 
               <hr class="sectionDivider" />
+
+              <!-- Your rewards: position, voter estimate, creator earnings -->
+              <div id="rewardSummary" class="hide" style="margin-bottom: 10px;">
+                <h3 style="margin: 0 0 6px;">Your rewards</h3>
+                <div id="rewardSummaryContent" class="feeBreakdown" style="font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums;"></div>
+              </div>
 
               <!-- Vote / Options section (unified layout for active surveys) -->
               <div id="voteSection">
@@ -1701,6 +1752,27 @@
                   <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
                   <div class="tx-progress-label">Placing bet...</div>
                 </div>
+              </div>
+
+              <!-- Discussion: public, on-chain comments for this market -->
+              <div id="discussionSection">
+                <hr class="sectionDivider" />
+                <h3 id="discussionHeading">Discussion <span id="discussionCount" class="muted" style="font-weight:400;"></span></h3>
+                <div id="commentComposer" class="discussion-composer hide">
+                  <label for="commentInput" class="muted" style="font-size:12px;">Add a comment</label>
+                  <textarea id="commentInput" maxlength="280" placeholder="Share your reasoning"></textarea>
+                  <div class="discussion-meta">
+                    <span class="muted">Comments are public and permanent.</span>
+                    <span id="commentCharCount" class="muted" style="font-variant-numeric:tabular-nums;">0/280</span>
+                  </div>
+                  <button class="btn small" id="postCommentBtn" type="button" style="margin-top:8px;" disabled>Post comment</button>
+                  <div id="commentPending" class="tx-progress hide" role="status" aria-live="polite">
+                    <div class="tx-progress-track"><div class="tx-progress-fill"></div></div>
+                    <div class="tx-progress-label">Posting comment...</div>
+                  </div>
+                </div>
+                <div id="commentJoinPrompt" class="muted hide" style="font-size:13px;margin:4px 0 8px;"></div>
+                <div id="commentList"></div>
               </div>
 
               <!-- Settled section (only for archived with market activity) -->
@@ -2441,6 +2513,7 @@
          * ================================================================ */
         let SURVEYS = [];
         let GLOBAL_USERNAMES = new Map();
+        let COMMENTS = new Map();
         let JOINED = new Set();
         let MARKETS = new Map();
         let SETTLEMENTS = new Map();
@@ -2457,7 +2530,6 @@
         let _seenPromotedIds = new Set();
         let _proposalsBootstrapped = false;
         let LEADERBOARD = [];
-        let WC26_STANDINGS_MAP = new Map();
         let latestTxs = [];
         let me = null;
         let myUsername = null;
@@ -2584,6 +2656,7 @@
           JOINED = state.JOINED;
           GLOBAL_USERNAMES = state.GLOBAL_USERNAMES;
           CREDIT_FLOWS = state.CREDIT_FLOWS;
+          COMMENTS = state.COMMENTS || new Map();
           SETTLEMENTS = state.SETTLEMENTS;
           _firstJoiner = state.firstJoiner;
           // Surface this rebuild's silently-dropped bets/sells for `me`
@@ -2955,7 +3028,7 @@
          * ================================================================ */
         const TX_PROGRESS_EXPECTED_S = 60, TX_PROGRESS_WARN_S = 120, TX_PROGRESS_ERR_S = 180;
         let _txProgressRaf = null, _txProgressStart = 0;
-        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "addProposalPending", "proposalPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].map($).filter(el => el && !el.classList.contains("hide"));
+        const pendingEls = () => ["setUsernamePending", "addSurveyPending", "addProposalPending", "proposalPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress", "commentPending"].map($).filter(el => el && !el.classList.contains("hide"));
 
         function txProgressPercent(s) {
           if (s <= TX_PROGRESS_EXPECTED_S) { const t = s / TX_PROGRESS_EXPECTED_S; return 95 * (1 - Math.pow(1 - t, 3)); }
@@ -3141,7 +3214,7 @@
           else if (txSucceeded) completeTxProgress();
           else {
             stopTxProgress();
-            ["setUsernamePending", "addSurveyPending", "addProposalPending", "proposalPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress"].forEach(id => {
+            ["setUsernamePending", "addSurveyPending", "addProposalPending", "proposalPending", "votePending", "voteSheetPending", "joinPending", "betPending", "deletePending", "bsBuyProgress", "bsSellProgress", "commentPending"].forEach(id => {
               const el = $(id);
               if (el) { el.classList.add("hide"); resetProgressBar(el); }
             });
@@ -3270,6 +3343,20 @@
           showPending("joinPending", "Joining...");
           const memo = makeMemo({ app: "opinion-market", type: "join" });
           await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Join Opinion Market", confirmSubtitle: "Opinion Market — Register as a participant." });
+          await postActionRefresh();
+        }
+
+        async function postCommentFlow(text) {
+          const s = currentSurvey();
+          if (!s) throw new Error("No question selected");
+          if (!me || !JOINED.has(me)) throw new Error("Join Opinion Market to post comments");
+          if (isGenesisGated() && !GENESIS_ACCOUNTS.has(me)) throw new Error("Only genesis ledger participants can comment");
+          const clean = window.OpinionMarketState.normalizeCommentText(text);
+          if (!clean) throw new Error(`Comments must be 1 to ${window.OpinionMarketState.MAX_COMMENT_LENGTH} characters`);
+          setSending(true);
+          showPending("commentPending", "Posting comment...");
+          const memo = makeMemo({ app: "opinion-market", type: "comment", survey: s.id, text: clean });
+          await sendTransaction(APP_PUBKEY, 1, memo, { ...TX_SEND_OPTS, confirmTitle: "Post comment", confirmSubtitle: "Opinion Market: comments are public and permanent." });
           await postActionRefresh();
         }
 
@@ -3543,6 +3630,30 @@
           else if (location.hash) history.replaceState(null, "", location.pathname + location.search);
         }
 
+        /* ================================================================
+         *  ONBOARDING NUDGES (inline, dismissible, shown once)
+         * ================================================================ */
+        const WELCOME_KEY = "om:joinWelcome";          // "pending" after a confirmed join, "seen" once dismissed
+        const NAME_NUDGE_KEY = "om:nameNudgeDismissed";
+        const FREE_VOTE_NOTE_KEY = "om:freeVoteNoteSeen";
+
+        function hasChosenUsername() {
+          return !!me && GLOBAL_USERNAMES.has(me);
+        }
+
+        function renderOnboardingNudges(joined) {
+          const onList = !currentSurveyId && $("screenActiveList") && !$("screenActiveList").classList.contains("hide");
+          const welcomePending = localStorage.getItem(WELCOME_KEY) === "pending";
+          const showWelcome = !!joined && welcomePending && onList;
+          show($("welcomeCard"), showWelcome);
+          const nameBtn = $("welcomeNameBtn");
+          if (nameBtn) show(nameBtn, !hasChosenUsername());
+          const showNudge = !!joined && onList && !welcomePending
+            && localStorage.getItem(WELCOME_KEY) === "seen"
+            && !hasChosenUsername() && !localStorage.getItem(NAME_NUDGE_KEY);
+          show($("nameNudge"), showNudge);
+        }
+
         function navigateToList() {
           _deleteConfirmId = null;
           clearTimeout(_deleteConfirmTimer);
@@ -3564,6 +3675,7 @@
           renderProposalList();
           updateCreditsDisplay();
           renderMyStats();
+          renderOnboardingNudges(joined);
           syncHash();
         }
 
@@ -3572,10 +3684,14 @@
           const s = currentSurvey();
           if (!s) return;
           show($("myStatsPanel"), false);
+          show($("welcomeCard"), false);
+          show($("nameNudge"), false);
           show($("screenActiveList"), false);
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
           show($("screenSurvey"), true);
+          show($("welcomeCard"), false);
+          show($("nameNudge"), false);
           show($("screenHistory"), false);
           show($("screenLeaderboard"), false);
           show($("screenInfo"), false);
@@ -3675,6 +3791,8 @@
         function navigateToLeaderboard() {
           currentSurveyId = null;
           show($("myStatsPanel"), false);
+          show($("welcomeCard"), false);
+          show($("nameNudge"), false);
           show($("screenActiveList"), false);
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
@@ -3693,6 +3811,8 @@
         function navigateToInfo() {
           currentSurveyId = null;
           show($("myStatsPanel"), false);
+          show($("welcomeCard"), false);
+          show($("nameNudge"), false);
           show($("screenActiveList"), false);
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
@@ -3711,6 +3831,8 @@
           if (!me || !JOINED.has(me)) { navigateToList(); return; }
           currentSurveyId = null;
           show($("myStatsPanel"), false);
+          show($("welcomeCard"), false);
+          show($("nameNudge"), false);
           show($("screenActiveList"), false);
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
@@ -3734,6 +3856,8 @@
           _wc26NavBack = false;
           currentSurveyId = null;
           show($("myStatsPanel"), false);
+          show($("welcomeCard"), false);
+          show($("nameNudge"), false);
           show($("screenActiveList"), false);
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
@@ -3752,6 +3876,8 @@
         function navigateToWC26Schedule() {
           currentSurveyId = null;
           show($("myStatsPanel"), false);
+          show($("welcomeCard"), false);
+          show($("nameNudge"), false);
           show($("screenActiveList"), false);
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
@@ -3770,6 +3896,8 @@
         function navigateToWC26Standings() {
           currentSurveyId = null;
           show($("myStatsPanel"), false);
+          show($("welcomeCard"), false);
+          show($("nameNudge"), false);
           show($("screenActiveList"), false);
           show($("screenProposals"), false);
           show($("screenArchivedList"), false);
@@ -4523,6 +4651,22 @@
               strikeChip.textContent = "strike $" + s.strikeUsd.toLocaleString("en-US", { maximumFractionDigits: 0 });
               metaChips.appendChild(strikeChip);
             }
+            const commentCount = (COMMENTS.get(s.id) || []).length;
+            const extraChips = [
+              commentCount === 1 ? "1 comment" : commentCount + " comments",
+              "Resolves by " + resolutionMethodLabel(s),
+            ];
+            for (const text of extraChips) {
+              const sep = document.createElement("span");
+              sep.style.cssText = "font-size:11px;color:var(--border);";
+              sep.textContent = "\u00B7";
+              metaChips.appendChild(sep);
+              const chip = document.createElement("span");
+              chip.className = "cardMetaChip";
+              chip.style.cssText = "font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;";
+              chip.textContent = text;
+              metaChips.appendChild(chip);
+            }
             zone3.appendChild(metaChips);
 
             // Probability progress bar (markets only)
@@ -5228,7 +5372,39 @@
           sp.className = _bsSide === "no" ? "err" : "ok";
           sp.textContent = `~${simShares.toFixed(1)} ${_bsSide} shares`;
           preview.appendChild(sp);
-          preview.appendChild(document.createTextNode(` @ ${pricePerShare}c/share (${mult.toFixed(2)}x) \u00B7 Fee: ${formatCredits(fee)} (${(FEE_RATE * 100).toFixed(0)}%) \u2014 goes to voter rewards + question creator`));
+          preview.appendChild(document.createTextNode(` @ ${pricePerShare}c/share (${mult.toFixed(2)}x)`));
+          const creatorSoFar = mkt.creatorReward || 0;
+          const b = computeFeeBreakdown(c, creatorSoFar);
+          const rows = [
+            ["Credits spent", formatCredits(c) + "c", ""],
+            [`Fee (${(FEE_RATE * 100).toFixed(0)}%)`, formatCredits(fee) + "c", ""],
+            [`Liquidity (${(LIQUIDITY_FEE_RATE * 100).toFixed(0)}%)`, formatCredits(b.liquidity) + "c", "sub"],
+            [`Question creator (${(CREATOR_REWARD_RATE * 100).toFixed(1)}%, capped at ${CREATOR_REWARD_CAP}c)`, formatCredits(b.creator) + "c", "sub"],
+            ["Voter reward pool", formatCredits(b.voters) + "c", "sub"],
+            ["Shares received", `${simShares.toFixed(1)} ${_bsSide}`, ""],
+            [_bsSide === "no" ? "Payout if this option loses" : "Payout if this option wins", formatCredits(simShares) + "c", "total"],
+          ];
+          const list = document.createElement("div");
+          list.className = "feeBreakdown";
+          list.id = "bsFeeBreakdown";
+          for (const [label, value, cls] of rows) {
+            const row = document.createElement("div");
+            row.className = "feeBreakdown-row" + (cls ? " " + cls : "");
+            const l = document.createElement("span"); l.textContent = label;
+            const v = document.createElement("span"); v.textContent = value;
+            row.appendChild(l); row.appendChild(v);
+            list.appendChild(row);
+          }
+          preview.appendChild(list);
+        }
+
+        // Splits a bet's 5% fee the same way Phase 6 of the replay does:
+        // liquidity first, then the creator's capped cut, the rest to voters.
+        function computeFeeBreakdown(credits, creatorSoFar) {
+          const fee = credits * FEE_RATE;
+          const liquidity = credits * LIQUIDITY_FEE_RATE;
+          const creator = Math.max(0, Math.min(credits * CREATOR_REWARD_RATE, CREATOR_REWARD_CAP - (creatorSoFar || 0)));
+          return { fee, liquidity, creator, voters: fee - creator - liquidity };
         }
 
         function updateSellPreview() {
@@ -5258,12 +5434,148 @@
           const fee = gross * FEE_RATE;
           const net = gross - fee;
           const pricePerShare = (net / sh).toFixed(2);
-          setText(preview, `You receive: ${formatCredits(net)} (${pricePerShare}c/share) \u00B7 Fee: ${formatCredits(fee)} (${(FEE_RATE * 100).toFixed(0)}%) \u2014 goes to voter rewards + question creator`);
+          setText(preview, `You receive: ${formatCredits(net)}c (${pricePerShare}c/share). Fee: ${formatCredits(fee)}c (${(FEE_RATE * 100).toFixed(0)}%), split between liquidity, the question creator and voter rewards.`);
         }
 
         /* ================================================================
          *  RENDERING — Survey Detail (votes + results + market + settled)
          * ================================================================ */
+        function resolutionMethodLabel(s) {
+          if (s && s.kind === "btc_daily") return "Bitcoin price";
+          if (s && s.kind === "wc26_match") return "World Cup result";
+          return "crowd vote";
+        }
+
+        // Current sell value (after the fee) of `shares` on one side of one option.
+        function positionSellValue(mkt, optKey, side, shares) {
+          if (!(shares > 0) || !mkt || !mkt.pools[optKey]) return 0;
+          const multi = Object.keys(mkt.pools).length > 1;
+          let gross = 0;
+          if (side === "no") {
+            gross = multi && CPMM.cpmmSellArbitrageNo
+              ? CPMM.cpmmSellArbitrageNo(mkt.pools, optKey, shares).creditsReceived
+              : (CPMM.cpmmSellNo ? CPMM.cpmmSellNo(mkt.pools[optKey], shares) : 0);
+          } else {
+            gross = multi && CPMM.cpmmSellArbitrage
+              ? CPMM.cpmmSellArbitrage(mkt.pools, optKey, shares).creditsReceived
+              : (CPMM.cpmmSellYes ? CPMM.cpmmSellYes(mkt.pools[optKey], shares) : 0);
+          }
+          return Math.max(0, gross * (1 - FEE_RATE));
+        }
+
+        function renderRewardSummary(s, mkt, hasMarket, voterCount, myPreviousVote) {
+          const wrap = $("rewardSummary");
+          const box = $("rewardSummaryContent");
+          if (!wrap || !box) return;
+          box.textContent = "";
+          const addRow = (label, value, cls) => {
+            const row = document.createElement("div");
+            row.className = "feeBreakdown-row" + (cls ? " " + cls : "");
+            const l = document.createElement("span"); l.textContent = label;
+            row.appendChild(l);
+            if (value != null) { const v = document.createElement("span"); v.textContent = value; row.appendChild(v); }
+            box.appendChild(row);
+          };
+          if (!me || s.archived || !hasMarket) { show(wrap, false); return; }
+
+          // Live positions
+          const yes = (mkt.userShares && mkt.userShares[me]) || {};
+          const no = (mkt.userNoShares && mkt.userNoShares[me]) || {};
+          let anyPosition = false;
+          for (const opt of s.options) {
+            const label = parseOptionLabel(opt.label).text || opt.key;
+            for (const [side, held] of [["yes", yes[opt.key] || 0], ["no", no[opt.key] || 0]]) {
+              if (held <= 0.0001) continue;
+              anyPosition = true;
+              addRow(`${side === "no" ? "Bet loses" : "Bet wins"}: ${label}`, `${held.toFixed(1)} shares`);
+              addRow("Worth if you sell now", formatCredits(positionSellValue(mkt, opt.key, side, held)) + "c", "sub");
+              addRow(side === "no" ? "Payout if it loses" : "Payout if it wins", formatCredits(held) + "c", "sub");
+            }
+          }
+          const wagered = (mkt.grossBetsByUser && mkt.grossBetsByUser[me]) || 0;
+          if (anyPosition || wagered > 0) addRow("Total wagered", formatCredits(wagered) + "c", "total");
+
+          // Voter reward estimate
+          const pool = mkt.feePool || 0;
+          const voters = Math.max(1, voterCount + (myPreviousVote ? 0 : 1));
+          const estimate = pool / voters;
+          addRow(myPreviousVote ? "Estimated voter reward" : "Estimated voter reward if you vote",
+            "~" + formatCredits(Math.round(estimate * 100) / 100) + "c");
+          addRow(`Estimate: ${formatCredits(Math.round(pool * 100) / 100)}c fee pool shared by ${voters} voter${voters !== 1 ? "s" : ""}. It changes as people trade and vote.`, null, "sub");
+
+          // Creator running earnings
+          if (s.createdBy && s.createdBy === me) {
+            addRow(`You've earned ${formatCredits(Math.round((mkt.creatorReward || 0) * 100) / 100)}c as creator so far (cap ${CREATOR_REWARD_CAP}c)`, null);
+          }
+          show(wrap, true);
+        }
+
+        function renderDiscussion(s) {
+          const section = $("discussionSection");
+          if (!section || !s) return;
+          const list = COMMENTS.get(s.id) || [];
+          setText($("discussionCount"), list.length ? `(${list.length})` : "");
+
+          const joined = !!me && JOINED.has(me);
+          const canPost = joined && !(isGenesisGated() && !GENESIS_ACCOUNTS.has(me));
+          show($("commentComposer"), canPost);
+          const prompt = $("commentJoinPrompt");
+          if (prompt) {
+            if (canPost) { show(prompt, false); }
+            else {
+              setText(prompt, !me
+                ? "Connect your Usernode wallet and join to post a comment."
+                : (joined ? "Only genesis ledger participants can comment." : "Join Opinion Market from the home screen to post a comment."));
+              show(prompt, true);
+            }
+          }
+          updateCommentComposer();
+
+          const box = $("commentList");
+          if (!box) return;
+          box.textContent = "";
+          if (list.length === 0) {
+            const empty = document.createElement("p");
+            empty.className = "muted";
+            empty.id = "commentEmpty";
+            empty.style.cssText = "font-size:13px;margin:6px 0;";
+            empty.textContent = "No comments yet. Start the discussion.";
+            box.appendChild(empty);
+            return;
+          }
+          for (let i = list.length - 1; i >= 0; i--) {
+            const c = list[i];
+            const item = document.createElement("div");
+            item.className = "comment-item";
+            const head = document.createElement("div");
+            head.className = "comment-head";
+            const author = document.createElement("span");
+            author.className = "comment-author";
+            author.textContent = c.username || GLOBAL_USERNAMES.get(c.from) || deriveDefaultUsername(c.from);
+            const when = document.createElement("span");
+            when.className = "muted";
+            when.textContent = timeAgo(c.ts);
+            head.appendChild(author);
+            head.appendChild(when);
+            const body = document.createElement("div");
+            body.className = "comment-text";
+            body.textContent = c.text;
+            item.appendChild(head);
+            item.appendChild(body);
+            box.appendChild(item);
+          }
+        }
+
+        function updateCommentComposer() {
+          const input = $("commentInput");
+          if (!input) return;
+          const max = window.OpinionMarketState.MAX_COMMENT_LENGTH;
+          const len = Array.from(input.value).length;
+          setText($("commentCharCount"), `${len}/${max}`);
+          const valid = !!window.OpinionMarketState.normalizeCommentText(input.value);
+          setDisabled($("postCommentBtn"), sending || !valid);
+        }
+
         function renderSurveyDetail(res) {
           if (!res || !res.survey) return;
           const _scrollEl = $("scrollRoot");
@@ -5458,6 +5770,18 @@
             }
           }
 
+          // --- Resolution method label ---
+          setText($("surveyResolution"), "Resolves by: " + resolutionMethodLabel(s));
+
+          // --- First-vote note: voting is free (only before the first vote) ---
+          const freeNote = $("freeVoteNote");
+          if (freeNote) {
+            show(freeNote, !s.archived && !!me && !myPreviousVote && !localStorage.getItem(FREE_VOTE_NOTE_KEY));
+          }
+
+          renderRewardSummary(s, mkt, hasMarket, vc, myPreviousVote);
+          renderDiscussion(s);
+
           // --- Vote options (new unified layout for active surveys) ---
           const voteList = $("voteOptionsList");
           if (voteList && !(_isFocusedInput && voteList.contains(_focusEl))) {
@@ -5517,6 +5841,16 @@
                   hint.textContent = "Shares cost between 0c and 100c. If your outcome wins, each share pays 100c. Buy low, win big. (tap to dismiss)";
                   hint.addEventListener("click", () => { hint.remove(); localStorage.setItem("om:bettingHintSeen", "1"); });
                   voteList.appendChild(hint);
+                }
+                if (!((mkt.grossBetsByUser || {})[me] > 0)) {
+                  const how = document.createElement("button");
+                  how.type = "button";
+                  how.className = "infoLink";
+                  how.id = "betHowItWorks";
+                  how.style.margin = "2px 0 6px";
+                  how.textContent = "How does this work?";
+                  how.addEventListener("click", navigateToInfo);
+                  voteList.appendChild(how);
                 }
               }
 
@@ -6036,6 +6370,7 @@
               show($("screenProposals"), joined);
               show($("screenArchivedList"), joined && SURVEYS.some(s => s.archived));
             }
+            renderOnboardingNudges(joined);
 
             // Reconcile outstanding sends against the freshly-rebuilt feed:
             // promote any that have landed (incl. encrypted votes, via
@@ -6226,8 +6561,51 @@
           });
 
           $("joinBtn").addEventListener("click", async () => {
-            try { await joinFlow(); setSending(false, true); }
+            try {
+              await joinFlow();
+              setSending(false, true);
+              if (!localStorage.getItem(WELCOME_KEY)) localStorage.setItem(WELCOME_KEY, "pending");
+              renderOnboardingNudges(!!me && JOINED.has(me));
+            }
             catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
+          });
+
+          $("welcomeDismissBtn").addEventListener("click", () => {
+            localStorage.setItem(WELCOME_KEY, "seen");
+            renderOnboardingNudges(!!me && JOINED.has(me));
+          });
+          $("welcomeVoteBtn").addEventListener("click", () => {
+            localStorage.setItem(WELCOME_KEY, "seen");
+            renderOnboardingNudges(!!me && JOINED.has(me));
+            const target = SURVEYS.find(s => !s.archived && !getStoredVote(s.id)) || SURVEYS.find(s => !s.archived);
+            if (target) { navigateToSurvey(target.id); refreshLoopOnce(); }
+          });
+          $("welcomeNameBtn").addEventListener("click", () => { if (!sending) openUsernameSheet(); });
+          $("welcomeInfoBtn").addEventListener("click", navigateToInfo);
+          $("nameNudgeBtn").addEventListener("click", () => { if (!sending) openUsernameSheet(); });
+          $("nameNudgeDismiss").addEventListener("click", () => {
+            localStorage.setItem(NAME_NUDGE_KEY, "1");
+            renderOnboardingNudges(!!me && JOINED.has(me));
+          });
+          $("freeVoteNoteDismiss").addEventListener("click", () => {
+            localStorage.setItem(FREE_VOTE_NOTE_KEY, "1");
+            show($("freeVoteNote"), false);
+          });
+          $("bsHowItWorks").addEventListener("click", () => { closeBottomSheet(); navigateToInfo(); });
+
+          const _commentInput = $("commentInput");
+          _commentInput.addEventListener("input", updateCommentComposer);
+          $("postCommentBtn").addEventListener("click", async () => {
+            const text = _commentInput.value;
+            try {
+              await postCommentFlow(text);
+              setSending(false, true);
+              _commentInput.value = "";
+              updateCommentComposer();
+              _commentInput.blur();
+              const res = currentSurvey() ? { survey: currentSurvey() } : null;
+              if (res) renderDiscussion(res.survey);
+            } catch (e) { setSending(false, false); showInlineError(friendlyTxError(e)); }
           });
 
           $("menuBtn").addEventListener("click", openMenuSheet);

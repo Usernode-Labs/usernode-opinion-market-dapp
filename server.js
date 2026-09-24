@@ -69,6 +69,7 @@ const createVoteEncryption = require("./vote-encryption");
 const createDailyBtc = require("./daily-btc");
 const createWorldCup2026 = require("./world-cup-2026");
 const createStagingPolls = require("./staging-polls");
+const createStagingComments = require("./staging-comments");
 const createDailyNews = require("./daily-news");
 const { buildLeaderboard } = require("./lib/leaderboard");
 
@@ -226,13 +227,30 @@ worldCup2026.start();
 // vote sheet can be tested without hand-crafting transactions. Injects
 // create_survey memos straight into the cache (no signer needed). Strictly a
 // no-op in production — seedTransaction is null unless USERNODE_ENV=staging.
+// Demo seed hook shared by the staging poll + comment seeders: cache injection
+// in staging, the mock tx store in --local-dev, null (no-op) in production.
+const demoSeedTransaction = IS_STAGING
+  ? ((tx) => omCache.processTransaction(tx))
+  : (LOCAL_DEV ? ((tx) => mockApi.transactions.push(tx)) : null);
+
 const stagingPolls = createStagingPolls({
   appPubkey: APP_PUBKEY,
   adminPubkey: ADMIN_PUBKEY || null,
   getRawTransactions: () => omCache.getRawTransactions(),
-  seedTransaction: IS_STAGING ? ((tx) => omCache.processTransaction(tx)) : null,
+  seedTransaction: demoSeedTransaction,
 });
 stagingPolls.start();
+
+// ── Staging-only discussion seeder ───────────────────────────────────────────
+// Issue #30: a handful of fake-author `comment` memos on one demo poll so the
+// market Discussion section renders a populated thread in previews (the other
+// demo polls stay empty for the empty-state contrast). No-op in production.
+const stagingComments = createStagingComments({
+  appPubkey: APP_PUBKEY,
+  getRawTransactions: () => omCache.getRawTransactions(),
+  seedTransaction: demoSeedTransaction,
+});
+stagingComments.start();
 
 // ── Daily Hot News Poll scheduler ─────────────────────────────────────────────
 // Fetches a trending headline from NewsAPI.org, generates a binary yes/no poll

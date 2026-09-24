@@ -47,6 +47,34 @@
       "required": false,
       "private": true,
       "staging_default": ""
+    }
+  ],
+  "tests": [
+    {
+      "name": "Home loads",
+      "path": "/"
     },
+    {
+      "id": "market.discussion",
+      "name": "Market discussion renders seeded comments",
+      "path": "/#survey/staging-demo-hotdog",
+      "expectSelector": "#discussionSection .comment-item",
+      "visual": true,
+      "impact": [
+        "public/index.html",
+        "public/opinion-market-state.js",
+        "staging-comments.js"
+      ]
+    },
+    {
+      "name": "Market discussion shows seeded comment text",
+      "path": "/#survey/staging-demo-hotdog",
+      "expectText": "Staging demo:"
+    },
+    {
+      "name": "Empty discussion shows the empty state",
+      "path": "/#survey/staging-demo-rain",
+      "expectSelector": "#commentEmpty"
+    }
   ]
 }
