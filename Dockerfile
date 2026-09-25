@@ -3,6 +3,10 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --production
 COPY . .
+# Run as the base image's non-root `node` user, named by NUMBER (UID 1000):
+# the platform runs containers with runAsNonRoot, which refuses an image that
+# would run as root and can only verify a numeric UID.
+USER 1000
 EXPOSE 3000
 # 127.0.0.1, not localhost: in Alpine `/etc/hosts` lists `::1 localhost`
 # before `127.0.0.1 localhost`, BusyBox wget resolves to the v6 address
