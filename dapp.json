@@ -1,4 +1,5 @@
 {
+  "icon": { "image": "brand/icon.png" },
   "llm": {
     "purpose": "Generates a daily news poll question and neutral pros/cons summaries for open questions",
     "suggested_daily_cap_cents": 25
@@ -47,6 +48,6 @@
       "required": false,
       "private": true,
       "staging_default": ""
-    },
+    }
   ]
 }
